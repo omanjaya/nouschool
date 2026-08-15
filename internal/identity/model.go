@@ -41,4 +41,7 @@ type UserView struct {
 	Roles        []string    `json:"roles,omitempty"`
 	IsSuperAdmin bool        `json:"is_super_admin"`
 	School       *SchoolView `json:"school"`
+	// StudentID terisi hanya untuk role siswa: id baris students miliknya —
+	// dipakai UI untuk memanggil endpoint per-siswa (mis. riwayat kehadiran).
+	StudentID int64 `json:"student_id,omitempty"`
 }

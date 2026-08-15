@@ -140,6 +140,37 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("mapel demo siap", "count", 3)
+
+	if err := ensureDemoStudentAccount(ctx, identityRepo, studentRepo, schoolID); err != nil {
+		slog.Error("gagal menyiapkan akun siswa demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("akun siswa demo siap", "username", "siswa", "password", "siswa12345", "nis", "22101")
+}
+
+// ensureDemoStudentAccount membuat akun login siswa demo (username `siswa`)
+// yang tertaut ke siswa NIS 22101 — supaya alur siswa (riwayat kehadiran, dst)
+// bisa diuji tanpa aktivasi kode undangan. Idempoten.
+func ensureDemoStudentAccount(ctx context.Context, identityRepo *identity.Repository, studentRepo *student.Repository, schoolID int64) error {
+	userID, err := upsertUser(ctx, identityRepo, upsertUserInput{
+		Username: "siswa",
+		Name:     "Ahmad Fauzi",
+		Password: "siswa12345",
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := identityRepo.CreateMembership(ctx, userID, schoolID, identity.RoleSiswa); err != nil {
+		return err
+	}
+	rec, err := studentRepo.GetStudentByNIS(ctx, schoolID, "22101")
+	if err != nil {
+		return err
+	}
+	if rec.UserID == userID {
+		return nil
+	}
+	return studentRepo.SetStudentUserID(ctx, rec.ID, userID)
 }
 
 // ensureDemoClasses membuat 2 rombel contoh pada tahun ajaran aktif bila

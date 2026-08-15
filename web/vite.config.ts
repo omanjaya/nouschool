@@ -37,7 +37,12 @@ export default defineConfig({
     // Backend dev di 8210 (8080 direserve Hyper-V — lihat README).
     // Di dalam docker compose, set VITE_API_PROXY=http://api:8080
     proxy: {
-      '/api': process.env.VITE_API_PROXY ?? 'http://localhost:8210',
+      '/api': {
+        target: process.env.VITE_API_PROXY ?? 'http://localhost:8210',
+        // Host header asli (mis. demo.localhost:5173) HARUS diteruskan —
+        // backend memakai Host untuk resolusi tenant multi-sekolah.
+        changeOrigin: false,
+      },
     },
   },
 })

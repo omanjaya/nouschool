@@ -101,6 +101,19 @@ func (r *Repository) UserByID(ctx context.Context, id int64) (User, error) {
 	return userFromDB(row), nil
 }
 
+// StudentIDByUser mengembalikan id siswa milik user di sekolah tsb (0 = bukan
+// siswa / belum tertaut). Read-only lookup untuk melengkapi UserView.
+func (r *Repository) StudentIDByUser(ctx context.Context, userID, schoolID int64) (int64, error) {
+	id, err := r.q.GetStudentIDByUser(ctx, identitydb.GetStudentIDByUserParams{UserID: pgtype.Int8{Int64: userID, Valid: true}, SchoolID: schoolID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return id, nil
+}
+
 type CreateUserInput struct {
 	Email        string
 	Username     string

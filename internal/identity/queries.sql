@@ -76,3 +76,9 @@ ORDER BY id DESC LIMIT 1;
 
 -- name: MarkInvitationUsed :exec
 UPDATE invitations SET used_at = $2 WHERE code = $1;
+
+-- name: GetStudentIDByUser :one
+-- Read-only lookup ke tabel students (milik modul student) untuk mengisi
+-- student_id di /api/me & login response role siswa. Preseden: join read-only
+-- lintas tabel diperbolehkan (lihat student/queries.sql join ke users).
+SELECT id FROM students WHERE user_id = $1 AND school_id = $2;

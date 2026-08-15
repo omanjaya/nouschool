@@ -130,6 +130,11 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (LoginResult, error)
 			ID: user.ID, Name: user.Name, Role: role, Roles: roles, IsSuperAdmin: user.IsSuperAdmin,
 			School: &SchoolView{ID: sch.ID, Name: sch.Name, Slug: sch.Slug},
 		}
+		if role == RoleSiswa {
+			if sid, serr := s.repo.StudentIDByUser(ctx, user.ID, sch.ID); serr == nil {
+				view.StudentID = sid
+			}
+		}
 	}
 
 	token, tokenHash, terr := newSessionToken()
@@ -185,6 +190,11 @@ func (s *Service) Me(ctx context.Context) (UserView, error) {
 	}
 	if sch, ok := reqctx.SchoolFromContext(ctx); ok {
 		view.School = &SchoolView{ID: sch.ID, Name: sch.Name, Slug: sch.Slug}
+		if view.Role == RoleSiswa {
+			if sid, serr := s.repo.StudentIDByUser(ctx, userID, sch.ID); serr == nil {
+				view.StudentID = sid
+			}
+		}
 	}
 	return view, nil
 }

@@ -29,7 +29,7 @@ Terverifikasi end-to-end di Docker dev (`demo.localhost`): list rombel (2) & sis
 - ✅ Undangan akun siswa/ortu/guru (generate massal + aktivasi)
 - ✅ Object-level access ortu/siswa + test
 
-## Fase 3 — Attendance mode daily (nilai tercepat) 🚧 (backend selesai, UI belum)
+## Fase 3 — Attendance mode daily (nilai tercepat) ✅
 Backend terverifikasi end-to-end di Docker dev (`demo.localhost`, admin): GET
 rombel+status sesi hari ini, buat sesi (idempoten), bulk isi absen (hadir/
 sakit/terlambat), GET sesi, finalize (menolak bila ada yang belum diabsen),
@@ -44,8 +44,10 @@ dikerjakan — backend siap dipakai frontend.
 - ✅ Absen manual — bulk upsert transaksional (`PUT /api/attendance/sessions/{id}/records`)
 - ✅ Jendela edit (`edit_window_hours`, default admin bypass) + finalize (menolak jika ada belum diabsen) + audit (hanya perubahan record yang SUDAH ada nilainya)
 - ✅ Rekap harian kelas (`GET /api/attendance/summary`) & riwayat per siswa (`GET /api/students/{id}/attendance`, perm `attendance:report` ATAU object-level ortu/siswa via `student.Service.CanViewStudent`) + `GET /api/me/children`
-- ⬜ UI guru mobile-first (bulk save) — **belum dikerjakan**
-- ⬜ **Milestone: sekolah pertama bisa pakai absensi harian** (backend siap; menunggu UI)
+- ✅ UI guru mobile-first: `/absensi` (daftar kelas), `/absensi/sesi/:id` (tap-siklus status, default hadir, catatan, simpan bulk, kunci sesi, guard dirty-state), `/kehadiran` (siswa & ortu, pilih anak), `/absensi/rekap` (admin/kepsek)
+- ✅ `/api/me` menyertakan `student_id` untuk role siswa; akun siswa demo `siswa`/`siswa12345` (NIS 22101) di bootstrap
+- ✅ Fix proxy dev Vite: `changeOrigin: false` supaya Host `*.localhost` diteruskan (resolusi tenant di browser jalan)
+- ✅ **Milestone: sekolah pertama bisa pakai absensi harian**
 
 ## Fase 4 — Leave (izin guru) ⬜
 - ⬜ Settings chain + snapshot approval steps

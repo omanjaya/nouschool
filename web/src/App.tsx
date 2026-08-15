@@ -18,6 +18,11 @@ import { ClassDetailPage } from './features/classes/ClassDetailPage';
 import { TeachersListPage } from './features/teachers/TeachersListPage';
 import { SubjectsListPage } from './features/subjects/SubjectsListPage';
 import { ImportWizard } from './features/import/ImportWizard';
+import { AttendanceClassesPage } from './features/attendance/AttendanceClassesPage';
+import { AttendanceSessionPage } from './features/attendance/AttendanceSessionPage';
+import { AttendanceRecapPage } from './features/attendance/AttendanceRecapPage';
+import { AttendanceHistoryPage } from './features/attendance/AttendanceHistoryPage';
+import { Button } from './components/ui/Button';
 import type { Me } from './lib/types';
 
 function getGreeting(hour: number) {
@@ -29,6 +34,9 @@ function getGreeting(hour: number) {
 
 function BerandaPage({ me }: { me: Me }) {
   const greeting = getGreeting(new Date().getHours());
+  const navigate = useNavigate();
+  const canWriteAttendance = me.role === 'admin_sekolah';
+  const canViewRecap = me.role === 'admin_sekolah' || me.role === 'kepala_sekolah';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -39,9 +47,30 @@ function BerandaPage({ me }: { me: Me }) {
         </h1>
       </div>
 
-      <Card>
-        <p className="text-[14px] text-ink">Fase 1 — belum ada modul lain untuk ditampilkan di sini.</p>
-      </Card>
+      {canWriteAttendance || canViewRecap ? (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Absensi Hari Ini</p>
+            <p className="text-[12px] text-muted">Buka absensi rombel atau lihat rekap kehadiran hari ini.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {canWriteAttendance && (
+              <Button variant="secondary" onClick={() => navigate('/absensi')}>
+                Buka Absensi
+              </Button>
+            )}
+            {canViewRecap && (
+              <Button variant="secondary" onClick={() => navigate('/absensi/rekap')}>
+                Lihat Rekap
+              </Button>
+            )}
+          </div>
+        </Card>
+      ) : (
+        <Card>
+          <p className="text-[14px] text-ink">Fase 1 — belum ada modul lain untuk ditampilkan di sini.</p>
+        </Card>
+      )}
     </div>
   );
 }
@@ -71,6 +100,11 @@ function AuthenticatedShell() {
         <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
         <Route path="/pengaturan" element={<SettingsPage />} />
         <Route path="/profil" element={<ProfilePage />} />
+
+        <Route path="/absensi" element={<AttendanceClassesPage />} />
+        <Route path="/absensi/sesi/:id" element={<AttendanceSessionPage />} />
+        <Route path="/absensi/rekap" element={<AttendanceRecapPage />} />
+        <Route path="/kehadiran" element={<AttendanceHistoryPage />} />
 
         <Route path="/data" element={<DataLayout />}>
           <Route index element={<Navigate to="siswa" replace />} />

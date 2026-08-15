@@ -30,6 +30,14 @@ export interface Me {
   role: string;
   is_super_admin: boolean;
   school: SchoolSummary | null;
+  /**
+   * ASUMSI (belum eksplisit di kontrak Fase 3): id baris `students` milik
+   * user ini saat role === 'siswa', supaya frontend bisa memanggil
+   * `GET /api/students/{id}/attendance` untuk riwayat kehadiran sendiri
+   * (mis. orang_tua punya `/api/me/children` untuk kebutuhan yang sama,
+   * siswa belum). Opsional supaya aman kalau backend belum mengirimnya.
+   */
+  student_id?: string | null;
 }
 
 export interface Branding {
@@ -155,4 +163,93 @@ export interface ActivateInput {
   username?: string;
   email?: string;
   password: string;
+}
+
+/* ---- Attendance / Absensi (Fase 3) ---- */
+
+export type AttendanceStatus = 'hadir' | 'terlambat' | 'izin' | 'sakit' | 'alpa';
+
+export type AttendanceSessionStatus = 'open' | 'finalized';
+
+export interface AttendanceClassSession {
+  id: string;
+  status: AttendanceSessionStatus;
+  marked_count: number;
+}
+
+/** GET /api/attendance/classes?date= — satu baris per rombel guru/admin. */
+export interface AttendanceClassListItem {
+  class_id: string;
+  name: string;
+  student_count: number;
+  session: AttendanceClassSession | null;
+}
+
+export interface AttendanceRecord {
+  status: AttendanceStatus;
+  note: string | null;
+  method: string;
+  marked_at: string;
+}
+
+export interface AttendanceSessionStudent {
+  student_id: string;
+  name: string;
+  nis: string;
+  record: AttendanceRecord | null;
+}
+
+export interface AttendanceSessionInfo {
+  id: string;
+  class_id: string;
+  class_name: string;
+  date: string;
+  type: string;
+  status: AttendanceSessionStatus;
+  opened_by_name: string;
+}
+
+/** Shape bersama POST /sessions, GET /sessions/{id}, PUT .../records, POST .../finalize. */
+export interface AttendanceSessionResult {
+  session: AttendanceSessionInfo;
+  students: AttendanceSessionStudent[];
+}
+
+export interface AttendanceRecordInput {
+  student_id: string;
+  status: AttendanceStatus;
+  note?: string;
+}
+
+/** GET /api/attendance/summary?date= — rekap harian per rombel (admin/kepsek). */
+export interface AttendanceClassSummary {
+  class_id: string;
+  class_name: string;
+  total: number;
+  hadir: number;
+  terlambat: number;
+  izin: number;
+  sakit: number;
+  alpa: number;
+  unmarked: number;
+  session_status: AttendanceSessionStatus | null;
+}
+
+/** GET /api/me/children (ortu). */
+export interface ChildRef {
+  student_id: string;
+  name: string;
+  class_name: string;
+}
+
+export interface StudentAttendanceHistoryItem {
+  date: string;
+  status: AttendanceStatus;
+  note: string | null;
+}
+
+/** GET /api/students/{id}/attendance?from=&to= */
+export interface StudentAttendanceHistory {
+  counts: Record<AttendanceStatus, number>;
+  items: StudentAttendanceHistoryItem[];
 }

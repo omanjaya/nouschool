@@ -275,6 +275,25 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 	return i, err
 }
 
+const getStudentIDByUser = `-- name: GetStudentIDByUser :one
+SELECT id FROM students WHERE user_id = $1 AND school_id = $2
+`
+
+type GetStudentIDByUserParams struct {
+	UserID   pgtype.Int8 `json:"user_id"`
+	SchoolID int64       `json:"school_id"`
+}
+
+// Read-only lookup ke tabel students (milik modul student) untuk mengisi
+// student_id di /api/me & login response role siswa. Preseden: join read-only
+// lintas tabel diperbolehkan (lihat student/queries.sql join ke users).
+func (q *Queries) GetStudentIDByUser(ctx context.Context, arg GetStudentIDByUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getStudentIDByUser, arg.UserID, arg.SchoolID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 
 SELECT id, email, username, password_hash, name, phone, is_super_admin, created_at FROM users WHERE email = $1

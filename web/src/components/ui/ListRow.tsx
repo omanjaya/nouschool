@@ -6,10 +6,12 @@ interface ListRowProps {
   subtitle?: ReactNode;
   trailing?: ReactNode;
   onClick?: () => void;
+  /** Kelas tambahan, mis. `min-h-[52px]` untuk layar dengan target sentuh lebih besar. */
+  className?: string;
 }
 
 /** Baris list hairline (bukan kartu per item). Tinggi minimal 48px. */
-export function ListRow({ leading, title, subtitle, trailing, onClick }: ListRowProps) {
+export function ListRow({ leading, title, subtitle, trailing, onClick, className = '' }: ListRowProps) {
   const content = (
     <>
       {leading && <span className="flex shrink-0 items-center text-muted">{leading}</span>}
@@ -26,7 +28,7 @@ export function ListRow({ leading, title, subtitle, trailing, onClick }: ListRow
       <button
         type="button"
         onClick={onClick}
-        className="flex min-h-12 w-full items-center gap-3 border-b border-line py-3 text-left transition-colors duration-150 hover:bg-surface-2"
+        className={`flex min-h-12 w-full items-center gap-3 border-b border-line py-3 text-left transition-colors duration-150 hover:bg-surface-2 ${className}`}
       >
         {content}
       </button>
@@ -34,7 +36,7 @@ export function ListRow({ leading, title, subtitle, trailing, onClick }: ListRow
   }
 
   return (
-    <div className="flex min-h-12 w-full items-center gap-3 border-b border-line py-3">
+    <div className={`flex min-h-12 w-full items-center gap-3 border-b border-line py-3 ${className}`}>
       {content}
     </div>
   );
