@@ -104,18 +104,18 @@ type StepView struct {
 // Request adalah shape lengkap satu pengajuan izin — dipakai response
 // POST/GET /api/leave/requests dan GET /api/leave/approvals.
 type Request struct {
-	ID             int64       `json:"id"`
-	Type           string      `json:"type"`
-	TypeLabel      string      `json:"type_label"`
-	DateStart      Date        `json:"date_start"`
-	DateEnd        Date        `json:"date_end"`
-	Days           int         `json:"days"`
-	Reason         string      `json:"reason"`
-	Status         string      `json:"status"`
-	CreatedAt      time.Time   `json:"created_at"`
-	Teacher        TeacherView `json:"teacher"`
-	AttachmentURL  *string     `json:"attachment_url"`
-	Steps          []StepView  `json:"steps"`
+	ID            int64       `json:"id"`
+	Type          string      `json:"type"`
+	TypeLabel     string      `json:"type_label"`
+	DateStart     Date        `json:"date_start"`
+	DateEnd       Date        `json:"date_end"`
+	Days          int         `json:"days"`
+	Reason        string      `json:"reason"`
+	Status        string      `json:"status"`
+	CreatedAt     time.Time   `json:"created_at"`
+	Teacher       TeacherView `json:"teacher"`
+	AttachmentURL *string     `json:"attachment_url"`
+	Steps         []StepView  `json:"steps"`
 }
 
 // QueueItem adalah shape satu baris response GET /api/leave/approvals.

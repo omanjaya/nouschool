@@ -238,6 +238,43 @@ func (s *Service) CanViewStudent(ctx context.Context, userID int64, role string,
 	return httpx.ErrForbidden
 }
 
+// MyClassID adalah kebutuhan lintas modul (mis. schedule fase 5, lewat
+// consumer-side interface StudentClassLookup dideklarasikan di sisi pemakai —
+// lihat CLAUDE.md) untuk object-level check: siswa hanya boleh melihat jadwal
+// rombelnya sendiri. Mengembalikan (0, false, nil) bila user bukan siswa
+// aktif/belum terdaftar di rombel pada tahun ajaran berjalan.
+// MyTeacherID mengembalikan id profil guru milik user (ok=false bila user
+// bukan guru di sekolah ini). Dipakai modul schedule via consumer-side
+// interface untuk meng-infer jadwal "milik saya" tanpa parameter eksplisit.
+func (s *Service) MyTeacherID(ctx context.Context, schoolID, userID int64) (int64, bool, error) {
+	t, err := s.repo.GetTeacherByUserID(ctx, schoolID, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return t.ID, true, nil
+}
+
+func (s *Service) MyClassID(ctx context.Context, schoolID, userID int64) (int64, bool, error) {
+	yearID, err := s.currentYearID(ctx, schoolID)
+	if err != nil {
+		return 0, false, err
+	}
+	rec, err := s.repo.GetStudentByUserID(ctx, schoolID, yearID, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	if rec.ClassID == 0 {
+		return 0, false, nil
+	}
+	return rec.ClassID, true, nil
+}
+
 func (s *Service) GetStudent(ctx context.Context, schoolID, id int64) (Student, error) {
 	yearID, err := s.currentYearID(ctx, schoolID)
 	if err != nil {

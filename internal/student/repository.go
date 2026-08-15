@@ -22,6 +22,7 @@ type studentRepository interface {
 	ListStudents(ctx context.Context, f ListStudentsFilter) ([]StudentRecord, int64, error)
 	GetStudent(ctx context.Context, schoolID, academicYearID, id int64) (StudentRecord, error)
 	GetStudentByNIS(ctx context.Context, schoolID int64, nis string) (StudentRecord, error)
+	GetStudentByUserID(ctx context.Context, schoolID, academicYearID, userID int64) (StudentRecord, error)
 	ListStudentsByIDs(ctx context.Context, schoolID int64, ids []int64) ([]StudentRecord, error)
 	CreateStudent(ctx context.Context, in CreateStudentInput) (StudentRecord, error)
 	UpdateStudent(ctx context.Context, in UpdateStudentInput) (StudentRecord, error)
@@ -192,6 +193,23 @@ func (r *Repository) GetStudentByNIS(ctx context.Context, schoolID int64, nis st
 		return StudentRecord{}, mapNoRows(err)
 	}
 	return studentFromDB(row), nil
+}
+
+// GetStudentByUserID — dipakai object-level check lintas modul (mis. schedule
+// fase 5: siswa hanya boleh query jadwal rombelnya sendiri) untuk menemukan
+// rombel siswa dari user_id sesi login.
+func (r *Repository) GetStudentByUserID(ctx context.Context, schoolID, academicYearID, userID int64) (StudentRecord, error) {
+	row, err := r.q.GetStudentByUserID(ctx, studentdb.GetStudentByUserIDParams{
+		AcademicYearID: academicYearID, SchoolID: schoolID, UserID: userID,
+	})
+	if err != nil {
+		return StudentRecord{}, mapNoRows(err)
+	}
+	return StudentRecord{
+		ID: row.ID, SchoolID: row.SchoolID, NIS: row.Nis, NISN: row.Nisn.String, Name: row.Name,
+		Gender: row.Gender.String, BirthDate: dateFromDB(row.BirthDate), UserID: int8ToInt64(row.UserID),
+		Status: row.Status, ClassID: int8ToInt64(row.ClassID), ClassName: row.ClassName.String,
+	}, nil
 }
 
 func (r *Repository) ListStudentsByIDs(ctx context.Context, schoolID int64, ids []int64) ([]StudentRecord, error) {

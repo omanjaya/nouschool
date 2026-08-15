@@ -45,3 +45,12 @@ sql:
         out: "internal/leave/leavedb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/schedule/queries.sql"
+    gen:
+      go:
+        package: "scheduledb"
+        out: "internal/schedule/scheduledb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

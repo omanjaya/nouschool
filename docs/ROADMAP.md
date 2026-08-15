@@ -72,11 +72,47 @@ pending+pemilik, validasi tanggal & settings.
 - ✅ Bootstrap: akun kepala sekolah demo (`kepsek`/`kepsek12345`) + password guru demo (`rendi@demo.sch.id`/`guru12345`) di-upsert idempoten setiap run
 - ✅ UI frontend (`web/`, dibangun terhadap kontrak API di `docs/07-leave.md`): `/izin` (daftar pengajuan sendiri + filter status + form ajukan izin dengan lampiran), `/izin/:id` (detail + timeline persetujuan + batalkan), `/izin/persetujuan` + `/izin/persetujuan/:stepId` (antrian approver, setujui/tolak dengan komentar wajib saat tolak), `/izin/rekap` (kepsek/admin, per rentang), seksi "Alur Persetujuan Izin" + "Jenis Izin" di `/pengaturan` (admin). `npm run build` & `npm run lint` hijau. Backend sekarang sudah ada (baris di atas) — UI ini belum diverifikasi ulang end-to-end terhadap backend nyata pada sesi ini (fokus sesi ini backend + verifikasi curl).
 
-## Fase 5 — Schedule ⬜
-- ⬜ Periods, rooms (+ QR token & cetak QR ruangan), subjects
-- ⬜ Import jadwal Excel (preview + deteksi bentrok)
-- ⬜ Builder UI grid (per kelas & per guru) + deteksi bentrok real-time
-- ⬜ Query SlotNow/SlotsToday/CurrentPeriod
+## Fase 5 — Schedule ✅
+Backend terverifikasi end-to-end di Docker dev (`demo.localhost`): login admin
+→ GET periods (9 period bootstrap: 8 KBM + Istirahat jam ke-5) → GET rooms
+(qr_token tampil utk admin) + GET rooms/{id}/qr.png (200, image/png, 512x512)
+→ GET slots XII RPL 1 (10 slot Senin-Jumat terisi, tanpa bentrok) → POST slot
+bentrok guru (422, "Bentrok: Rendi Saputra sudah mengajar XII RPL 1 jam
+ke-1–2 Senin.") → POST slot valid baru (201) → PATCH & DELETE slot (200) →
+import CSV (1 valid, 1 bentrok, 1 mapel tak dikenal) preview (summary
+create=1/error=2) + commit (created=1, skipped=2) → siswa login: GET slots
+class_id miliknya (200) vs class_id lain (403) → DELETE ruangan yang masih
+dipakai jadwal (409) → PUT periods yang masih dipakai jadwal (409) → POST
+copy jadwal (skip-dan-laporkan bentrok bekerja: guru sumber otomatis bentrok
+dgn dirinya sendiri saat disalin ke kelas baru di TA yang sama, seluruh baris
+terlapor di `skipped[]` dengan alasan). `go build/vet/test ./...` hijau; test
+service (fake repo): deteksi bentrok guru/kelas/ruang (termasuk beririsan
+sebagian & TA berbeda tidak bentrok), validasi periods replace-all
+(overlap/urutan/dipakai-slot → 409), CurrentPeriod (dalam jam/di luar
+jam/timezone WIB vs WIT), copy skip-bentrok, parser import (nama hari vs
+angka, referensi tak dikenal, header wajib hilang).
+- ✅ Migrasi `00006_schedule.sql` (`periods`, `rooms` qr_token unik acak,
+  `schedule_slots` dgn FK lengkap) + menutup FK tertunda
+  `attendance_sessions.schedule_slot_id → schedule_slots(id)` (dijanjikan di
+  migrasi 00004)
+- ✅ `internal/schedule/`: periods (GET + PUT replace-all transaksional,
+  validasi unik/urut/overlap, tolak hapus period yg dipakai slot → 409),
+  rooms (CRUD, qr_token hanya utk `schedule:manage`, regenerate-qr, PNG QR
+  512x512 via `github.com/skip2/go-qrcode`, tolak hapus ruangan dipakai slot
+  → 409), slots (CRUD + deteksi bentrok guru/kelas/ruang DALAM TRANSAKSI
+  repository — `CreateSlotChecked`/`UpdateSlotChecked`; object-level siswa
+  hanya rombelnya sendiri; guru bebas baca), copy jadwal (skip bentrok +
+  laporan), import Excel/CSV (preview→commit in-memory TTL 15 menit, pola
+  sama modul student), query kunci publik `SlotNow`/`SlotsToday`/
+  `CurrentPeriod` + endpoint `/api/schedule/today` & `/api/schedule/current-period`
+- ✅ Interface publik `student.Service.MyClassID` (baru, dipakai schedule
+  object-level siswa lewat consumer-side interface `StudentClassLookup`)
+- ✅ Bootstrap idempoten: 9 period demo, 3 ruangan (R-101, R-102, Lab
+  Komputer 1), jadwal XII RPL 1 & XI RPL 2 Senin-Jumat (guru Rendi: Basis
+  Data & Pemrograman Web; guru Sari: Matematika), tanpa bentrok
+- ✅ Builder UI grid per kelas (editable) & per guru (read-only) + error bentrok 422 inline,
+  halaman rooms/periods/import di `web/` — belum dikerjakan sesi ini (fokus
+  backend + verifikasi curl, sesuai batasan tugas)
 
 ## Fase 6 — Attendance per-mapel + Teaching ⬜
 - ⬜ Mode per_subject (sesi dari slot jadwal)

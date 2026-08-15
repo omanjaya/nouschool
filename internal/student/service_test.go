@@ -42,6 +42,15 @@ func (f *fakeRepo) GetStudentByNIS(ctx context.Context, schoolID int64, nis stri
 	return StudentRecord{}, ErrNotFound
 }
 
+func (f *fakeRepo) GetStudentByUserID(ctx context.Context, schoolID, academicYearID, userID int64) (StudentRecord, error) {
+	for _, r := range f.students {
+		if r.SchoolID == schoolID && r.UserID == userID {
+			return r, nil
+		}
+	}
+	return StudentRecord{}, ErrNotFound
+}
+
 func (f *fakeRepo) ListStudentsByIDs(ctx context.Context, schoolID int64, ids []int64) ([]StudentRecord, error) {
 	return nil, nil
 }

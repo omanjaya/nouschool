@@ -19,6 +19,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
 	"github.com/omanjaya/nouschool/internal/platform/middleware"
 	"github.com/omanjaya/nouschool/internal/platform/storage"
+	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
@@ -93,12 +94,24 @@ func main() {
 		leaveSvc := leave.NewService(leaveRepo, identitySvc, storage.FromEnv(), clock.System{})
 		leaveHandler := leave.NewHandler(leaveSvc)
 
+		// --- modul schedule (jadwal pelajaran: periods, rooms+QR, slots,
+		// deteksi bentrok, copy, import, query kunci SlotNow/SlotsToday/CurrentPeriod) ---
+		// identitySvc, tenantSvc, studentSvc memenuhi schedule.IdentityGateway /
+		// schedule.AcademicYearLookup / schedule.StudentClassLookup secara
+		// STRUKTURAL (consumer-side interface dideklarasikan di
+		// internal/schedule — lihat CLAUDE.md) — schedule TIDAK mengimpor
+		// identity/tenant/student untuk tipe apa pun.
+		scheduleRepo := schedule.NewRepository(pool)
+		scheduleSvc := schedule.NewService(scheduleRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
+		scheduleHandler := schedule.NewHandler(scheduleSvc)
+
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		student.RegisterRoutes(mux, studentHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 
 		tenantResolverMW = hostResolver.Middleware
 	} else {

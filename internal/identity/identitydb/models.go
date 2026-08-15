@@ -129,6 +129,35 @@ type Membership struct {
 	Status   string `json:"status"`
 }
 
+type Period struct {
+	ID       int64       `json:"id"`
+	SchoolID int64       `json:"school_id"`
+	Number   int32       `json:"number"`
+	StartsAt pgtype.Time `json:"starts_at"`
+	EndsAt   pgtype.Time `json:"ends_at"`
+	Label    pgtype.Text `json:"label"`
+}
+
+type Room struct {
+	ID       int64  `json:"id"`
+	SchoolID int64  `json:"school_id"`
+	Name     string `json:"name"`
+	QrToken  string `json:"qr_token"`
+}
+
+type ScheduleSlot struct {
+	ID             int64       `json:"id"`
+	SchoolID       int64       `json:"school_id"`
+	AcademicYearID int64       `json:"academic_year_id"`
+	ClassID        int64       `json:"class_id"`
+	SubjectID      int64       `json:"subject_id"`
+	TeacherID      int64       `json:"teacher_id"`
+	RoomID         pgtype.Int8 `json:"room_id"`
+	DayOfWeek      int32       `json:"day_of_week"`
+	PeriodStart    int32       `json:"period_start"`
+	PeriodEnd      int32       `json:"period_end"`
+}
+
 type School struct {
 	ID           int64              `json:"id"`
 	Name         string             `json:"name"`

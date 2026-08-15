@@ -309,7 +309,7 @@ func requestView(rec RequestRecord, stepRecs []StepRecord, settings Settings) Re
 		ID: rec.ID, Type: rec.Type, TypeLabel: typeLabel(settings, rec.Type),
 		DateStart: NewDate(rec.DateStart), DateEnd: NewDate(rec.DateEnd), Days: daysInclusive(rec.DateStart, rec.DateEnd),
 		Reason: rec.Reason, Status: rec.Status, CreatedAt: rec.CreatedAt,
-		Teacher: TeacherView{ID: rec.TeacherID, Name: rec.TeacherName},
+		Teacher:       TeacherView{ID: rec.TeacherID, Name: rec.TeacherName},
 		AttachmentURL: attachmentURL, Steps: steps,
 	}
 }

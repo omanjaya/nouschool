@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/omanjaya/nouschool/internal/identity"
+	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
 	"github.com/omanjaya/nouschool/internal/platform/database"
+	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
@@ -162,6 +164,186 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("kepala sekolah demo siap", "username", "kepsek", "password", "kepsek12345", "school_id", schoolID)
+
+	// --- data contoh modul schedule (Fase 5): periods, ruangan, jadwal demo ---
+	// tenantSvc/studentSvcForSchedule dibuat KHUSUS di sini untuk memenuhi
+	// schedule.AcademicYearLookup / schedule.StudentClassLookup secara
+	// struktural (consumer-side interface — lihat internal/schedule/service.go);
+	// bootstrap sudah pakai studentRepo/tenantRepo langsung di tempat lain.
+	scheduleRepo := schedule.NewRepository(pool)
+	tenantSvc := tenant.NewService(tenantRepo, identitySvc)
+	studentSvcForSchedule := student.NewService(studentRepo, identitySvc, tenantSvc)
+	scheduleSvc := schedule.NewService(scheduleRepo, identitySvc, tenantSvc, studentSvcForSchedule, clock.System{})
+
+	if err := ensureDemoPeriods(ctx, scheduleSvc, scheduleRepo, superAdminID, schoolID); err != nil {
+		slog.Error("gagal menyiapkan jam pelajaran demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("jam pelajaran demo siap (9 period: 8 KBM + istirahat)")
+
+	roomIDs, err := ensureDemoRooms(ctx, scheduleSvc, superAdminID, schoolID)
+	if err != nil {
+		slog.Error("gagal menyiapkan ruangan demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("ruangan demo siap", "count", len(roomIDs))
+
+	if err := ensureDemoSchedule(ctx, scheduleSvc, scheduleRepo, studentRepo, schoolID, activeYear.ID, superAdminID, classIDs); err != nil {
+		slog.Error("gagal menyiapkan jadwal demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("jadwal demo siap", "kelas", "XII RPL 1, XI RPL 2", "hari", "Senin-Jumat")
+}
+
+// ensureDemoPeriods membuat 9 period demo (8 jam KBM + 1 Istirahat, semua
+// bernomor berurutan — docs/04-schedule.md) bila sekolah belum punya period
+// sama sekali. Idempoten.
+func ensureDemoPeriods(ctx context.Context, svc *schedule.Service, repo *schedule.Repository, actorUserID, schoolID int64) error {
+	existing, err := repo.ListPeriods(ctx, schoolID)
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return nil
+	}
+	periods := []schedule.ReplacePeriodInput{
+		{Number: 1, StartsAt: "07:00", EndsAt: "07:40"},
+		{Number: 2, StartsAt: "07:40", EndsAt: "08:20"},
+		{Number: 3, StartsAt: "08:20", EndsAt: "09:00"},
+		{Number: 4, StartsAt: "09:00", EndsAt: "09:30"},
+		{Number: 5, StartsAt: "09:30", EndsAt: "10:00", Label: "Istirahat"},
+		{Number: 6, StartsAt: "10:00", EndsAt: "11:00"},
+		{Number: 7, StartsAt: "11:00", EndsAt: "12:00"},
+		{Number: 8, StartsAt: "12:00", EndsAt: "13:00"},
+		{Number: 9, StartsAt: "13:00", EndsAt: "14:00"},
+	}
+	_, err = svc.ReplacePeriods(ctx, actorUserID, schoolID, periods)
+	return err
+}
+
+// ensureDemoRooms membuat 3 ruangan contoh (R-101, R-102, Lab Komputer 1)
+// bila belum ada (idempoten by nama).
+func ensureDemoRooms(ctx context.Context, svc *schedule.Service, actorUserID, schoolID int64) (map[string]int64, error) {
+	names := []string{"R-101", "R-102", "Lab Komputer 1"}
+	existing, err := svc.ListRooms(ctx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]int64, len(existing))
+	for _, r := range existing {
+		byName[r.Name] = r.ID
+	}
+	for _, name := range names {
+		if _, ok := byName[name]; ok {
+			continue
+		}
+		room, err := svc.CreateRoom(ctx, actorUserID, schoolID, name)
+		if err != nil {
+			return nil, err
+		}
+		byName[name] = room.ID
+	}
+	return byName, nil
+}
+
+// demoSlotSpec adalah satu baris jadwal demo (sebelum referensi mapel/guru
+// di-resolve ke ID).
+type demoSlotSpec struct {
+	Day                    int
+	ClassName              string
+	PeriodStart, PeriodEnd int
+	SubjectCode            string
+	TeacherEmail           string
+}
+
+// buildDemoSlots menyusun jadwal Senin-Jumat untuk XII RPL 1 & XI RPL 2:
+// 2 blok 2-JP per hari per kelas (sebelum istirahat, jam ke-1-2 & 3-4),
+// dipakai bergantian guru Rendi (Basis Data/Pemrograman Web) & Sari
+// (Matematika) — disusun supaya TIDAK PERNAH bentrok: pada jam ke-1-2, Rendi
+// mengajar XII RPL 1 sementara Sari mengajar XI RPL 2; pada jam ke-3-4
+// sebaliknya (Sari -> XII RPL 1, Rendi -> XI RPL 2).
+func buildDemoSlots() []demoSlotSpec {
+	var out []demoSlotSpec
+	for day := 1; day <= 5; day++ {
+		xiiSubject := "BDT"
+		xiSubject := "PWB"
+		if day == 2 || day == 4 { // Selasa/Kamis: selang-seling supaya tidak monoton
+			xiiSubject, xiSubject = "PWB", "BDT"
+		}
+		out = append(out,
+			demoSlotSpec{Day: day, ClassName: "XII RPL 1", PeriodStart: 1, PeriodEnd: 2, SubjectCode: xiiSubject, TeacherEmail: "rendi@demo.sch.id"},
+			demoSlotSpec{Day: day, ClassName: "XI RPL 2", PeriodStart: 1, PeriodEnd: 2, SubjectCode: "MTK", TeacherEmail: "sari@demo.sch.id"},
+			demoSlotSpec{Day: day, ClassName: "XII RPL 1", PeriodStart: 3, PeriodEnd: 4, SubjectCode: "MTK", TeacherEmail: "sari@demo.sch.id"},
+			demoSlotSpec{Day: day, ClassName: "XI RPL 2", PeriodStart: 3, PeriodEnd: 4, SubjectCode: xiSubject, TeacherEmail: "rendi@demo.sch.id"},
+		)
+	}
+	return out
+}
+
+// ensureDemoSchedule mengisi jadwal XII RPL 1 & XI RPL 2 Senin-Jumat bila
+// kelas tsb BELUM punya slot sama sekali (idempoten: cek slot count per
+// kelas > 0 -> skip seluruh kelas itu, bukan per baris).
+func ensureDemoSchedule(ctx context.Context, svc *schedule.Service, repo *schedule.Repository, studentRepo *student.Repository, schoolID, yearID, actorUserID int64, classIDs map[string]int64) error {
+	existing, err := repo.ListSlotsForYear(ctx, schoolID, yearID)
+	if err != nil {
+		return err
+	}
+	doneClasses := make(map[int64]bool, len(existing))
+	for _, sl := range existing {
+		doneClasses[sl.ClassID] = true
+	}
+
+	subjectCache := map[string]int64{}
+	teacherCache := map[string]int64{}
+	getSubject := func(code string) (int64, error) {
+		if id, ok := subjectCache[code]; ok {
+			return id, nil
+		}
+		s, err := studentRepo.GetSubjectByCode(ctx, schoolID, code)
+		if err != nil {
+			return 0, err
+		}
+		subjectCache[code] = s.ID
+		return s.ID, nil
+	}
+	getTeacher := func(email string) (int64, error) {
+		if id, ok := teacherCache[email]; ok {
+			return id, nil
+		}
+		t, err := studentRepo.GetTeacherByEmail(ctx, schoolID, email)
+		if err != nil {
+			return 0, err
+		}
+		teacherCache[email] = t.ID
+		return t.ID, nil
+	}
+
+	for _, spec := range buildDemoSlots() {
+		classID, ok := classIDs[spec.ClassName]
+		if !ok {
+			return fmt.Errorf("bootstrap: rombel %q tidak ditemukan untuk jadwal demo", spec.ClassName)
+		}
+		if doneClasses[classID] {
+			continue
+		}
+		subjectID, err := getSubject(spec.SubjectCode)
+		if err != nil {
+			return err
+		}
+		teacherID, err := getTeacher(spec.TeacherEmail)
+		if err != nil {
+			return err
+		}
+		if _, err := svc.CreateSlot(ctx, actorUserID, schoolID, schedule.SlotInputRequest{
+			ClassID: classID, SubjectID: subjectID, TeacherID: teacherID,
+			DayOfWeek: spec.Day, PeriodStart: spec.PeriodStart, PeriodEnd: spec.PeriodEnd,
+			AcademicYearID: yearID,
+		}); err != nil {
+			return fmt.Errorf("bootstrap: gagal membuat slot demo (%s hari %d jam %d-%d): %w",
+				spec.ClassName, spec.Day, spec.PeriodStart, spec.PeriodEnd, err)
+		}
+	}
+	return nil
 }
 
 // ensureDemoStudentAccount membuat akun login siswa demo (username `siswa`)

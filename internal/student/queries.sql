@@ -37,6 +37,14 @@ WHERE s.id = sqlc.arg(id)::bigint AND s.school_id = sqlc.arg(school_id)::bigint;
 -- name: GetStudentByNIS :one
 SELECT * FROM students WHERE school_id = $1 AND nis = $2;
 
+-- name: GetStudentByUserID :one
+SELECT s.*,
+       c.id AS class_id, c.name AS class_name
+FROM students s
+LEFT JOIN enrollments e ON e.student_id = s.id
+LEFT JOIN classes c ON c.id = e.class_id AND c.academic_year_id = sqlc.arg(academic_year_id)::bigint
+WHERE s.school_id = sqlc.arg(school_id)::bigint AND s.user_id = sqlc.arg(user_id)::bigint;
+
 -- name: ListStudentsByIDs :many
 SELECT * FROM students WHERE school_id = $1 AND id = ANY(sqlc.arg(ids)::bigint[]);
 

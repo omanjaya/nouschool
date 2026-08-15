@@ -402,6 +402,56 @@ func (q *Queries) GetStudentByNIS(ctx context.Context, arg GetStudentByNISParams
 	return i, err
 }
 
+const getStudentByUserID = `-- name: GetStudentByUserID :one
+SELECT s.id, s.school_id, s.nis, s.nisn, s.name, s.gender, s.birth_date, s.user_id, s.status, s.created_at,
+       c.id AS class_id, c.name AS class_name
+FROM students s
+LEFT JOIN enrollments e ON e.student_id = s.id
+LEFT JOIN classes c ON c.id = e.class_id AND c.academic_year_id = $1::bigint
+WHERE s.school_id = $2::bigint AND s.user_id = $3::bigint
+`
+
+type GetStudentByUserIDParams struct {
+	AcademicYearID int64 `json:"academic_year_id"`
+	SchoolID       int64 `json:"school_id"`
+	UserID         int64 `json:"user_id"`
+}
+
+type GetStudentByUserIDRow struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	Nis       string             `json:"nis"`
+	Nisn      pgtype.Text        `json:"nisn"`
+	Name      string             `json:"name"`
+	Gender    pgtype.Text        `json:"gender"`
+	BirthDate pgtype.Date        `json:"birth_date"`
+	UserID    pgtype.Int8        `json:"user_id"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ClassID   pgtype.Int8        `json:"class_id"`
+	ClassName pgtype.Text        `json:"class_name"`
+}
+
+func (q *Queries) GetStudentByUserID(ctx context.Context, arg GetStudentByUserIDParams) (GetStudentByUserIDRow, error) {
+	row := q.db.QueryRow(ctx, getStudentByUserID, arg.AcademicYearID, arg.SchoolID, arg.UserID)
+	var i GetStudentByUserIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.Nis,
+		&i.Nisn,
+		&i.Name,
+		&i.Gender,
+		&i.BirthDate,
+		&i.UserID,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ClassID,
+		&i.ClassName,
+	)
+	return i, err
+}
+
 const getSubjectByCode = `-- name: GetSubjectByCode :one
 SELECT id, school_id, code, name FROM subjects WHERE school_id = $1 AND code = $2
 `

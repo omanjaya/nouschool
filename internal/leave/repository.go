@@ -358,13 +358,13 @@ func (r *Repository) ListApprovalQueue(ctx context.Context, schoolID, userID int
 
 // DecideStepInput adalah parameter Repository.DecideStep.
 type DecideStepInput struct {
-	SchoolID      int64
-	StepID        int64
-	DeciderID     int64
-	Decision      string
-	Comment       string
-	RequestID     int64
-	NewReqStatus  string // "" = request TIDAK berubah status (masih pending, menunggu step berikutnya)
+	SchoolID     int64
+	StepID       int64
+	DeciderID    int64
+	Decision     string
+	Comment      string
+	RequestID    int64
+	NewReqStatus string // "" = request TIDAK berubah status (masih pending, menunggu step berikutnya)
 }
 
 // DecideStep menulis keputusan step, dan (bila NewReqStatus != "") status
