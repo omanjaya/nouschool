@@ -207,6 +207,25 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("slot demo HARI INI siap (fase 6, verifikasi e2e scan/monitoring)")
+
+	// --- fase 7 (dashboard TV + kepsek): akun display demo ---
+	// docs/06-teaching.md "Dashboard TV ruang guru": akun display login sekali
+	// di TV/mini-PC, session panjang (1 tahun — lihat internal/identity/session.go
+	// sessionTTLForRole), permission read-only (teaching:monitor, schedule:read).
+	displayID, err := upsertUser(ctx, identityRepo, upsertUserInput{
+		Username: "display",
+		Name:     "Display TV Ruang Guru",
+		Password: "display12345",
+	})
+	if err != nil {
+		slog.Error("gagal menyiapkan akun display demo", "err", err)
+		os.Exit(1)
+	}
+	if _, err := identityRepo.CreateMembership(ctx, displayID, schoolID, identity.RoleDisplay); err != nil {
+		slog.Error("gagal membuat membership display demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("akun display demo siap", "username", "display", "password", "display12345", "school_id", schoolID)
 }
 
 // ensureDemoPeriods membuat 9 period demo (8 jam KBM + 1 Istirahat, semua

@@ -191,11 +191,83 @@ ditolak, pemilik/admin boleh), object-level `attendance.CreateSession`
 - ⬜ UI frontend (belum dikerjakan sesi ini — fokus backend + verifikasi
   curl, sesuai batasan tugas)
 
-## Fase 7 — Dashboard TV + Kepsek ⬜
-- ⬜ Akun display (role, session panjang) + halaman TV fullscreen `/tv`
-- ⬜ Panel: status guru mengajar, jam & countdown, pengumuman, rekap absen hari ini (`/api/tv/board` satu fetch, polling)
-- ⬜ Modul announcements (CRUD admin/kepsek)
-- ⬜ Dashboard kepsek interaktif + drill-down + rekap ketertiban mengajar
+## Fase 7 — Dashboard TV + Kepsek ✅
+Backend terverifikasi end-to-end di Docker dev (`demo.localhost`): bootstrap
+ulang (idempoten, akun `display`/`display12345` dibuat) → login display →
+`GET /api/tv/board` → 200, berisi teaching summary (`belum_mulai:2` — 2 slot
+hari ini blm mulai jam 03:10 WIB) + `current_period:null` + `next_starts_at`
++ rekap absen hari ini per kelas (3 kelas, termasuk sesi finalized & open) +
+`announcements:[]` → display coba `GET /api/students` → 403 dan
+`POST /api/announcements` → 403 (read-only benar, `teaching:monitor`/
+`schedule:read` saja) → display `GET /api/announcements?active=1` → 200
+kosong; tanpa `active` → 403 (butuh `announcement:manage`) → login kepsek →
+`POST /api/announcements` pengumuman aktif hari ini → 201 → `GET /api/tv/board`
+→ pengumuman muncul (`{id,title,body}`) → `PATCH` → 200 (judul/isi/rentang
+berubah) → `DELETE` → 200, hilang dari `?active=1` → `GET /api/teaching/compliance?from=2026-08-09&to=2026-08-16`
+→ 200, 2 guru (Rendi `scheduled:13 taught:0 unscheduled:1`, Sari
+`scheduled:12 taught:0`) — cocok dgn data riil `teaching_journals` (1 baris
+journal `unscheduled` tanggal hari ini, TIDAK ada journal berjadwal karena
+jalur "slot ketemu" fase 6 hanya diuji lewat unit test, bukan curl live —
+lihat catatan fase 6) → cek `sessions.expires_at` display via psql: ~365 hari
+ke depan vs kepsek ~30 hari (`sessionTTLForRole`/`sessionRenewWindowForRole`
+baru, dipakai Login/IssueSession/RequireAuth renewal — ketiganya HARUS pakai
+fungsi per-role, bukan konstanta `sessionTTL` langsung, supaya sesi display
+tidak diam-diam terpotong jadi 30 hari saat sliding renewal). `go build/vet/test
+./...` hijau; test service (fake repo/gateway): announcement aktif by tanggal
+LOKAL sekolah (`clock.Fixed` + timezone WIB/WIT, termasuk kasus tanggal lokal
+beda dari tanggal UTC), validasi CRUD & permission `announcement:manage`
+(admin/kepsek boleh, guru/display 403), TTL sesi per role, compliance
+(scheduled dihitung SEKALI per kemunculan day_of_week dalam rentang — mis.
+slot Senin dihitung 2x utk rentang 2 Senin — taught/unscheduled/material dari
+teaching_journals sendiri, guru tanpa data sama sekali di-skip, urutan pct
+asc), tv board menyusun bagian (current = slot jam berjalan, upcoming = slot
+starts_at berikutnya, bukan seluruh sisa hari).
+- ✅ Migrasi `00008_announcement.sql` (`announcements` — title/body/starts_at/
+  ends_at date, created_by)
+- ✅ `internal/announcement/`: `GET /api/announcements?active=1` (SEMUA role
+  termasuk display, aktif = tanggal lokal sekolah di antara starts_at..ends_at)
+  vs tanpa `active` (perm `announcement:manage`); `POST/PATCH/DELETE
+  /api/announcements/{id}` (admin & kepsek, validasi title/body wajib +
+  starts<=ends, replace-all pada PATCH — bukan partial, keputusan sendiri
+  konsisten dgn presedan `teaching.PatchInput`); audit `announcement.create/
+  update/delete`; interface publik `Service.ActiveOn` (dipakai modul
+  dashboard lewat consumer-side interface + adapter)
+- ✅ Session TTL PER ROLE (`internal/identity/session.go`
+  `sessionTTLForRole`/`sessionRenewWindowForRole`): role `display` 365 hari
+  (renew window 60 hari), role lain tetap 30 hari (renew window 15 hari) —
+  dipakai `Login`, `IssueSession` (gateway.go), DAN sliding renewal
+  `RequireAuth` (middleware.go, sebelumnya bug laten: renewal selalu pakai
+  `sessionTTL` 30 hari fixed, akan memotong sesi display jadi 30 hari saat
+  pertama kali diperpanjang)
+- ✅ Role `display` di `rolePermissions` (rbac.go) — SUDAH ada sejak fase
+  sebelumnya (`teaching:monitor` + `schedule:read`), diverifikasi ulang sesuai
+  docs/02, tidak perlu ditambah
+- ✅ Bootstrap idempoten: akun `display`/`display12345` (membership role
+  `display`) — password & membership diupsert tiap run
+- ✅ `internal/dashboard/` (modul baru, tanpa tabel sendiri): `GET /api/tv/board`
+  (perm `teaching:monitor`) menyusun payload gabungan SATU fetch (docs/06:
+  polling 15-30dtk di sisi klien) dari teaching status, attendance summary,
+  announcement aktif, DAN schedule CurrentPeriod (utk `next_starts_at`
+  akurat di level period, bukan cuma slot) — semua lewat consumer-side
+  interface primitif kecuali beberapa method BUTUH adapter kecil
+  (`cmd/server/dashboardadapter.go`, satu-satunya tempat yg boleh mengimpor
+  teaching+attendance+announcement+schedule+dashboard sekaligus, pola sama
+  `scheduleadapter.go` fase 6) karena producer mengembalikan struct bernama
+  masing-masing package (bukan primitif) — TIDAK menduplikasi derivasi status
+  mengajar/rekap absen/tanggal aktif pengumuman, murni menyusun ulang
+- ✅ `GET /api/teaching/compliance?from=&to=` (`internal/teaching`, perm
+  `teaching:monitor`, default rentang 30 hari): per guru `{teacher,
+  scheduled, taught, pct, unscheduled, material_filled, material_pct}` —
+  `scheduled` dihitung service-layer via `ScheduleGateway.SlotsForDayOfWeek`
+  yang SUDAH ada (bukan query SQL baru ke schedule_slots, supaya tidak
+  duplikasi logika), diiterasi per tanggal dalam rentang (slot Senin dihitung
+  sekali per Senin); `taught/unscheduled/material_filled` dari query SQL baru
+  `JournalComplianceCounts` yang HANYA menyentuh tabel `teaching_journals`
+  milik modul sendiri; `pct`/`material_pct` dibulatkan 1 desimal, guru tanpa
+  scheduled+journal sama sekali di-skip dari hasil; urut pct ASC
+- ⬜ Halaman TV fullscreen `/tv` (frontend) & dashboard kepsek interaktif +
+  drill-down (belum dikerjakan sesi ini — fokus backend + verifikasi curl,
+  sesuai batasan tugas)
 
 ## Fase 8 — Metode absen lanjutan ⬜
 - ⬜ QR kartu siswa: token per siswa, mode scan guru, generator kartu PDF

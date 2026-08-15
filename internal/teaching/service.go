@@ -3,6 +3,7 @@ package teaching
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -676,4 +677,135 @@ func (s *Service) Status(ctx context.Context, schoolID int64, dateStr string) (S
 	}
 
 	return StatusResult{CurrentPeriod: cp, Summary: summary, Rows: rows}, nil
+}
+
+// -- GET /api/teaching/compliance --
+
+// round1 membulatkan ke 1 desimal (dipakai persentase pct/material_pct).
+func round1(v float64) float64 { return math.Round(v*10) / 10 }
+
+// Compliance — rekap ketertiban mengajar per guru pada rentang tanggal
+// (fase 7, docs/06-teaching.md "Dashboard kepala sekolah": "% slot
+// terlaksana (journal vs jadwal) per guru"). Default rentang: 30 hari
+// terakhir (s.d. hari ini, tanggal lokal sekolah).
+//
+//   - scheduled: jumlah SLOT TERJADWAL pada hari-hari dalam rentang — dihitung
+//     dengan mengiterasi setiap tanggal, mengambil day_of_week-nya, lalu
+//     menjumlah semua slot ScheduleGateway.SlotsForDayOfWeek pada day_of_week
+//     itu per guru (slot Senin dihitung SEKALI per Senin dalam rentang — jadi
+//     4 Senin dalam sebulan = scheduled bertambah 4x utk slot yang sama).
+//     TIDAK memfilter hari libur/kalender akademik (keputusan sendiri:
+//     "sederhana: hitung semua hari kerja yang match day_of_week slot dalam
+//     rentang", sesuai instruksi tugas).
+//   - taught/unscheduled/material_filled: dari teaching_journals sendiri
+//     (repo.JournalComplianceCounts), TIDAK ada logika derivasi jadwal
+//     diduplikasi di sini — scheduled murni dari ScheduleGateway yang sudah
+//     ada (dipakai juga oleh Status).
+//   - pct = taught/scheduled*100 (0 bila scheduled=0); material_pct =
+//     material_filled/taught*100 (0 bila taught=0) — keputusan sendiri:
+//     material_pct dihitung terhadap slot yang SUDAH diajar (taught), bukan
+//     terhadap scheduled, karena guru hanya bisa mengisi materi pada jurnal
+//     yang memang ada.
+//   - Guru TANPA scheduled DAN TANPA journal apa pun pada rentang ini
+//     di-SKIP (tidak relevan ditampilkan di rekap — pct=0 tanpa data akan
+//     salah kebaca "paling bolong").
+//   - Urut pct ASC (paling bolong di atas), lalu nama guru sbg tie-breaker.
+func (s *Service) Compliance(ctx context.Context, schoolID int64, fromStr, toStr string) ([]ComplianceView, error) {
+	now := s.clock.Now()
+	tz := schoolTimezone(ctx)
+
+	to := schoolToday(now, tz)
+	if v := strings.TrimSpace(toStr); v != "" {
+		t, err := time.Parse("2006-01-02", v)
+		if err != nil {
+			return nil, httpx.Validation("Format 'to' harus YYYY-MM-DD.")
+		}
+		to = t
+	}
+	from := to.AddDate(0, 0, -30)
+	if v := strings.TrimSpace(fromStr); v != "" {
+		t, err := time.Parse("2006-01-02", v)
+		if err != nil {
+			return nil, httpx.Validation("Format 'from' harus YYYY-MM-DD.")
+		}
+		from = t
+	}
+	if from.After(to) {
+		return nil, httpx.Validation("'from' tidak boleh setelah 'to'.")
+	}
+
+	scheduledByTeacher := map[int64]int{}
+	teacherNames := map[int64]string{}
+	slotsByDow := map[int][]SlotInfo{}
+	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+		dow := int(d.Weekday())
+		slots, ok := slotsByDow[dow]
+		if !ok {
+			var err error
+			slots, err = s.schedule.SlotsForDayOfWeek(ctx, schoolID, dow)
+			if err != nil {
+				return nil, err
+			}
+			slotsByDow[dow] = slots
+		}
+		for _, sl := range slots {
+			scheduledByTeacher[sl.TeacherID]++
+			teacherNames[sl.TeacherID] = sl.TeacherName
+		}
+	}
+
+	counts, err := s.repo.JournalComplianceCounts(ctx, schoolID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	type agg struct{ taught, unscheduled, materialFilled int64 }
+	countsByTeacher := make(map[int64]agg, len(counts))
+	for _, c := range counts {
+		countsByTeacher[c.TeacherID] = agg{c.Taught, c.Unscheduled, c.MaterialFilled}
+		if _, ok := teacherNames[c.TeacherID]; !ok {
+			if ref, rerr := s.repo.LookupTeacherRef(ctx, schoolID, c.TeacherID); rerr == nil {
+				teacherNames[c.TeacherID] = ref.Name
+			}
+		}
+	}
+
+	teacherIDs := make(map[int64]bool, len(scheduledByTeacher)+len(countsByTeacher))
+	for id := range scheduledByTeacher {
+		teacherIDs[id] = true
+	}
+	for id := range countsByTeacher {
+		teacherIDs[id] = true
+	}
+
+	out := make([]ComplianceView, 0, len(teacherIDs))
+	for id := range teacherIDs {
+		scheduled := scheduledByTeacher[id]
+		a := countsByTeacher[id]
+
+		pct := 0.0
+		if scheduled > 0 {
+			pct = round1(float64(a.taught) / float64(scheduled) * 100)
+		}
+		materialPct := 0.0
+		if a.taught > 0 {
+			materialPct = round1(float64(a.materialFilled) / float64(a.taught) * 100)
+		}
+
+		out = append(out, ComplianceView{
+			Teacher:        TeacherRef{ID: id, Name: teacherNames[id]},
+			Scheduled:      scheduled,
+			Taught:         int(a.taught),
+			Pct:            pct,
+			Unscheduled:    int(a.unscheduled),
+			MaterialFilled: int(a.materialFilled),
+			MaterialPct:    materialPct,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Pct != out[j].Pct {
+			return out[i].Pct < out[j].Pct
+		}
+		return out[i].Teacher.Name < out[j].Teacher.Name
+	})
+	return out, nil
 }

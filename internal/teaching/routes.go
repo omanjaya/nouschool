@@ -29,4 +29,5 @@ func RegisterRoutes(
 	// pola yang sama dengan attendance.GetSession/StudentAttendance.
 	mux.Handle("GET /api/teaching/journals", auth(h.ListJournals))
 	mux.Handle("GET /api/teaching/status", monitor(h.Status))
+	mux.Handle("GET /api/teaching/compliance", monitor(h.Compliance))
 }

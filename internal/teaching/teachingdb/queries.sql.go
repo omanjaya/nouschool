@@ -258,6 +258,65 @@ func (q *Queries) InsertJournal(ctx context.Context, arg InsertJournalParams) (T
 	return i, err
 }
 
+const journalComplianceCounts = `-- name: JournalComplianceCounts :many
+
+SELECT
+    j.teacher_id,
+    COUNT(*) FILTER (WHERE j.schedule_slot_id IS NOT NULL)::bigint AS taught,
+    COUNT(*) FILTER (WHERE j.schedule_slot_id IS NULL)::bigint AS unscheduled,
+    COUNT(*) FILTER (WHERE j.schedule_slot_id IS NOT NULL AND COALESCE(j.material, '') <> '')::bigint AS material_filled
+FROM teaching_journals j
+WHERE j.school_id = $1::bigint
+  AND j.date >= $2::date
+  AND j.date <= $3::date
+GROUP BY j.teacher_id
+`
+
+type JournalComplianceCountsParams struct {
+	SchoolID int64       `json:"school_id"`
+	FromDate pgtype.Date `json:"from_date"`
+	ToDate   pgtype.Date `json:"to_date"`
+}
+
+type JournalComplianceCountsRow struct {
+	TeacherID      int64 `json:"teacher_id"`
+	Taught         int64 `json:"taught"`
+	Unscheduled    int64 `json:"unscheduled"`
+	MaterialFilled int64 `json:"material_filled"`
+}
+
+// -- rekap ketertiban mengajar (fase 7, docs/06-teaching.md "Dashboard kepala
+// -- sekolah": % slot terlaksana per guru). HANYA menyentuh tabel MILIK
+// -- teaching sendiri (teaching_journals) — jumlah slot TERJADWAL per guru
+// -- dihitung di service layer lewat ScheduleGateway.SlotsForDayOfWeek
+// -- (consumer-side interface yang sudah ada, BUKAN query SQL baru ke
+// -- schedule_slots di sini) supaya logika kepemilikan/derivasi jadwal tetap
+// -- satu tempat (modul schedule), sesuai CLAUDE.md "jangan duplikasi logika".
+func (q *Queries) JournalComplianceCounts(ctx context.Context, arg JournalComplianceCountsParams) ([]JournalComplianceCountsRow, error) {
+	rows, err := q.db.Query(ctx, journalComplianceCounts, arg.SchoolID, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []JournalComplianceCountsRow
+	for rows.Next() {
+		var i JournalComplianceCountsRow
+		if err := rows.Scan(
+			&i.TeacherID,
+			&i.Taught,
+			&i.Unscheduled,
+			&i.MaterialFilled,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listJournalsRow = `-- name: ListJournalsRow :many
 SELECT
     j.id, j.school_id, j.teacher_id, j.schedule_slot_id, j.class_id, j.subject_id, j.room_id, j.date, j.started_at, j.ended_at, j.material, j.note, j.flags,

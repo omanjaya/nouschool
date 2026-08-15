@@ -136,3 +136,15 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, result)
 }
+
+// Compliance — GET /api/teaching/compliance?from=&to=.
+func (h *Handler) Compliance(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	result, err := h.svc.Compliance(ctx, reqctx.SchoolID(ctx), q.Get("from"), q.Get("to"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}

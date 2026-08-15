@@ -63,3 +63,12 @@ sql:
         out: "internal/teaching/teachingdb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/announcement/queries.sql"
+    gen:
+      go:
+        package: "announcementdb"
+        out: "internal/announcement/announcementdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

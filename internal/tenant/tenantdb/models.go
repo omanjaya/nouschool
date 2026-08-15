@@ -19,6 +19,17 @@ type AcademicYear struct {
 	IsActive bool        `json:"is_active"`
 }
 
+type Announcement struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	Title     string             `json:"title"`
+	Body      string             `json:"body"`
+	StartsAt  pgtype.Date        `json:"starts_at"`
+	EndsAt    pgtype.Date        `json:"ends_at"`
+	CreatedBy int64              `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type AttendanceRecord struct {
 	ID        int64              `json:"id"`
 	SchoolID  int64              `json:"school_id"`

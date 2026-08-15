@@ -10,7 +10,9 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/omanjaya/nouschool/internal/announcement"
 	"github.com/omanjaya/nouschool/internal/attendance"
+	"github.com/omanjaya/nouschool/internal/dashboard"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/leave"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
@@ -124,6 +126,32 @@ func main() {
 		teachingSvc := teaching.NewService(teachingRepo, identitySvc, scheduleForTeaching{svc: scheduleSvc}, leaveSvc, attendanceSvc, studentSvc, clock.System{})
 		teachingHandler := teaching.NewHandler(teachingSvc)
 
+		// --- modul announcement (pengumuman dashboard TV/kepsek, fase 7 —
+		// docs/06-teaching.md "Pengumuman") ---
+		// identitySvc memenuhi announcement.IdentityGateway secara STRUKTURAL
+		// (consumer-side interface dideklarasikan di internal/announcement —
+		// lihat CLAUDE.md) — announcement TIDAK mengimpor identity untuk tipe
+		// apa pun.
+		announcementRepo := announcement.NewRepository(pool)
+		announcementSvc := announcement.NewService(announcementRepo, identitySvc, clock.System{})
+		announcementHandler := announcement.NewHandler(announcementSvc)
+
+		// --- modul dashboard (payload gabungan TV ruang guru + kepsek, fase 7
+		// — docs/06-teaching.md) ---
+		// dashboard TIDAK punya repository sendiri — murni menyusun ULANG data
+		// dari teaching/attendance/announcement/schedule lewat consumer-side
+		// interface. Producer masing-masing mengembalikan STRUCT bernama milik
+		// package sendiri (bukan primitif), jadi TIDAK dipenuhi struktural
+		// langsung — dijembatani adapter kecil (lihat dashboardadapter.go).
+		dashboardSvc := dashboard.NewService(
+			teachingForDashboard{svc: teachingSvc},
+			attendanceForDashboard{svc: attendanceSvc},
+			announcementForDashboard{svc: announcementSvc},
+			scheduleForDashboard{svc: scheduleSvc},
+			clock.System{},
+		)
+		dashboardHandler := dashboard.NewHandler(dashboardSvc)
+
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
@@ -132,6 +160,8 @@ func main() {
 		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		dashboard.RegisterRoutes(mux, dashboardHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 
 		tenantResolverMW = hostResolver.Middleware
 	} else {

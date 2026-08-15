@@ -39,6 +39,11 @@ type teachingRepository interface {
 	LookupTeacherRef(ctx context.Context, schoolID, teacherID int64) (TeacherRef, error)
 
 	GetSettings(ctx context.Context, schoolID int64) (Settings, error)
+
+	// JournalComplianceCounts — rekap ketertiban mengajar (fase 7): jumlah
+	// journal taught/unscheduled/material_filled per guru pada rentang
+	// tanggal, HANYA dari tabel teaching_journals (milik modul ini sendiri).
+	JournalComplianceCounts(ctx context.Context, schoolID int64, from, to time.Time) ([]JournalCounts, error)
 }
 
 var _ teachingRepository = (*Repository)(nil)
@@ -308,6 +313,33 @@ func (r *Repository) LookupTeacherRef(ctx context.Context, schoolID, teacherID i
 		return TeacherRef{}, mapNoRows(err)
 	}
 	return TeacherRef{ID: row.ID, Name: row.Name}, nil
+}
+
+// -- rekap ketertiban mengajar (fase 7) --
+
+// JournalCounts adalah satu baris agregat per guru dipakai
+// GET /api/teaching/compliance.
+type JournalCounts struct {
+	TeacherID      int64
+	Taught         int64
+	Unscheduled    int64
+	MaterialFilled int64
+}
+
+func (r *Repository) JournalComplianceCounts(ctx context.Context, schoolID int64, from, to time.Time) ([]JournalCounts, error) {
+	rows, err := r.q.JournalComplianceCounts(ctx, teachingdb.JournalComplianceCountsParams{
+		SchoolID: schoolID, FromDate: dateOf(from), ToDate: dateOf(to),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]JournalCounts, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, JournalCounts{
+			TeacherID: row.TeacherID, Taught: row.Taught, Unscheduled: row.Unscheduled, MaterialFilled: row.MaterialFilled,
+		})
+	}
+	return out, nil
 }
 
 // -- settings --

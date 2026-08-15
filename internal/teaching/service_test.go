@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -205,6 +206,40 @@ func (f *fakeTeachingRepo) LookupTeacherRef(ctx context.Context, schoolID, teach
 
 func (f *fakeTeachingRepo) GetSettings(ctx context.Context, schoolID int64) (Settings, error) {
 	return f.settings, nil
+}
+
+func (f *fakeTeachingRepo) JournalComplianceCounts(ctx context.Context, schoolID int64, from, to time.Time) ([]JournalCounts, error) {
+	byTeacher := map[int64]*JournalCounts{}
+	get := func(teacherID int64) *JournalCounts {
+		c, ok := byTeacher[teacherID]
+		if !ok {
+			c = &JournalCounts{TeacherID: teacherID}
+			byTeacher[teacherID] = c
+		}
+		return c
+	}
+	for _, rec := range f.journals {
+		if rec.SchoolID != schoolID {
+			continue
+		}
+		if rec.Date.Before(from) || rec.Date.After(to) {
+			continue
+		}
+		c := get(rec.TeacherID)
+		if rec.ScheduleSlotID != 0 {
+			c.Taught++
+			if strings.TrimSpace(rec.Material) != "" {
+				c.MaterialFilled++
+			}
+		} else {
+			c.Unscheduled++
+		}
+	}
+	out := make([]JournalCounts, 0, len(byTeacher))
+	for _, c := range byTeacher {
+		out = append(out, *c)
+	}
+	return out, nil
 }
 
 // -- fake gateways --
@@ -625,3 +660,114 @@ func TestPatchJournal_OwnerOnly(t *testing.T) {
 }
 
 func date2026Aug1() time.Time { return time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC) }
+
+// -- GET /api/teaching/compliance --
+
+func TestCompliance_ScheduledTaughtPctAndOrdering(t *testing.T) {
+	repo := newFakeTeachingRepo()
+	// Slot Senin (day_of_week=1) milik guru 300 -> dihitung SEKALI per Senin
+	// dalam rentang (2026-08-03 dan 2026-08-10 keduanya Senin).
+	slot := SlotInfo{
+		ID: 50, ClassID: 1, ClassName: "XII RPL 1", TeacherID: 300, TeacherName: "Rendi",
+		PeriodStart: 1, PeriodEnd: 2, PeriodStartsAt: "07:00", PeriodEndsAt: "08:20",
+	}
+	sched := fakeSchedule{byDay: map[int][]SlotInfo{1: {slot}}}
+
+	from := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC) // Senin
+	to := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)  // Minggu (2 pekan: Senin 3 & 10 Agustus)
+
+	// Guru 300 mengajar Senin 3 Agustus (dgn materi terisi), TAPI TIDAK Senin
+	// 10 Agustus -> scheduled=2, taught=1, pct=50%, material_pct=100%.
+	repo.journals[1] = JournalRecord{
+		ID: 1, SchoolID: 1, TeacherID: 300, ScheduleSlotID: 50, ClassID: 1,
+		Date: from, StartedAt: from, Material: "Materi A",
+	}
+
+	// Guru 301 TANPA jadwal sama sekali, tapi ada journal unscheduled dalam
+	// rentang -> scheduled=0, taught=0, unscheduled=1, pct=0 (paling bolong).
+	repo.journals[2] = JournalRecord{
+		ID: 2, SchoolID: 1, TeacherID: 301, ClassID: 2,
+		Date: from.AddDate(0, 0, 1), StartedAt: from.AddDate(0, 0, 1), Flags: []string{FlagUnscheduled},
+	}
+	repo.teacherRefs[301] = TeacherRef{ID: 301, Name: "Sari"}
+	repo.nextID = 2
+
+	svc := newServiceForTest(repo, newFakeIdentity(), sched, fakeLeave{}, newFakeAttendance(), fakeStudentsGW{}, clock.Fixed{T: to})
+	ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+
+	rows, err := svc.Compliance(ctx, 1, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Guru 302 (andaikan ada di sekolah tapi TANPA scheduled & TANPA journal
+	// sama sekali dalam rentang ini) tidak pernah muncul di fake repo — jadi
+	// otomatis tidak ada baris utknya, membuktikan guru tanpa data di-skip.
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 baris, got %d: %+v", len(rows), rows)
+	}
+
+	byID := map[int64]ComplianceView{}
+	for _, r := range rows {
+		byID[r.Teacher.ID] = r
+	}
+
+	r300, ok := byID[300]
+	if !ok {
+		t.Fatal("expected baris guru 300")
+	}
+	if r300.Scheduled != 2 {
+		t.Fatalf("expected scheduled=2 (2x Senin dalam rentang), got %d", r300.Scheduled)
+	}
+	if r300.Taught != 1 {
+		t.Fatalf("expected taught=1, got %d", r300.Taught)
+	}
+	if r300.Pct != 50.0 {
+		t.Fatalf("expected pct=50.0, got %v", r300.Pct)
+	}
+	if r300.MaterialFilled != 1 || r300.MaterialPct != 100.0 {
+		t.Fatalf("expected material_filled=1 material_pct=100, got %d/%v", r300.MaterialFilled, r300.MaterialPct)
+	}
+
+	r301, ok := byID[301]
+	if !ok {
+		t.Fatal("expected baris guru 301")
+	}
+	if r301.Scheduled != 0 || r301.Taught != 0 || r301.Unscheduled != 1 {
+		t.Fatalf("expected guru 301 scheduled=0 taught=0 unscheduled=1, got %+v", r301)
+	}
+	if r301.Pct != 0 {
+		t.Fatalf("expected pct=0 utk guru tanpa scheduled, got %v", r301.Pct)
+	}
+
+	// Urut pct ASC (paling bolong di atas): guru 301 (pct=0) sebelum guru 300 (pct=50).
+	if rows[0].Teacher.ID != 301 || rows[1].Teacher.ID != 300 {
+		t.Fatalf("expected urutan pct asc (301 lalu 300), got %+v", rows)
+	}
+}
+
+func TestCompliance_DefaultRangeAndValidation(t *testing.T) {
+	repo := newFakeTeachingRepo()
+	sched := fakeSchedule{}
+	svc := newServiceForTest(repo, newFakeIdentity(), sched, fakeLeave{}, newFakeAttendance(), fakeStudentsGW{}, clock.Fixed{T: time.Date(2026, 8, 16, 1, 0, 0, 0, time.UTC)})
+	ctx := ctxAs("kepala_sekolah", 1, "Asia/Jakarta")
+
+	rows, err := svc.Compliance(ctx, 1, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error (rentang default): %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected 0 baris (repo kosong), got %d", len(rows))
+	}
+
+	if _, err := svc.Compliance(ctx, 1, "2026-08-20", "2026-08-10"); true {
+		if status := domainStatus(t, err); status != 422 {
+			t.Fatalf("expected 422 utk from > to, got %v (%v)", status, err)
+		}
+	}
+
+	if _, err := svc.Compliance(ctx, 1, "bukan-tanggal", "2026-08-10"); true {
+		if status := domainStatus(t, err); status != 422 {
+			t.Fatalf("expected 422 utk format tanggal salah, got %v (%v)", status, err)
+		}
+	}
+}

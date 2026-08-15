@@ -141,7 +141,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (LoginResult, error)
 	if terr != nil {
 		return LoginResult{}, terr
 	}
-	expiresAt := time.Now().Add(sessionTTL)
+	expiresAt := time.Now().Add(sessionTTLForRole(role))
 
 	if err := s.repo.CreateSession(ctx, CreateSessionInput{
 		UserID: user.ID, SchoolID: schoolIDPtr, TokenHash: tokenHash, Role: role,

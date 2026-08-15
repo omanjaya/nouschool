@@ -168,3 +168,16 @@ type StatusResult struct {
 	Summary       StatusSummary      `json:"summary"`
 	Rows          []StatusRow        `json:"rows"`
 }
+
+// ComplianceView adalah satu baris response GET /api/teaching/compliance
+// (fase 7, docs/06-teaching.md "Dashboard kepala sekolah": rekap ketertiban
+// mengajar — % slot terlaksana per guru pada rentang tanggal).
+type ComplianceView struct {
+	Teacher        TeacherRef `json:"teacher"`
+	Scheduled      int        `json:"scheduled"`
+	Taught         int        `json:"taught"`
+	Pct            float64    `json:"pct"`
+	Unscheduled    int        `json:"unscheduled"`
+	MaterialFilled int        `json:"material_filled"`
+	MaterialPct    float64    `json:"material_pct"`
+}

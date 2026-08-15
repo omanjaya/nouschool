@@ -99,3 +99,23 @@ SELECT t.id, u.name FROM teachers t JOIN users u ON u.id = t.user_id WHERE t.id 
 
 -- name: GetTeachingSettingsRaw :one
 SELECT settings FROM school_settings WHERE school_id = $1 AND module = 'teaching';
+
+-- -- rekap ketertiban mengajar (fase 7, docs/06-teaching.md "Dashboard kepala
+-- -- sekolah": % slot terlaksana per guru). HANYA menyentuh tabel MILIK
+-- -- teaching sendiri (teaching_journals) — jumlah slot TERJADWAL per guru
+-- -- dihitung di service layer lewat ScheduleGateway.SlotsForDayOfWeek
+-- -- (consumer-side interface yang sudah ada, BUKAN query SQL baru ke
+-- -- schedule_slots di sini) supaya logika kepemilikan/derivasi jadwal tetap
+-- -- satu tempat (modul schedule), sesuai CLAUDE.md "jangan duplikasi logika".
+
+-- name: JournalComplianceCounts :many
+SELECT
+    j.teacher_id,
+    COUNT(*) FILTER (WHERE j.schedule_slot_id IS NOT NULL)::bigint AS taught,
+    COUNT(*) FILTER (WHERE j.schedule_slot_id IS NULL)::bigint AS unscheduled,
+    COUNT(*) FILTER (WHERE j.schedule_slot_id IS NOT NULL AND COALESCE(j.material, '') <> '')::bigint AS material_filled
+FROM teaching_journals j
+WHERE j.school_id = sqlc.arg(school_id)::bigint
+  AND j.date >= sqlc.arg(from_date)::date
+  AND j.date <= sqlc.arg(to_date)::date
+GROUP BY j.teacher_id;

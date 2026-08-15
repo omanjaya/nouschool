@@ -88,7 +88,7 @@ func (s *Service) IssueSession(ctx context.Context, userID, schoolID int64, role
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	expiresAt := time.Now().Add(sessionTTL)
+	expiresAt := time.Now().Add(sessionTTLForRole(role))
 	var schoolIDPtr *int64
 	if schoolID != 0 {
 		schoolIDPtr = &schoolID

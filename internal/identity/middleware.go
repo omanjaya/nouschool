@@ -55,8 +55,8 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 			}
 		}
 
-		if sess.ExpiresAt.Sub(now) < sessionRenewWindow {
-			newExpiry := now.Add(sessionTTL)
+		if sess.ExpiresAt.Sub(now) < sessionRenewWindowForRole(sess.Role) {
+			newExpiry := now.Add(sessionTTLForRole(sess.Role))
 			if err := s.repo.ExtendSession(ctx, sess.ID, newExpiry); err == nil {
 				setSessionCookie(w, cookie.Value, newExpiry, s.cookieSecure)
 			}
