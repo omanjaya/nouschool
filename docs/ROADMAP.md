@@ -269,9 +269,9 @@ starts_at berikutnya, bukan seluruh sisa hari).
   drill-down (belum dikerjakan sesi ini — fokus backend + verifikasi curl,
   sesuai batasan tugas)
 
-## Fase 8 — Metode absen lanjutan ⬜
-- ⬜ QR kartu siswa: token per siswa, mode scan guru, generator kartu PDF
-- ⬜ Self check-in GPS: rule settings, jendela waktu, validasi radius, deteksi anomali untuk wali kelas
+## Fase 8 — Metode absen lanjutan ✅ (backend)
+- ✅ QR kartu siswa (backend): token per siswa (`student_qr_tokens`), generate/list/revoke, scan guru (`POST /api/attendance/sessions/{id}/scan`), PNG QR — generator kartu PDF grid utk dicetak (frontend/print) BELUM dikerjakan (di luar scope backend)
+- ✅ Self check-in GPS (backend): rule settings (sudah ada sejak fase sebelumnya), jendela waktu, validasi radius (haversine), status hadir/terlambat via `late_after_min`, deteksi anomali (`GET /api/attendance/anomalies`) untuk wali kelas
 
 ## Fase 9 — Notification ⬜
 - ⬜ Outbox + worker + retry; in-app inbox (baseline)

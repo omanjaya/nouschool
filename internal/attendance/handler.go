@@ -167,3 +167,144 @@ func (h *Handler) StudentAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, result)
 }
+
+// -- QR kartu siswa (Fase 8) --
+
+type generateQRCardsRequest struct {
+	ClassID int64 `json:"class_id"`
+}
+
+// GenerateQRCards — POST /api/attendance/qr-cards/generate.
+func (h *Handler) GenerateQRCards(w http.ResponseWriter, r *http.Request) {
+	var req generateQRCardsRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	items, err := h.svc.GenerateQRCards(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), req.ClassID)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+
+// ListQRCards — GET /api/attendance/qr-cards?class_id=.
+func (h *Handler) ListQRCards(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	items, err := h.svc.ListQRCards(ctx, reqctx.SchoolID(ctx), queryInt64(r, "class_id"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+
+// RevokeQRCard — POST /api/attendance/qr-cards/{studentId}/revoke.
+func (h *Handler) RevokeQRCard(w http.ResponseWriter, r *http.Request) {
+	studentID, err := pathInt64(r, "studentId")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID siswa tidak valid."))
+		return
+	}
+	ctx := r.Context()
+	view, err := h.svc.RevokeQRCard(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), studentID)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, view)
+}
+
+// QRCardPNG — GET /api/attendance/qr-cards/{studentId}/qr.png.
+func (h *Handler) QRCardPNG(w http.ResponseWriter, r *http.Request) {
+	studentID, err := pathInt64(r, "studentId")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID siswa tidak valid."))
+		return
+	}
+	png, err := h.svc.QRCardPNG(r.Context(), reqctx.SchoolID(r.Context()), studentID)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(png)
+}
+
+type scanRequest struct {
+	Token string `json:"token"`
+}
+
+// Scan — POST /api/attendance/sessions/{id}/scan.
+func (h *Handler) Scan(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sesi tidak valid."))
+		return
+	}
+	var req scanRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	result, err := h.svc.ScanQRCard(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), id, req.Token)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+// -- Self check-in siswa (Fase 8) --
+
+// SelfCheckinStatus — GET /api/attendance/self-checkin/status.
+func (h *Handler) SelfCheckinStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	view, err := h.svc.SelfCheckinStatus(ctx, reqctx.SchoolID(ctx))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, view)
+}
+
+type selfCheckinRequest struct {
+	Lat      float64 `json:"lat"`
+	Lng      float64 `json:"lng"`
+	Accuracy float64 `json:"accuracy"`
+}
+
+// SelfCheckin — POST /api/attendance/self-checkin. user_agent diambil dari
+// header HTTP, BUKAN body (docs/05: bukti meta lat/lng/accuracy/UA).
+func (h *Handler) SelfCheckin(w http.ResponseWriter, r *http.Request) {
+	var req selfCheckinRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	result, err := h.svc.SelfCheckin(ctx, reqctx.SchoolID(ctx), SelfCheckinInput{
+		Lat: req.Lat, Lng: req.Lng, Accuracy: req.Accuracy, UserAgent: r.UserAgent(),
+	})
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+// Anomalies — GET /api/attendance/anomalies?date=&class_id=.
+func (h *Handler) Anomalies(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	items, err := h.svc.Anomalies(ctx, reqctx.SchoolID(ctx), q.Get("date"), queryInt64(r, "class_id"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}

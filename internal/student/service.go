@@ -275,6 +275,31 @@ func (s *Service) MyClassID(ctx context.Context, schoolID, userID int64) (int64,
 	return rec.ClassID, true, nil
 }
 
+// MyStudentID adalah kebutuhan lintas modul (attendance Fase 8, lewat
+// consumer-side interface StudentAccess dideklarasikan di sisi pemakai —
+// lihat CLAUDE.md) untuk resolve profil siswa (id + rombel) dari user login,
+// dipakai self check-in GPS (siswa hanya boleh check-in utk dirinya sendiri,
+// pada rombel tempat dia terdaftar di tahun ajaran BERJALAN). ok=false bila
+// user bukan siswa aktif/belum terdaftar di rombel manapun tahun ini — sama
+// seperti MyClassID.
+func (s *Service) MyStudentID(ctx context.Context, schoolID, userID int64) (studentID, classID int64, ok bool, err error) {
+	yearID, err := s.currentYearID(ctx, schoolID)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	rec, err := s.repo.GetStudentByUserID(ctx, schoolID, yearID, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, err
+	}
+	if rec.ClassID == 0 {
+		return 0, 0, false, nil
+	}
+	return rec.ID, rec.ClassID, true, nil
+}
+
 func (s *Service) GetStudent(ctx context.Context, schoolID, id int64) (Student, error) {
 	yearID, err := s.currentYearID(ctx, schoolID)
 	if err != nil {

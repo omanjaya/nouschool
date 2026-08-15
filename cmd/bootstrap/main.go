@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
@@ -226,6 +227,51 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("akun display demo siap", "username", "display", "password", "display12345", "school_id", schoolID)
+
+	// --- fase 8 (QR kartu siswa + self check-in GPS): settings absensi demo ---
+	// Mengaktifkan metode qr_card & self_checkin (default sebelumnya hanya
+	// manual, lihat internal/attendance/settings.go DefaultSettings) supaya
+	// verifikasi end-to-end QR scan & self check-in bisa langsung dijalankan.
+	if err := ensureDemoAttendanceSettings(ctx, tenantRepo, demoAdminID, schoolID); err != nil {
+		slog.Error("gagal menyiapkan settings absensi demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("settings absensi demo siap (methods: manual, qr_card, self_checkin)", "school_id", schoolID)
+}
+
+// ensureDemoAttendanceSettings mengaktifkan qr_card & self_checkin utk
+// sekolah demo — idempoten: HANYA menulis bila sekolah ini belum pernah
+// menyimpan settings module='attendance' sama sekali (mis. sudah pernah
+// dikustomisasi admin lewat PUT /api/settings/attendance, bootstrap tidak
+// boleh menimpanya).
+func ensureDemoAttendanceSettings(ctx context.Context, tenantRepo *tenant.Repository, actorUserID, schoolID int64) error {
+	_, found, err := tenantRepo.GetSetting(ctx, schoolID, "attendance")
+	if err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+
+	settingsSvc := tenant.NewSettingsService(tenantRepo, nil)
+	settings := attendance.Settings{
+		Methods: []attendance.Method{attendance.MethodManual, attendance.MethodQRCard, attendance.MethodSelfCheckin},
+		SelfCheckin: &attendance.SelfCheckinRule{
+			Lat: -6.2, Lng: 106.816666, RadiusM: 150,
+			OpenFrom: "06:00",
+			// NOTE DEMO: close_at sengaja dibuat SANGAT longgar (23:59) —
+			// bukan nilai realistis untuk sekolah asli (yang biasanya menutup
+			// jendela check-in di sekitar jam masuk, mis. 07:30) — supaya
+			// verifikasi end-to-end self check-in bisa dijalankan kapan pun
+			// bootstrap ini dijalankan, tanpa bergantung jam saat itu.
+			CloseAt: "23:59",
+		},
+		LateAfterMin: 15,
+	}
+	// Mode & EditWindowHours sengaja dibiarkan kosong -> Validate() mengisi
+	// default (daily, 24 jam) — sama seperti sekolah yang belum pernah
+	// menyentuh menu settings sama sekali.
+	return settingsSvc.Put(ctx, schoolID, actorUserID, "attendance", &settings)
 }
 
 // ensureDemoPeriods membuat 9 period demo (8 jam KBM + 1 Istirahat, semua

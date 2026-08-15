@@ -2,9 +2,14 @@ package attendance
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,11 +39,14 @@ type AcademicYearLookup interface {
 
 // StudentAccess adalah kebutuhan modul attendance dari modul student:
 // object-level check (siswa boleh lihat dirinya sendiri, orang tua boleh
-// lihat anaknya) untuk GET /api/students/{id}/attendance. Dipenuhi
-// *student.Service secara struktural lewat method CanViewStudent (ditambahkan
-// khusus untuk kebutuhan ini — lihat internal/student/service.go).
+// lihat anaknya) untuk GET /api/students/{id}/attendance — CanViewStudent;
+// dan (Fase 8) resolve profil siswa (id+rombel) dari user login untuk self
+// check-in GPS — MyStudentID. Dipenuhi *student.Service secara struktural
+// (method ditambahkan khusus untuk kebutuhan ini — lihat
+// internal/student/service.go).
 type StudentAccess interface {
 	CanViewStudent(ctx context.Context, userID int64, role string, schoolID, studentID int64) error
+	MyStudentID(ctx context.Context, schoolID, userID int64) (studentID, classID int64, ok bool, err error)
 }
 
 // SlotToday adalah potongan data slot jadwal yang dibutuhkan attendance dari
@@ -78,8 +86,12 @@ type TeacherLookup interface {
 // dengan docs/02-identity.md — didefinisikan ulang di sini karena attendance
 // tidak boleh mengimpor identity).
 const (
-	PermAttendanceWrite  = "attendance:write"
-	PermAttendanceReport = "attendance:report"
+	PermAttendanceWrite     = "attendance:write"
+	PermAttendanceReport    = "attendance:report"
+	PermAttendanceSelfCheck = "attendance:self_checkin"
+	// PermStudentManage — QR kartu siswa (Fase 8) digerbang perm modul
+	// student (mengelola kartu = mengelola data siswa), bukan perm baru.
+	PermStudentManage = "student:manage"
 )
 
 // ErrNoActiveAcademicYear — sekolah belum mengaktifkan tahun ajaran.
@@ -675,4 +687,477 @@ func (s *Service) StudentHistory(ctx context.Context, schoolID, studentID int64,
 		Counts: HistoryCounts{Hadir: counts.Hadir, Terlambat: counts.Terlambat, Izin: counts.Izin, Sakit: counts.Sakit, Alpa: counts.Alpa},
 		Items:  items,
 	}, nil
+}
+
+// -- QR kartu siswa (Fase 8, docs/05-attendance.md "QR kartu siswa") --
+
+// qrCardTokenBytes — 18 byte acak -> base64url TANPA padding (RawURLEncoding)
+// = tepat 24 karakter (18*4/3), sesuai spesifikasi kartu siswa.
+const qrCardTokenBytes = 18
+
+func randomQRCardToken() (string, error) {
+	b := make([]byte, qrCardTokenBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// normalizeQRToken melucuti awalan "nouschool:student:" bila ada — endpoint
+// scan menerima isi QR MENTAH (dengan awalan) maupun token polos (docs/05).
+func normalizeQRToken(raw string) string {
+	return strings.TrimPrefix(strings.TrimSpace(raw), qrCardPrefix)
+}
+
+// ErrQRUnknown — token tidak dikenal ATAU sudah dicabut (docs/05-attendance.md).
+var ErrQRUnknown = &httpx.Error{Status: http.StatusNotFound, Code: "qr_unknown", Message: "Kartu tidak dikenal atau sudah dicabut."}
+
+// ErrQRNotIssued — siswa belum pernah digenerate kartu QR-nya.
+var ErrQRNotIssued = &httpx.Error{Status: http.StatusNotFound, Code: "qr_not_issued", Message: "Token QR untuk siswa ini belum dibuat. Generate kartu dulu."}
+
+func classForQRCards(ctx context.Context, s *Service, schoolID, classID int64) error {
+	if classID == 0 {
+		return httpx.Validation("class_id wajib diisi.")
+	}
+	if _, err := s.repo.GetClassMeta(ctx, schoolID, classID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return httpx.Validation("Rombel tidak ditemukan.")
+		}
+		return err
+	}
+	return nil
+}
+
+// ListQRCards — GET /api/attendance/qr-cards?class_id= (baca saja, tanpa
+// menerbitkan token baru).
+func (s *Service) ListQRCards(ctx context.Context, schoolID, classID int64) ([]QRCardView, error) {
+	if err := classForQRCards(ctx, s, schoolID, classID); err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.ListClassStudentsWithActiveToken(ctx, schoolID, classID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]QRCardView, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, QRCardView{StudentID: row.StudentID, Name: row.Name, NIS: row.NIS, Token: row.Token})
+	}
+	return out, nil
+}
+
+// GenerateQRCards — POST /api/attendance/qr-cards/generate {class_id}.
+// Idempoten: siswa yang SUDAH punya token aktif tidak diganti (docs/05: kartu
+// dicetak sekali, hanya diganti lewat revoke eksplisit kalau hilang).
+// Response selalu berisi SELURUH siswa rombel + token aktifnya masing-masing.
+func (s *Service) GenerateQRCards(ctx context.Context, actorUserID, schoolID, classID int64) ([]QRCardView, error) {
+	if err := classForQRCards(ctx, s, schoolID, classID); err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.ListClassStudentsWithActiveToken(ctx, schoolID, classID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]QRCardView, 0, len(rows))
+	generated := 0
+	for _, row := range rows {
+		token := row.Token
+		if token == "" {
+			token, err = randomQRCardToken()
+			if err != nil {
+				return nil, err
+			}
+			if err := s.repo.InsertQRToken(ctx, schoolID, row.StudentID, token); err != nil {
+				if !errors.Is(err, ErrConflict) {
+					return nil, err
+				}
+				// Race jarang: token aktif sudah dibuat panggilan lain di
+				// antara ListClassStudentsWithActiveToken & InsertQRToken —
+				// ambil yang itu supaya tetap idempoten.
+				token, err = s.repo.GetActiveQRTokenByStudent(ctx, schoolID, row.StudentID)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				generated++
+			}
+		}
+		out = append(out, QRCardView{StudentID: row.StudentID, Name: row.Name, NIS: row.NIS, Token: token})
+	}
+	if generated > 0 {
+		s.audit(ctx, schoolID, actorUserID, "attendance.qr_cards_generate", "class", classID, nil,
+			map[string]any{"class_id": classID, "generated": generated})
+	}
+	return out, nil
+}
+
+// RevokeQRCard — POST /api/attendance/qr-cards/{studentId}/revoke: cabut
+// token aktif (mis. kartu hilang) + langsung terbitkan token baru, supaya
+// siswa tetap bisa dicetakkan kartu baru tanpa panggilan generate terpisah.
+func (s *Service) RevokeQRCard(ctx context.Context, actorUserID, schoolID, studentID int64) (QRCardView, error) {
+	st, err := s.repo.GetStudentBasic(ctx, schoolID, studentID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return QRCardView{}, httpx.ErrNotFound
+		}
+		return QRCardView{}, err
+	}
+	if err := s.repo.RevokeActiveQRToken(ctx, schoolID, studentID); err != nil {
+		return QRCardView{}, err
+	}
+	token, err := randomQRCardToken()
+	if err != nil {
+		return QRCardView{}, err
+	}
+	if err := s.repo.InsertQRToken(ctx, schoolID, studentID, token); err != nil {
+		return QRCardView{}, err
+	}
+	s.audit(ctx, schoolID, actorUserID, "attendance.qr_card_revoke", "student", studentID, nil,
+		map[string]any{"student_id": studentID})
+	return QRCardView{StudentID: studentID, Name: st.Name, NIS: st.NIS, Token: token}, nil
+}
+
+// QRCardPNG — GET /api/attendance/qr-cards/{studentId}/qr.png.
+func (s *Service) QRCardPNG(ctx context.Context, schoolID, studentID int64) ([]byte, error) {
+	if _, err := s.repo.GetStudentBasic(ctx, schoolID, studentID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, httpx.ErrNotFound
+		}
+		return nil, err
+	}
+	token, err := s.repo.GetActiveQRTokenByStudent(ctx, schoolID, studentID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrQRNotIssued
+		}
+		return nil, err
+	}
+	return generateStudentQRPNG(token)
+}
+
+// ScanQRCard — POST /api/attendance/sessions/{id}/scan {token}: absen cepat
+// via kartu QR (docs/05 "QR kartu siswa"). Record yang SUDAH ada TIDAK PERNAH
+// didowngrade — scan kedua (atau scan setelah guru mengubah manual) hanya
+// mengembalikan status yang tersimpan dengan already_marked=true.
+func (s *Service) ScanQRCard(ctx context.Context, actorUserID, schoolID, sessionID int64, rawToken string) (ScanResult, error) {
+	sess, err := s.repo.GetSessionByID(ctx, schoolID, sessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ScanResult{}, httpx.ErrNotFound
+		}
+		return ScanResult{}, err
+	}
+	// Sesi finalized -> ditolak, KECUALI admin_sekolah (aturan sama seperti
+	// UpdateRecords, lihat ErrSessionLocked).
+	if sess.Status == SessionFinalized && reqctx.Role(ctx) != RoleAdminSekolah {
+		return ScanResult{}, ErrSessionLocked
+	}
+
+	token := normalizeQRToken(rawToken)
+	if token == "" {
+		return ScanResult{}, httpx.Validation("token wajib diisi.")
+	}
+	studentID, err := s.repo.ResolveActiveQRToken(ctx, schoolID, token)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ScanResult{}, ErrQRUnknown
+		}
+		return ScanResult{}, err
+	}
+
+	roster, err := s.repo.ListClassStudents(ctx, schoolID, sess.ClassID)
+	if err != nil {
+		return ScanResult{}, err
+	}
+	var st *RosterStudent
+	for i := range roster {
+		if roster[i].ID == studentID {
+			st = &roster[i]
+			break
+		}
+	}
+	if st == nil {
+		return ScanResult{}, httpx.Validation("Siswa ini bukan anggota rombel sesi ini.")
+	}
+
+	rec, err := s.repo.InsertRecordWithMeta(ctx, InsertRecordInput{
+		SchoolID: schoolID, SessionID: sessionID, StudentID: studentID,
+		Status: StatusHadir, Method: string(MethodQRCard), MarkedBy: actorUserID,
+	})
+	alreadyMarked := false
+	switch {
+	case errors.Is(err, ErrConflict):
+		rec, err = s.repo.GetRecordForStudent(ctx, sessionID, studentID)
+		if err != nil {
+			return ScanResult{}, err
+		}
+		alreadyMarked = true
+	case err != nil:
+		return ScanResult{}, err
+	}
+
+	return ScanResult{StudentID: studentID, Name: st.Name, NIS: st.NIS, Status: rec.Status, AlreadyMarked: alreadyMarked}, nil
+}
+
+// -- Self check-in siswa (Fase 8, docs/05-attendance.md "Self check-in siswa") --
+
+// haversineMeters menghitung jarak great-circle (meter) antara dua titik
+// lat/lng — fungsi murni, dites tanpa DB (service_test.go).
+func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
+	const earthRadiusM = 6371000.0
+	rad := func(deg float64) float64 { return deg * math.Pi / 180 }
+	dLat := rad(lat2 - lat1)
+	dLng := rad(lng2 - lng1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(rad(lat1))*math.Cos(rad(lat2))*math.Sin(dLng/2)*math.Sin(dLng/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadiusM * c
+}
+
+// clockOnDate mengembalikan waktu jam:menit "HH:MM" pada tanggal & lokasi base.
+func clockOnDate(base time.Time, hhmm string) (time.Time, error) {
+	var h, m int
+	if _, err := fmt.Sscanf(strings.TrimSpace(hhmm), "%d:%d", &h, &m); err != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return time.Time{}, httpx.Validation("Format jam pengaturan self check-in tidak valid.")
+	}
+	return time.Date(base.Year(), base.Month(), base.Day(), h, m, 0, 0, base.Location()), nil
+}
+
+// addMinutesToClock menambah menit ke string jam "HH:MM" -> "HH:MM" baru,
+// tanpa perlu tanggal/zona (dipakai status endpoint menghitung late_after).
+func addMinutesToClock(hhmm string, minutes int) (string, error) {
+	t, err := clockOnDate(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), hhmm)
+	if err != nil {
+		return "", err
+	}
+	return t.Add(time.Duration(minutes) * time.Minute).Format("15:04"), nil
+}
+
+// round5 membulatkan koordinat ke 5 desimal (~1.1 m) — dipakai Anomalies
+// mengelompokkan self check-in dari koordinat yang (hampir) identik.
+func round5(v float64) float64 { return math.Round(v*100000) / 100000 }
+
+func selfCheckinEnabled(settings Settings) bool {
+	if settings.SelfCheckin == nil {
+		return false
+	}
+	for _, m := range settings.Methods {
+		if m == MethodSelfCheckin {
+			return true
+		}
+	}
+	return false
+}
+
+// SelfCheckinStatus — GET /api/attendance/self-checkin/status.
+func (s *Service) SelfCheckinStatus(ctx context.Context, schoolID int64) (SelfCheckinStatusView, error) {
+	settings, err := s.repo.GetSettings(ctx, schoolID)
+	if err != nil {
+		return SelfCheckinStatusView{}, err
+	}
+
+	view := SelfCheckinStatusView{Enabled: selfCheckinEnabled(settings)}
+	if view.Enabled {
+		rule := settings.SelfCheckin
+		view.Window = &SelfCheckinWindow{OpenFrom: rule.OpenFrom, CloseAt: rule.CloseAt}
+		if late, err := addMinutesToClock(rule.OpenFrom, settings.LateAfterMin); err == nil {
+			view.LateAfter = &late
+		}
+	}
+
+	studentID, classID, ok, err := s.students.MyStudentID(ctx, schoolID, reqctx.UserID(ctx))
+	if err != nil {
+		return SelfCheckinStatusView{}, err
+	}
+	if !ok {
+		return view, nil
+	}
+
+	today := schoolToday(s.clock.Now(), schoolTimezone(ctx))
+	sess, err := s.repo.GetSessionByClassDate(ctx, schoolID, classID, today)
+	if errors.Is(err, ErrNotFound) {
+		return view, nil
+	}
+	if err != nil {
+		return SelfCheckinStatusView{}, err
+	}
+
+	rec, err := s.repo.GetRecordForStudent(ctx, sess.ID, studentID)
+	if errors.Is(err, ErrNotFound) {
+		return view, nil
+	}
+	if err != nil {
+		return SelfCheckinStatusView{}, err
+	}
+	view.Today = &SelfCheckinToday{Status: rec.Status, CheckedAt: rec.MarkedAt}
+	return view, nil
+}
+
+// SelfCheckinInput adalah parameter POST /api/attendance/self-checkin.
+type SelfCheckinInput struct {
+	Lat, Lng, Accuracy float64
+	UserAgent          string
+}
+
+// SelfCheckin — POST /api/attendance/self-checkin. Validasi BERURUTAN (pesan
+// jelas per langkah, docs/05-attendance.md): metode aktif -> jendela waktu ->
+// jarak (haversine) -> belum check-in hari ini. Lolos semua -> create-or-get
+// sesi daily rombel siswa -> insert record hadir/terlambat sesuai
+// open_from+late_after_min. BUKAN anti-curang (fake GPS mudah) — hasilnya
+// hanya bukti (meta) yang bisa ditinjau lewat GET /api/attendance/anomalies;
+// guru tetap bisa override record manual kapan pun.
+func (s *Service) SelfCheckin(ctx context.Context, schoolID int64, in SelfCheckinInput) (SelfCheckinResult, error) {
+	userID := reqctx.UserID(ctx)
+	studentID, classID, ok, err := s.students.MyStudentID(ctx, schoolID, userID)
+	if err != nil {
+		return SelfCheckinResult{}, err
+	}
+	if !ok {
+		return SelfCheckinResult{}, httpx.Validation("Akun ini tidak terhubung ke data siswa aktif di tahun ajaran berjalan.")
+	}
+
+	settings, err := s.repo.GetSettings(ctx, schoolID)
+	if err != nil {
+		return SelfCheckinResult{}, err
+	}
+	if !selfCheckinEnabled(settings) {
+		return SelfCheckinResult{}, httpx.Validation("Self check-in tidak aktif di sekolah ini.")
+	}
+	rule := settings.SelfCheckin
+
+	now := s.clock.Now()
+	local := clock.InZone(now, schoolTimezone(ctx))
+	openAt, err := clockOnDate(local, rule.OpenFrom)
+	if err != nil {
+		return SelfCheckinResult{}, err
+	}
+	closeAt, err := clockOnDate(local, rule.CloseAt)
+	if err != nil {
+		return SelfCheckinResult{}, err
+	}
+	if local.Before(openAt) {
+		return SelfCheckinResult{}, httpx.Validation(fmt.Sprintf("Self check-in belum dibuka. Jendela: %s–%s.", rule.OpenFrom, rule.CloseAt))
+	}
+	if local.After(closeAt) {
+		return SelfCheckinResult{}, httpx.Validation(fmt.Sprintf("Self check-in sudah ditutup pukul %s.", rule.CloseAt))
+	}
+
+	dist := haversineMeters(rule.Lat, rule.Lng, in.Lat, in.Lng)
+	if dist > float64(rule.RadiusM) {
+		return SelfCheckinResult{}, httpx.Validation(fmt.Sprintf("Kamu berada ~%.0f m dari sekolah (maks %d m).", dist, rule.RadiusM))
+	}
+
+	yearID, err := s.requireActiveYear(ctx, schoolID)
+	if err != nil {
+		return SelfCheckinResult{}, err
+	}
+	today := schoolToday(now, schoolTimezone(ctx))
+
+	sess, err := s.repo.GetSessionByClassDate(ctx, schoolID, classID, today)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		sess, err = s.repo.CreateSession(ctx, CreateSessionInput{
+			SchoolID: schoolID, AcademicYearID: yearID, ClassID: classID, Date: today, OpenedBy: userID,
+		})
+		switch {
+		case err == nil:
+			s.audit(ctx, schoolID, userID, "attendance.session_open", "attendance_session", sess.ID, nil,
+				map[string]any{"class_id": classID, "date": today.Format("2006-01-02"), "opened_via": "self_checkin"})
+		case errors.Is(err, ErrConflict):
+			sess, err = s.repo.GetSessionByClassDate(ctx, schoolID, classID, today)
+			if err != nil {
+				return SelfCheckinResult{}, err
+			}
+		default:
+			return SelfCheckinResult{}, err
+		}
+	case err != nil:
+		return SelfCheckinResult{}, err
+	}
+
+	if sess.Status == SessionFinalized {
+		return SelfCheckinResult{}, ErrSessionLocked
+	}
+
+	if _, err := s.repo.GetRecordForStudent(ctx, sess.ID, studentID); err == nil {
+		return SelfCheckinResult{}, httpx.Validation("Kamu sudah check-in hari ini.")
+	} else if !errors.Is(err, ErrNotFound) {
+		return SelfCheckinResult{}, err
+	}
+
+	lateAt := openAt.Add(time.Duration(settings.LateAfterMin) * time.Minute)
+	status := StatusHadir
+	if local.After(lateAt) {
+		status = StatusTerlambat
+	}
+
+	meta, err := json.Marshal(map[string]any{"lat": in.Lat, "lng": in.Lng, "accuracy": in.Accuracy, "user_agent": in.UserAgent})
+	if err != nil {
+		return SelfCheckinResult{}, err
+	}
+
+	rec, err := s.repo.InsertRecordWithMeta(ctx, InsertRecordInput{
+		SchoolID: schoolID, SessionID: sess.ID, StudentID: studentID,
+		Status: status, Method: string(MethodSelfCheckin), MarkedBy: userID, Meta: meta,
+	})
+	if err != nil {
+		if errors.Is(err, ErrConflict) {
+			return SelfCheckinResult{}, httpx.Validation("Kamu sudah check-in hari ini.")
+		}
+		return SelfCheckinResult{}, err
+	}
+
+	return SelfCheckinResult{Status: rec.Status, CheckedAt: rec.MarkedAt}, nil
+}
+
+// Anomalies — GET /api/attendance/anomalies?date=&class_id= (docs/05: "alat
+// bantu" deteksi self check-in mencurigakan, BUKAN anti-curang — keputusan
+// akhir tetap guru/wali kelas). Dua sinyal: (a) >=3 siswa check-in dari
+// koordinat yang (dibulatkan 5 desimal) identik, (b) accuracy GPS > 200 m.
+func (s *Service) Anomalies(ctx context.Context, schoolID int64, dateStr string, classID int64) ([]AnomalyItem, error) {
+	date, err := parseDateParam(dateStr, s.clock.Now(), schoolTimezone(ctx))
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.SelfCheckinRecordsForDate(ctx, schoolID, date, classID)
+	if err != nil {
+		return nil, err
+	}
+
+	type coordKey struct{ lat, lng float64 }
+	groups := make(map[coordKey][]int)
+	var out []AnomalyItem
+
+	for i, row := range rows {
+		if row.Accuracy > 200 {
+			out = append(out, AnomalyItem{
+				StudentID: row.StudentID, Name: row.StudentName, ClassName: row.ClassName,
+				Issue:  "low_accuracy",
+				Detail: fmt.Sprintf("Akurasi GPS ~%.0f m saat check-in (di atas 200 m).", row.Accuracy),
+			})
+		}
+		key := coordKey{round5(row.Lat), round5(row.Lng)}
+		groups[key] = append(groups[key], i)
+	}
+	for key, idxs := range groups {
+		if len(idxs) < 3 {
+			continue
+		}
+		for _, i := range idxs {
+			row := rows[i]
+			out = append(out, AnomalyItem{
+				StudentID: row.StudentID, Name: row.StudentName, ClassName: row.ClassName,
+				Issue:  "same_location",
+				Detail: fmt.Sprintf("%d siswa check-in dari koordinat yang sama (%.5f, %.5f).", len(idxs), key.lat, key.lng),
+			})
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Issue < out[j].Issue
+	})
+	return out, nil
 }

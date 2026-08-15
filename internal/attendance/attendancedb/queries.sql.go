@@ -143,6 +143,40 @@ func (q *Queries) FinalizeSession(ctx context.Context, arg FinalizeSessionParams
 	return i, err
 }
 
+const getActiveQRTokenByStudent = `-- name: GetActiveQRTokenByStudent :one
+SELECT token FROM student_qr_tokens
+WHERE student_id = $1 AND school_id = $2 AND revoked_at IS NULL
+`
+
+type GetActiveQRTokenByStudentParams struct {
+	StudentID int64 `json:"student_id"`
+	SchoolID  int64 `json:"school_id"`
+}
+
+func (q *Queries) GetActiveQRTokenByStudent(ctx context.Context, arg GetActiveQRTokenByStudentParams) (string, error) {
+	row := q.db.QueryRow(ctx, getActiveQRTokenByStudent, arg.StudentID, arg.SchoolID)
+	var token string
+	err := row.Scan(&token)
+	return token, err
+}
+
+const getActiveQRTokenStudentID = `-- name: GetActiveQRTokenStudentID :one
+SELECT student_id FROM student_qr_tokens
+WHERE token = $1 AND school_id = $2 AND revoked_at IS NULL
+`
+
+type GetActiveQRTokenStudentIDParams struct {
+	Token    string `json:"token"`
+	SchoolID int64  `json:"school_id"`
+}
+
+func (q *Queries) GetActiveQRTokenStudentID(ctx context.Context, arg GetActiveQRTokenStudentIDParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getActiveQRTokenStudentID, arg.Token, arg.SchoolID)
+	var student_id int64
+	err := row.Scan(&student_id)
+	return student_id, err
+}
+
 const getAttendanceSettingsRaw = `-- name: GetAttendanceSettingsRaw :one
 
 SELECT settings FROM school_settings WHERE school_id = $1 AND module = 'attendance'
@@ -178,6 +212,37 @@ func (q *Queries) GetClassMeta(ctx context.Context, arg GetClassMetaParams) (Get
 	row := q.db.QueryRow(ctx, getClassMeta, arg.ID, arg.SchoolID)
 	var i GetClassMetaRow
 	err := row.Scan(&i.ID, &i.Name, &i.AcademicYearID)
+	return i, err
+}
+
+const getRecordForStudent = `-- name: GetRecordForStudent :one
+SELECT student_id, status, method, note, marked_at FROM attendance_records
+WHERE session_id = $1 AND student_id = $2
+`
+
+type GetRecordForStudentParams struct {
+	SessionID int64 `json:"session_id"`
+	StudentID int64 `json:"student_id"`
+}
+
+type GetRecordForStudentRow struct {
+	StudentID int64              `json:"student_id"`
+	Status    string             `json:"status"`
+	Method    string             `json:"method"`
+	Note      pgtype.Text        `json:"note"`
+	MarkedAt  pgtype.Timestamptz `json:"marked_at"`
+}
+
+func (q *Queries) GetRecordForStudent(ctx context.Context, arg GetRecordForStudentParams) (GetRecordForStudentRow, error) {
+	row := q.db.QueryRow(ctx, getRecordForStudent, arg.SessionID, arg.StudentID)
+	var i GetRecordForStudentRow
+	err := row.Scan(
+		&i.StudentID,
+		&i.Status,
+		&i.Method,
+		&i.Note,
+		&i.MarkedAt,
+	)
 	return i, err
 }
 
@@ -314,6 +379,108 @@ func (q *Queries) GetSessionDetail(ctx context.Context, arg GetSessionDetailPara
 	return i, err
 }
 
+const getStudentBasicByID = `-- name: GetStudentBasicByID :one
+
+SELECT id, name, nis FROM students WHERE id = $1 AND school_id = $2
+`
+
+type GetStudentBasicByIDParams struct {
+	ID       int64 `json:"id"`
+	SchoolID int64 `json:"school_id"`
+}
+
+type GetStudentBasicByIDRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Nis  string `json:"nis"`
+}
+
+// -- QR kartu siswa (Fase 8, docs/05-attendance.md "QR kartu siswa") — token
+// -- acak per siswa di tabel student_qr_tokens (dimiliki modul attendance,
+// -- migrations/00009_student_qr.sql). Join read-only ke students/enrollments
+// -- (dimiliki modul student) sama seperti join lain di file ini.
+func (q *Queries) GetStudentBasicByID(ctx context.Context, arg GetStudentBasicByIDParams) (GetStudentBasicByIDRow, error) {
+	row := q.db.QueryRow(ctx, getStudentBasicByID, arg.ID, arg.SchoolID)
+	var i GetStudentBasicByIDRow
+	err := row.Scan(&i.ID, &i.Name, &i.Nis)
+	return i, err
+}
+
+const insertAttendanceRecordWithMeta = `-- name: InsertAttendanceRecordWithMeta :one
+
+INSERT INTO attendance_records (school_id, session_id, student_id, status, method, marked_by, meta)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, school_id, session_id, student_id, status, method, marked_by, marked_at, meta, note
+`
+
+type InsertAttendanceRecordWithMetaParams struct {
+	SchoolID  int64  `json:"school_id"`
+	SessionID int64  `json:"session_id"`
+	StudentID int64  `json:"student_id"`
+	Status    string `json:"status"`
+	Method    string `json:"method"`
+	MarkedBy  int64  `json:"marked_by"`
+	Meta      []byte `json:"meta"`
+}
+
+// -- record dengan meta (Fase 8: scan QR & self check-in) — beda dari
+// -- UpsertRecord/BulkUpsertRecords (dipakai input manual guru, selalu
+// -- menang/replace): ini INSERT MURNI supaya konflik (session_id,student_id)
+// -- terdeteksi lewat unique violation -> Service menerjemahkannya jadi
+// -- "already_marked" (QR scan) atau "sudah check-in" (self check-in) — record
+// -- yang SUDAH ada TIDAK PERNAH didowngrade oleh baris ini.
+func (q *Queries) InsertAttendanceRecordWithMeta(ctx context.Context, arg InsertAttendanceRecordWithMetaParams) (AttendanceRecord, error) {
+	row := q.db.QueryRow(ctx, insertAttendanceRecordWithMeta,
+		arg.SchoolID,
+		arg.SessionID,
+		arg.StudentID,
+		arg.Status,
+		arg.Method,
+		arg.MarkedBy,
+		arg.Meta,
+	)
+	var i AttendanceRecord
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.SessionID,
+		&i.StudentID,
+		&i.Status,
+		&i.Method,
+		&i.MarkedBy,
+		&i.MarkedAt,
+		&i.Meta,
+		&i.Note,
+	)
+	return i, err
+}
+
+const insertQRToken = `-- name: InsertQRToken :one
+INSERT INTO student_qr_tokens (school_id, student_id, token)
+VALUES ($1, $2, $3)
+RETURNING id, school_id, student_id, token, created_at, revoked_at
+`
+
+type InsertQRTokenParams struct {
+	SchoolID  int64  `json:"school_id"`
+	StudentID int64  `json:"student_id"`
+	Token     string `json:"token"`
+}
+
+func (q *Queries) InsertQRToken(ctx context.Context, arg InsertQRTokenParams) (StudentQrToken, error) {
+	row := q.db.QueryRow(ctx, insertQRToken, arg.SchoolID, arg.StudentID, arg.Token)
+	var i StudentQrToken
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.StudentID,
+		&i.Token,
+		&i.CreatedAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const listClassStudents = `-- name: ListClassStudents :many
 SELECT s.id, s.name, s.nis
 FROM students s
@@ -343,6 +510,52 @@ func (q *Queries) ListClassStudents(ctx context.Context, arg ListClassStudentsPa
 	for rows.Next() {
 		var i ListClassStudentsRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.Nis); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClassStudentsWithActiveToken = `-- name: ListClassStudentsWithActiveToken :many
+SELECT s.id, s.name, s.nis, t.token AS token
+FROM students s
+JOIN enrollments e ON e.student_id = s.id
+LEFT JOIN student_qr_tokens t ON t.student_id = s.id AND t.revoked_at IS NULL
+WHERE e.class_id = $1 AND s.school_id = $2
+ORDER BY s.name
+`
+
+type ListClassStudentsWithActiveTokenParams struct {
+	ClassID  int64 `json:"class_id"`
+	SchoolID int64 `json:"school_id"`
+}
+
+type ListClassStudentsWithActiveTokenRow struct {
+	ID    int64       `json:"id"`
+	Name  string      `json:"name"`
+	Nis   string      `json:"nis"`
+	Token pgtype.Text `json:"token"`
+}
+
+func (q *Queries) ListClassStudentsWithActiveToken(ctx context.Context, arg ListClassStudentsWithActiveTokenParams) ([]ListClassStudentsWithActiveTokenRow, error) {
+	rows, err := q.db.Query(ctx, listClassStudentsWithActiveToken, arg.ClassID, arg.SchoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListClassStudentsWithActiveTokenRow
+	for rows.Next() {
+		var i ListClassStudentsWithActiveTokenRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Nis,
+			&i.Token,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -447,6 +660,74 @@ func (q *Queries) ListSessionRecords(ctx context.Context, sessionID int64) ([]Li
 			&i.Method,
 			&i.Note,
 			&i.MarkedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeActiveQRToken = `-- name: RevokeActiveQRToken :exec
+UPDATE student_qr_tokens SET revoked_at = now()
+WHERE student_id = $1 AND school_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeActiveQRTokenParams struct {
+	StudentID int64 `json:"student_id"`
+	SchoolID  int64 `json:"school_id"`
+}
+
+func (q *Queries) RevokeActiveQRToken(ctx context.Context, arg RevokeActiveQRTokenParams) error {
+	_, err := q.db.Exec(ctx, revokeActiveQRToken, arg.StudentID, arg.SchoolID)
+	return err
+}
+
+const selfCheckinRecordsForDate = `-- name: SelfCheckinRecordsForDate :many
+
+SELECT r.student_id, st.name AS student_name, c.name AS class_name, r.meta
+FROM attendance_records r
+JOIN attendance_sessions s ON s.id = r.session_id
+JOIN students st ON st.id = r.student_id
+JOIN classes c ON c.id = s.class_id
+WHERE s.school_id = $1::bigint AND s.date = $2::date AND s.type = 'daily'
+  AND r.method = 'self_checkin'
+  AND ($3::bigint IS NULL OR s.class_id = $3::bigint)
+ORDER BY st.name
+`
+
+type SelfCheckinRecordsForDateParams struct {
+	SchoolID int64       `json:"school_id"`
+	Date     pgtype.Date `json:"date"`
+	ClassID  pgtype.Int8 `json:"class_id"`
+}
+
+type SelfCheckinRecordsForDateRow struct {
+	StudentID   int64  `json:"student_id"`
+	StudentName string `json:"student_name"`
+	ClassName   string `json:"class_name"`
+	Meta        []byte `json:"meta"`
+}
+
+// -- anomali self check-in (Fase 8, docs/05: "alat bantu deteksi", BUKAN
+// -- anti-curang — keputusan akhir tetap guru/wali kelas via override manual).
+func (q *Queries) SelfCheckinRecordsForDate(ctx context.Context, arg SelfCheckinRecordsForDateParams) ([]SelfCheckinRecordsForDateRow, error) {
+	rows, err := q.db.Query(ctx, selfCheckinRecordsForDate, arg.SchoolID, arg.Date, arg.ClassID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SelfCheckinRecordsForDateRow
+	for rows.Next() {
+		var i SelfCheckinRecordsForDateRow
+		if err := rows.Scan(
+			&i.StudentID,
+			&i.StudentName,
+			&i.ClassName,
+			&i.Meta,
 		); err != nil {
 			return nil, err
 		}

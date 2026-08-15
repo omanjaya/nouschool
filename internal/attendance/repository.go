@@ -49,6 +49,21 @@ type attendanceRepository interface {
 	StudentCounts(ctx context.Context, schoolID, studentID int64, from, to time.Time) (Counts, error)
 
 	GetSettings(ctx context.Context, schoolID int64) (Settings, error)
+
+	// -- QR kartu siswa (Fase 8, docs/05-attendance.md "QR kartu siswa") --
+	ListClassStudentsWithActiveToken(ctx context.Context, schoolID, classID int64) ([]QRCardRow, error)
+	GetStudentBasic(ctx context.Context, schoolID, studentID int64) (RosterStudent, error)
+	InsertQRToken(ctx context.Context, schoolID, studentID int64, token string) error
+	RevokeActiveQRToken(ctx context.Context, schoolID, studentID int64) error
+	GetActiveQRTokenByStudent(ctx context.Context, schoolID, studentID int64) (string, error)
+	ResolveActiveQRToken(ctx context.Context, schoolID int64, token string) (studentID int64, err error)
+
+	// -- record dengan meta: scan QR & self check-in (Fase 8) --
+	InsertRecordWithMeta(ctx context.Context, in InsertRecordInput) (RecordRow, error)
+	GetRecordForStudent(ctx context.Context, sessionID, studentID int64) (RecordRow, error)
+
+	// -- anomali self check-in (Fase 8) --
+	SelfCheckinRecordsForDate(ctx context.Context, schoolID int64, date time.Time, classID int64) ([]SelfCheckinMetaRow, error)
 }
 
 var _ attendanceRepository = (*Repository)(nil)
@@ -432,6 +447,160 @@ func (r *Repository) StudentCounts(ctx context.Context, schoolID, studentID int6
 		return Counts{}, err
 	}
 	return Counts{Hadir: row.Hadir, Terlambat: row.Terlambat, Izin: row.Izin, Sakit: row.Sakit, Alpa: row.Alpa}, nil
+}
+
+// -- QR kartu siswa (Fase 8) --
+
+// QRCardRow adalah satu baris roster+token dipakai GET/POST qr-cards — Token
+// kosong berarti siswa itu BELUM punya token aktif.
+type QRCardRow struct {
+	StudentID int64
+	Name      string
+	NIS       string
+	Token     string
+}
+
+func (r *Repository) ListClassStudentsWithActiveToken(ctx context.Context, schoolID, classID int64) ([]QRCardRow, error) {
+	rows, err := r.q.ListClassStudentsWithActiveToken(ctx, attendancedb.ListClassStudentsWithActiveTokenParams{
+		ClassID: classID, SchoolID: schoolID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]QRCardRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, QRCardRow{StudentID: row.ID, Name: row.Name, NIS: row.Nis, Token: row.Token.String})
+	}
+	return out, nil
+}
+
+func (r *Repository) GetStudentBasic(ctx context.Context, schoolID, studentID int64) (RosterStudent, error) {
+	row, err := r.q.GetStudentBasicByID(ctx, attendancedb.GetStudentBasicByIDParams{ID: studentID, SchoolID: schoolID})
+	if err != nil {
+		return RosterStudent{}, mapNoRows(err)
+	}
+	return RosterStudent{ID: row.ID, Name: row.Name, NIS: row.Nis}, nil
+}
+
+// InsertQRToken menerbitkan token AKTIF baru untuk siswa. Mengembalikan
+// ErrConflict bila siswa itu SUDAH punya token aktif (pelanggaran partial
+// unique index student_qr_tokens_active_unique) — pemanggil (Service) harus
+// mencabut token lama lebih dulu (lihat RevokeQRCard).
+func (r *Repository) InsertQRToken(ctx context.Context, schoolID, studentID int64, token string) error {
+	_, err := r.q.InsertQRToken(ctx, attendancedb.InsertQRTokenParams{SchoolID: schoolID, StudentID: studentID, Token: token})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *Repository) RevokeActiveQRToken(ctx context.Context, schoolID, studentID int64) error {
+	return r.q.RevokeActiveQRToken(ctx, attendancedb.RevokeActiveQRTokenParams{StudentID: studentID, SchoolID: schoolID})
+}
+
+func (r *Repository) GetActiveQRTokenByStudent(ctx context.Context, schoolID, studentID int64) (string, error) {
+	token, err := r.q.GetActiveQRTokenByStudent(ctx, attendancedb.GetActiveQRTokenByStudentParams{StudentID: studentID, SchoolID: schoolID})
+	if err != nil {
+		return "", mapNoRows(err)
+	}
+	return token, nil
+}
+
+// ResolveActiveQRToken menerjemahkan token mentah (hasil scan kamera, sudah
+// dilucuti prefix "nouschool:student:" oleh Service) menjadi student_id —
+// hanya token AKTIF (revoked_at IS NULL) milik sekolah INI yang cocok
+// (isolasi tenant, lihat CLAUDE.md).
+func (r *Repository) ResolveActiveQRToken(ctx context.Context, schoolID int64, token string) (int64, error) {
+	id, err := r.q.GetActiveQRTokenStudentID(ctx, attendancedb.GetActiveQRTokenStudentIDParams{Token: token, SchoolID: schoolID})
+	if err != nil {
+		return 0, mapNoRows(err)
+	}
+	return id, nil
+}
+
+// -- record dengan meta: scan QR & self check-in (Fase 8) --
+
+// InsertRecordInput adalah parameter InsertRecordWithMeta — Meta nil berarti
+// kolom meta NULL (dipakai scan QR; self check-in selalu mengisi meta
+// lat/lng/accuracy/user_agent, lihat docs/05-attendance.md).
+type InsertRecordInput struct {
+	SchoolID  int64
+	SessionID int64
+	StudentID int64
+	Status    string
+	Method    string
+	MarkedBy  int64
+	Meta      []byte
+}
+
+// InsertRecordWithMeta melakukan INSERT MURNI (bukan upsert) — mengembalikan
+// ErrConflict bila record (session_id,student_id) itu SUDAH ada (unique
+// constraint attendance_records), supaya Service bisa menerjemahkannya jadi
+// "already_marked" (scan QR, TIDAK PERNAH menimpa record yang sudah ada) atau
+// pesan "sudah check-in" (self check-in).
+func (r *Repository) InsertRecordWithMeta(ctx context.Context, in InsertRecordInput) (RecordRow, error) {
+	row, err := r.q.InsertAttendanceRecordWithMeta(ctx, attendancedb.InsertAttendanceRecordWithMetaParams{
+		SchoolID: in.SchoolID, SessionID: in.SessionID, StudentID: in.StudentID,
+		Status: in.Status, Method: in.Method, MarkedBy: in.MarkedBy, Meta: in.Meta,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return RecordRow{}, ErrConflict
+		}
+		return RecordRow{}, err
+	}
+	return RecordRow{StudentID: row.StudentID, Status: row.Status, Note: row.Note.String, Method: row.Method, MarkedAt: row.MarkedAt.Time}, nil
+}
+
+func (r *Repository) GetRecordForStudent(ctx context.Context, sessionID, studentID int64) (RecordRow, error) {
+	row, err := r.q.GetRecordForStudent(ctx, attendancedb.GetRecordForStudentParams{SessionID: sessionID, StudentID: studentID})
+	if err != nil {
+		return RecordRow{}, mapNoRows(err)
+	}
+	return RecordRow{StudentID: row.StudentID, Status: row.Status, Note: row.Note.String, Method: row.Method, MarkedAt: row.MarkedAt.Time}, nil
+}
+
+// -- anomali self check-in (Fase 8, docs/05: "alat bantu deteksi") --
+
+// SelfCheckinMetaRow adalah satu baris record self_checkin pada tanggal
+// tertentu, dengan meta (lat/lng/accuracy) sudah di-decode dari jsonb —
+// dipakai Service.Anomalies mengelompokkan koordinat identik/accuracy aneh.
+type SelfCheckinMetaRow struct {
+	StudentID   int64
+	StudentName string
+	ClassName   string
+	Lat         float64
+	Lng         float64
+	Accuracy    float64
+}
+
+func (r *Repository) SelfCheckinRecordsForDate(ctx context.Context, schoolID int64, date time.Time, classID int64) ([]SelfCheckinMetaRow, error) {
+	rows, err := r.q.SelfCheckinRecordsForDate(ctx, attendancedb.SelfCheckinRecordsForDateParams{
+		SchoolID: schoolID, Date: dateOf(date), ClassID: int8OrNil(classID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SelfCheckinMetaRow, 0, len(rows))
+	for _, row := range rows {
+		var meta struct {
+			Lat      float64 `json:"lat"`
+			Lng      float64 `json:"lng"`
+			Accuracy float64 `json:"accuracy"`
+		}
+		// meta bisa NULL/kosong untuk baris lama tanpa bukti GPS — diperlakukan
+		// sebagai (0,0,0), tidak pernah membuat proses ini gagal (alat bantu,
+		// bukan jalur kritis).
+		_ = json.Unmarshal(row.Meta, &meta)
+		out = append(out, SelfCheckinMetaRow{
+			StudentID: row.StudentID, StudentName: row.StudentName, ClassName: row.ClassName,
+			Lat: meta.Lat, Lng: meta.Lng, Accuracy: meta.Accuracy,
+		})
+	}
+	return out, nil
 }
 
 // -- settings --

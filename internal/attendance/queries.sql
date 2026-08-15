@@ -137,3 +137,66 @@ WHERE r.student_id = sqlc.arg(student_id)::bigint AND r.school_id = sqlc.arg(sch
 
 -- name: GetAttendanceSettingsRaw :one
 SELECT settings FROM school_settings WHERE school_id = $1 AND module = 'attendance';
+
+-- -- QR kartu siswa (Fase 8, docs/05-attendance.md "QR kartu siswa") — token
+-- -- acak per siswa di tabel student_qr_tokens (dimiliki modul attendance,
+-- -- migrations/00009_student_qr.sql). Join read-only ke students/enrollments
+-- -- (dimiliki modul student) sama seperti join lain di file ini.
+
+-- name: GetStudentBasicByID :one
+SELECT id, name, nis FROM students WHERE id = $1 AND school_id = $2;
+
+-- name: ListClassStudentsWithActiveToken :many
+SELECT s.id, s.name, s.nis, t.token AS token
+FROM students s
+JOIN enrollments e ON e.student_id = s.id
+LEFT JOIN student_qr_tokens t ON t.student_id = s.id AND t.revoked_at IS NULL
+WHERE e.class_id = $1 AND s.school_id = $2
+ORDER BY s.name;
+
+-- name: InsertQRToken :one
+INSERT INTO student_qr_tokens (school_id, student_id, token)
+VALUES ($1, $2, $3)
+RETURNING *;
+
+-- name: RevokeActiveQRToken :exec
+UPDATE student_qr_tokens SET revoked_at = now()
+WHERE student_id = $1 AND school_id = $2 AND revoked_at IS NULL;
+
+-- name: GetActiveQRTokenByStudent :one
+SELECT token FROM student_qr_tokens
+WHERE student_id = $1 AND school_id = $2 AND revoked_at IS NULL;
+
+-- name: GetActiveQRTokenStudentID :one
+SELECT student_id FROM student_qr_tokens
+WHERE token = $1 AND school_id = $2 AND revoked_at IS NULL;
+
+-- -- record dengan meta (Fase 8: scan QR & self check-in) — beda dari
+-- -- UpsertRecord/BulkUpsertRecords (dipakai input manual guru, selalu
+-- -- menang/replace): ini INSERT MURNI supaya konflik (session_id,student_id)
+-- -- terdeteksi lewat unique violation -> Service menerjemahkannya jadi
+-- -- "already_marked" (QR scan) atau "sudah check-in" (self check-in) — record
+-- -- yang SUDAH ada TIDAK PERNAH didowngrade oleh baris ini.
+
+-- name: InsertAttendanceRecordWithMeta :one
+INSERT INTO attendance_records (school_id, session_id, student_id, status, method, marked_by, meta)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING *;
+
+-- name: GetRecordForStudent :one
+SELECT student_id, status, method, note, marked_at FROM attendance_records
+WHERE session_id = $1 AND student_id = $2;
+
+-- -- anomali self check-in (Fase 8, docs/05: "alat bantu deteksi", BUKAN
+-- -- anti-curang — keputusan akhir tetap guru/wali kelas via override manual).
+
+-- name: SelfCheckinRecordsForDate :many
+SELECT r.student_id, st.name AS student_name, c.name AS class_name, r.meta
+FROM attendance_records r
+JOIN attendance_sessions s ON s.id = r.session_id
+JOIN students st ON st.id = r.student_id
+JOIN classes c ON c.id = s.class_id
+WHERE s.school_id = sqlc.arg(school_id)::bigint AND s.date = sqlc.arg(date)::date AND s.type = 'daily'
+  AND r.method = 'self_checkin'
+  AND (sqlc.narg(class_id)::bigint IS NULL OR s.class_id = sqlc.narg(class_id)::bigint)
+ORDER BY st.name;

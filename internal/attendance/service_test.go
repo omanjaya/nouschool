@@ -3,6 +3,7 @@ package attendance
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,16 +22,26 @@ type fakeRepo struct {
 	records  map[int64][]RecordRow // sessionID -> records
 	settings Settings
 	nextID   int64
+
+	// -- QR kartu siswa (Fase 8) --
+	qrTokens     map[int64]string // studentID -> token aktif
+	qrTokenOwner map[string]int64 // token -> studentID
+
+	// -- anomali self check-in (Fase 8): diisi langsung oleh test, bukan
+	// -- diturunkan dari records (fake ini tidak menyimpan meta per-record) --
+	anomalyRows []SelfCheckinMetaRow
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
-		classes:  map[int64]ClassMeta{},
-		roster:   map[int64][]RosterStudent{},
-		sessions: map[int64]SessionRecord{},
-		records:  map[int64][]RecordRow{},
-		settings: DefaultSettings(),
-		nextID:   1,
+		classes:      map[int64]ClassMeta{},
+		roster:       map[int64][]RosterStudent{},
+		sessions:     map[int64]SessionRecord{},
+		records:      map[int64][]RecordRow{},
+		settings:     DefaultSettings(),
+		nextID:       1,
+		qrTokens:     map[int64]string{},
+		qrTokenOwner: map[string]int64{},
 	}
 }
 
@@ -176,6 +187,89 @@ func (f *fakeRepo) GetSettings(ctx context.Context, schoolID int64) (Settings, e
 	return f.settings, nil
 }
 
+// -- QR kartu siswa (Fase 8) --
+
+func (f *fakeRepo) ListClassStudentsWithActiveToken(ctx context.Context, schoolID, classID int64) ([]QRCardRow, error) {
+	out := make([]QRCardRow, 0, len(f.roster[classID]))
+	for _, st := range f.roster[classID] {
+		out = append(out, QRCardRow{StudentID: st.ID, Name: st.Name, NIS: st.NIS, Token: f.qrTokens[st.ID]})
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) GetStudentBasic(ctx context.Context, schoolID, studentID int64) (RosterStudent, error) {
+	for _, list := range f.roster {
+		for _, st := range list {
+			if st.ID == studentID {
+				return st, nil
+			}
+		}
+	}
+	return RosterStudent{}, ErrNotFound
+}
+
+func (f *fakeRepo) InsertQRToken(ctx context.Context, schoolID, studentID int64, token string) error {
+	if _, ok := f.qrTokens[studentID]; ok {
+		return ErrConflict
+	}
+	f.qrTokens[studentID] = token
+	f.qrTokenOwner[token] = studentID
+	return nil
+}
+
+func (f *fakeRepo) RevokeActiveQRToken(ctx context.Context, schoolID, studentID int64) error {
+	if tok, ok := f.qrTokens[studentID]; ok {
+		delete(f.qrTokenOwner, tok)
+		delete(f.qrTokens, studentID)
+	}
+	return nil
+}
+
+func (f *fakeRepo) GetActiveQRTokenByStudent(ctx context.Context, schoolID, studentID int64) (string, error) {
+	tok, ok := f.qrTokens[studentID]
+	if !ok {
+		return "", ErrNotFound
+	}
+	return tok, nil
+}
+
+func (f *fakeRepo) ResolveActiveQRToken(ctx context.Context, schoolID int64, token string) (int64, error) {
+	id, ok := f.qrTokenOwner[token]
+	if !ok {
+		return 0, ErrNotFound
+	}
+	return id, nil
+}
+
+// -- record dengan meta: scan QR & self check-in (Fase 8) --
+
+func (f *fakeRepo) InsertRecordWithMeta(ctx context.Context, in InsertRecordInput) (RecordRow, error) {
+	existing := f.records[in.SessionID]
+	for _, r := range existing {
+		if r.StudentID == in.StudentID {
+			return RecordRow{}, ErrConflict
+		}
+	}
+	row := RecordRow{StudentID: in.StudentID, Status: in.Status, Method: in.Method, MarkedAt: time.Now()}
+	f.records[in.SessionID] = append(existing, row)
+	return row, nil
+}
+
+func (f *fakeRepo) GetRecordForStudent(ctx context.Context, sessionID, studentID int64) (RecordRow, error) {
+	for _, r := range f.records[sessionID] {
+		if r.StudentID == studentID {
+			return r, nil
+		}
+	}
+	return RecordRow{}, ErrNotFound
+}
+
+// -- anomali self check-in (Fase 8) --
+
+func (f *fakeRepo) SelfCheckinRecordsForDate(ctx context.Context, schoolID int64, date time.Time, classID int64) ([]SelfCheckinMetaRow, error) {
+	return f.anomalyRows, nil
+}
+
 // fakeIdentity implementasi IdentityGateway minimal untuk test.
 type fakeIdentity struct {
 	perms map[string]map[string]bool
@@ -217,6 +311,9 @@ func (f fakeYears) ActiveAcademicYearID(ctx context.Context, schoolID int64) (in
 type fakeStudents struct {
 	// (userID,studentID) yang boleh diakses oleh role siswa/orang_tua.
 	allowed map[int64]int64
+	// self: userID -> [studentID, classID] (profil siswa milik user login,
+	// dipakai self check-in — fase 8).
+	self map[int64][2]int64
 }
 
 func (f fakeStudents) CanViewStudent(ctx context.Context, userID int64, role string, schoolID, studentID int64) error {
@@ -224,6 +321,14 @@ func (f fakeStudents) CanViewStudent(ctx context.Context, userID int64, role str
 		return nil
 	}
 	return httpx.ErrForbidden
+}
+
+func (f fakeStudents) MyStudentID(ctx context.Context, schoolID, userID int64) (int64, int64, bool, error) {
+	v, ok := f.self[userID]
+	if !ok {
+		return 0, 0, false, nil
+	}
+	return v[0], v[1], true, nil
 }
 
 // fakeSchedule implementasi ScheduleSlotLookup untuk test (fase 6).
@@ -677,5 +782,313 @@ func TestSlotsTodayGuru(t *testing.T) {
 	}
 	if len(itemsAdmin) != 0 {
 		t.Fatalf("expected daftar kosong utk non-guru, got %d", len(itemsAdmin))
+	}
+}
+
+// -- haversineMeters (fungsi murni, Fase 8) --
+
+func TestHaversineMeters(t *testing.T) {
+	t.Run("titik sama = 0 meter", func(t *testing.T) {
+		d := haversineMeters(-6.2, 106.816666, -6.2, 106.816666)
+		if d > 0.001 {
+			t.Fatalf("expected ~0, got %f", d)
+		}
+	})
+
+	t.Run("dalam radius 150m", func(t *testing.T) {
+		// ~0.0009 derajat lat ~= 100 m.
+		d := haversineMeters(-6.2, 106.816666, -6.2009, 106.816666)
+		if d > 150 {
+			t.Fatalf("expected dalam radius 150m, got %.1f m", d)
+		}
+	})
+
+	t.Run("luar radius 150m", func(t *testing.T) {
+		// ~0.01 derajat lat ~= 1.1 km.
+		d := haversineMeters(-6.2, 106.816666, -6.21, 106.816666)
+		if d < 500 {
+			t.Fatalf("expected jauh di luar radius, got %.1f m", d)
+		}
+	})
+}
+
+// -- Self check-in siswa (Fase 8) --
+
+// wibTime membangun waktu lokal WIB (dipakai clock.Fixed di test self
+// check-in) — memakai time.Date langsung dengan lokasi Asia/Jakarta supaya
+// jam yang ditulis di test SAMA dengan jam lokal yang dibaca schoolToday/
+// clock.InZone di service.go (bebas dari kesalahan hitung offset manual).
+func wibTime(y int, m time.Month, d, h, min int) time.Time {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		panic(err)
+	}
+	return time.Date(y, m, d, h, min, 0, 0, loc)
+}
+
+// selfCheckinSettings — jendela 06:00-07:30 WIB, radius 150m dari titik
+// (-6.2, 106.816666), toleransi telat 15 menit (docs/05-attendance.md).
+func selfCheckinSettings() Settings {
+	return Settings{
+		Mode:            ModeDaily,
+		Methods:         []Method{MethodManual, MethodSelfCheckin},
+		SelfCheckin:     &SelfCheckinRule{Lat: -6.2, Lng: 106.816666, RadiusM: 150, OpenFrom: "06:00", CloseAt: "07:30"},
+		EditWindowHours: 24,
+		LateAfterMin:    15,
+	}
+}
+
+func TestSelfCheckinWindow(t *testing.T) {
+	t.Run("sebelum jendela dibuka ditolak", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.settings = selfCheckinSettings()
+		students := fakeStudents{self: map[int64][2]int64{500: {10, 1}}}
+		fixed := clock.Fixed{T: wibTime(2026, 8, 10, 5, 0)}
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+		ctx := ctxAs("siswa", 500, "Asia/Jakarta")
+
+		_, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.2, Lng: 106.816666, Accuracy: 5})
+		var de *httpx.Error
+		if !errors.As(err, &de) || de.Status != 422 {
+			t.Fatalf("expected 422 (belum dibuka), got: %v", err)
+		}
+	})
+
+	t.Run("dalam jendela sukses", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.settings = selfCheckinSettings()
+		students := fakeStudents{self: map[int64][2]int64{500: {10, 1}}}
+		// 06:10 WIB: dalam jendela (06:00-07:30) DAN dalam toleransi telat
+		// (open_from+15 menit = 06:15) -> sukses dengan status hadir.
+		fixed := clock.Fixed{T: wibTime(2026, 8, 10, 6, 10)}
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+		ctx := ctxAs("siswa", 500, "Asia/Jakarta")
+
+		result, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.2, Lng: 106.816666, Accuracy: 5})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Status != StatusHadir {
+			t.Fatalf("expected hadir, got %s", result.Status)
+		}
+	})
+
+	t.Run("setelah jendela ditutup ditolak", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.settings = selfCheckinSettings()
+		students := fakeStudents{self: map[int64][2]int64{500: {10, 1}}}
+		fixed := clock.Fixed{T: wibTime(2026, 8, 10, 8, 0)}
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+		ctx := ctxAs("siswa", 500, "Asia/Jakarta")
+
+		_, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.2, Lng: 106.816666, Accuracy: 5})
+		var de *httpx.Error
+		if !errors.As(err, &de) || de.Status != 422 {
+			t.Fatalf("expected 422 (sudah ditutup), got: %v", err)
+		}
+	})
+}
+
+func TestSelfCheckinLateThreshold(t *testing.T) {
+	t.Run("tepat di batas open_from+late_after_min -> hadir", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.settings = selfCheckinSettings() // open 06:00 + late_after 15 -> batas 06:15
+		students := fakeStudents{self: map[int64][2]int64{500: {10, 1}}}
+		fixed := clock.Fixed{T: wibTime(2026, 8, 10, 6, 15)}
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+		ctx := ctxAs("siswa", 500, "Asia/Jakarta")
+
+		result, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.2, Lng: 106.816666, Accuracy: 5})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Status != StatusHadir {
+			t.Fatalf("expected hadir tepat di batas, got %s", result.Status)
+		}
+	})
+
+	t.Run("lewat batas open_from+late_after_min -> terlambat", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.settings = selfCheckinSettings()
+		students := fakeStudents{self: map[int64][2]int64{500: {10, 1}}}
+		fixed := clock.Fixed{T: wibTime(2026, 8, 10, 6, 20)}
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+		ctx := ctxAs("siswa", 500, "Asia/Jakarta")
+
+		result, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.2, Lng: 106.816666, Accuracy: 5})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Status != StatusTerlambat {
+			t.Fatalf("expected terlambat, got %s", result.Status)
+		}
+	})
+}
+
+func TestSelfCheckinDoubleRejected(t *testing.T) {
+	repo := newFakeRepo()
+	repo.settings = selfCheckinSettings()
+	students := fakeStudents{self: map[int64][2]int64{500: {10, 1}}}
+	fixed := clock.Fixed{T: wibTime(2026, 8, 10, 6, 30)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("siswa", 500, "Asia/Jakarta")
+
+	if _, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.2, Lng: 106.816666, Accuracy: 5}); err != nil {
+		t.Fatalf("unexpected error pada check-in pertama: %v", err)
+	}
+
+	_, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.2, Lng: 106.816666, Accuracy: 5})
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 422 {
+		t.Fatalf("expected 422 (sudah check-in hari ini), got: %v", err)
+	}
+}
+
+func TestSelfCheckinOutsideRadius(t *testing.T) {
+	repo := newFakeRepo()
+	repo.settings = selfCheckinSettings() // radius 150m
+	students := fakeStudents{self: map[int64][2]int64{500: {10, 1}}}
+	fixed := clock.Fixed{T: wibTime(2026, 8, 10, 6, 30)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("siswa", 500, "Asia/Jakarta")
+
+	// ~1.1 km dari titik sekolah — jauh di luar radius 150m.
+	_, err := svc.SelfCheckin(ctx, 1, SelfCheckinInput{Lat: -6.21, Lng: 106.816666, Accuracy: 5})
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 422 {
+		t.Fatalf("expected 422 (luar radius), got: %v", err)
+	}
+	if !strings.Contains(de.Message, "dari sekolah") {
+		t.Fatalf("expected pesan error menyebut jarak dari sekolah, got: %s", de.Message)
+	}
+}
+
+// -- QR kartu siswa: scan (Fase 8) --
+
+func setupScanSession(repo *fakeRepo) int64 {
+	repo.classes[1] = ClassMeta{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	repo.roster[1] = []RosterStudent{{ID: 10, Name: "Siswa A", NIS: "001"}}
+	created := time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)
+	sess := SessionRecord{ID: 100, SchoolID: 1, AcademicYearID: 1, ClassID: 1, Date: created, Type: TypeDaily, OpenedBy: 999, Status: SessionOpen, CreatedAt: created}
+	repo.sessions[sess.ID] = sess
+	return sess.ID
+}
+
+func TestScanQRCardRevoked(t *testing.T) {
+	repo := newFakeRepo()
+	sessionID := setupScanSession(repo)
+	if err := repo.InsertQRToken(context.Background(), 1, 10, "tokenlama0000000000001"); err != nil {
+		t.Fatalf("unexpected error setup token: %v", err)
+	}
+	if err := repo.RevokeActiveQRToken(context.Background(), 1, 10); err != nil {
+		t.Fatalf("unexpected error revoke: %v", err)
+	}
+
+	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 8, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	_, err := svc.ScanQRCard(ctx, 999, 1, sessionID, "tokenlama0000000000001")
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 404 || de.Code != "qr_unknown" {
+		t.Fatalf("expected 404 qr_unknown (token dicabut), got: %v", err)
+	}
+}
+
+func TestScanQRCardWrongClass(t *testing.T) {
+	repo := newFakeRepo()
+	sessionID := setupScanSession(repo)
+	// Siswa 20 terdaftar di rombel LAIN (kelas 2), bukan kelas 1 (kelas sesi).
+	repo.roster[2] = []RosterStudent{{ID: 20, Name: "Siswa Lain", NIS: "002"}}
+	if err := repo.InsertQRToken(context.Background(), 1, 20, "tokensiswalain00000001"); err != nil {
+		t.Fatalf("unexpected error setup token: %v", err)
+	}
+
+	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 8, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	_, err := svc.ScanQRCard(ctx, 999, 1, sessionID, "tokensiswalain00000001")
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 422 {
+		t.Fatalf("expected 422 (bukan anggota rombel sesi), got: %v", err)
+	}
+}
+
+// TestScanQRCardAlreadyMarkedNoDowngrade — record yang SUDAH ada (mis. guru
+// menandai manual "sakit" duluan) TIDAK PERNAH ditimpa scan QR berikutnya;
+// scan hanya mengembalikan status yang tersimpan dengan already_marked=true
+// (docs/05-attendance.md).
+func TestScanQRCardAlreadyMarkedNoDowngrade(t *testing.T) {
+	repo := newFakeRepo()
+	sessionID := setupScanSession(repo)
+	if err := repo.InsertQRToken(context.Background(), 1, 10, "tokensiswaA0000000001"); err != nil {
+		t.Fatalf("unexpected error setup token: %v", err)
+	}
+	repo.records[sessionID] = []RecordRow{{StudentID: 10, Status: StatusSakit, Method: "manual", MarkedAt: time.Now()}}
+
+	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 8, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	result, err := svc.ScanQRCard(ctx, 999, 1, sessionID, "tokensiswaA0000000001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.AlreadyMarked {
+		t.Fatal("expected already_marked=true")
+	}
+	if result.Status != StatusSakit {
+		t.Fatalf("expected status TIDAK berubah (sakit), got %s", result.Status)
+	}
+}
+
+// -- anomali self check-in (Fase 8) --
+
+func TestAnomaliesGroupingAndAccuracy(t *testing.T) {
+	repo := newFakeRepo()
+	repo.anomalyRows = []SelfCheckinMetaRow{
+		{StudentID: 1, StudentName: "Andi", ClassName: "XI RPL 2", Lat: -6.2, Lng: 106.816666, Accuracy: 10},
+		{StudentID: 2, StudentName: "Budi", ClassName: "XI RPL 2", Lat: -6.2, Lng: 106.816666, Accuracy: 10},
+		// Beda di desimal ke-6 -> setelah dibulatkan 5 desimal, SAMA dengan Andi/Budi.
+		{StudentID: 3, StudentName: "Citra", ClassName: "XI RPL 2", Lat: -6.200001, Lng: 106.816667, Accuracy: 10},
+		{StudentID: 4, StudentName: "Dedi", ClassName: "XI RPL 2", Lat: -6.25, Lng: 106.85, Accuracy: 500},
+		{StudentID: 5, StudentName: "Eka", ClassName: "XI RPL 2", Lat: -6.3, Lng: 106.9, Accuracy: 10},
+	}
+	fixed := clock.Fixed{T: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+
+	items, err := svc.Anomalies(ctx, 1, "2026-08-10", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	byStudent := map[int64][]string{}
+	for _, it := range items {
+		byStudent[it.StudentID] = append(byStudent[it.StudentID], it.Issue)
+	}
+	for _, id := range []int64{1, 2, 3} {
+		found := false
+		for _, issue := range byStudent[id] {
+			if issue == "same_location" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected siswa %d terflag same_location, got %v", id, byStudent[id])
+		}
+	}
+	found := false
+	for _, issue := range byStudent[4] {
+		if issue == "low_accuracy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected siswa 4 terflag low_accuracy, got %v", byStudent[4])
+	}
+	if len(byStudent[5]) != 0 {
+		t.Fatalf("expected siswa 5 TIDAK ada anomali, got %v", byStudent[5])
 	}
 }

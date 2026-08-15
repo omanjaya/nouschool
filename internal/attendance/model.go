@@ -204,3 +204,63 @@ type SlotTodayView struct {
 	Slot    SlotTodaySlot     `json:"slot"`
 	Session *SlotTodaySession `json:"session"`
 }
+
+// -- QR kartu siswa (Fase 8, docs/05-attendance.md "QR kartu siswa") --
+
+// QRCardView adalah satu baris response GET/POST /api/attendance/qr-cards*.
+type QRCardView struct {
+	StudentID int64  `json:"student_id"`
+	Name      string `json:"name"`
+	NIS       string `json:"nis"`
+	Token     string `json:"token"`
+}
+
+// ScanResult adalah shape response POST /api/attendance/sessions/{id}/scan.
+type ScanResult struct {
+	StudentID     int64  `json:"student_id"`
+	Name          string `json:"name"`
+	NIS           string `json:"nis"`
+	Status        string `json:"status"`
+	AlreadyMarked bool   `json:"already_marked"`
+}
+
+// -- Self check-in siswa (Fase 8, docs/05-attendance.md "Self check-in siswa") --
+
+// SelfCheckinWindow adalah potongan jendela waktu disematkan pada
+// SelfCheckinStatusView.
+type SelfCheckinWindow struct {
+	OpenFrom string `json:"open_from"`
+	CloseAt  string `json:"close_at"`
+}
+
+// SelfCheckinToday adalah status check-in siswa HARI INI (sesi daily
+// rombelnya), null bila belum ada record apa pun untuk hari ini.
+type SelfCheckinToday struct {
+	Status    string    `json:"status"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+// SelfCheckinStatusView adalah shape response GET /api/attendance/self-checkin/status.
+type SelfCheckinStatusView struct {
+	Enabled   bool               `json:"enabled"`
+	Window    *SelfCheckinWindow `json:"window"`
+	LateAfter *string            `json:"late_after"`
+	Today     *SelfCheckinToday  `json:"today"`
+}
+
+// SelfCheckinResult adalah shape response POST /api/attendance/self-checkin.
+type SelfCheckinResult struct {
+	Status    string    `json:"status"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+// AnomalyItem adalah satu baris response GET /api/attendance/anomalies —
+// alat bantu deteksi (docs/05: "BUKAN anti-curang"), keputusan akhir tetap
+// guru/wali kelas.
+type AnomalyItem struct {
+	StudentID int64  `json:"student_id"`
+	Name      string `json:"name"`
+	ClassName string `json:"class_name"`
+	Issue     string `json:"issue"` // "same_location" | "low_accuracy"
+	Detail    string `json:"detail"`
+}

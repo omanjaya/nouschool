@@ -212,6 +212,15 @@ type Student struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type StudentQrToken struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	StudentID int64              `json:"student_id"`
+	Token     string             `json:"token"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type Subject struct {
 	ID       int64  `json:"id"`
 	SchoolID int64  `json:"school_id"`
