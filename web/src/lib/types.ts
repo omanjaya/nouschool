@@ -333,3 +333,80 @@ export interface LeaveSettings {
   types: LeaveType[];
   chain: LeaveChainStep[];
 }
+
+/* ---- Schedule / Jadwal pelajaran (Fase 5, docs/04-schedule.md) ---- */
+
+/** GET/PUT /api/periods — "jam ke-" per sekolah. `label` terisi = non-KBM (mis. "Istirahat"). */
+export interface Period {
+  id: string;
+  number: number;
+  starts_at: string;
+  ends_at: string;
+  label: string | null;
+}
+
+/** GET /api/rooms — `qr_token` hanya dikirim untuk admin. */
+export interface Room {
+  id: string;
+  name: string;
+  qr_token?: string | null;
+}
+
+export interface ScheduleSlotSubjectRef {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface ScheduleSlotRoomRef {
+  id: string;
+  name: string;
+}
+
+/** 1=Senin ... 6=Sabtu (docs/04-schedule.md). */
+export type DayOfWeek = 1 | 2 | 3 | 4 | 5 | 6;
+
+/** GET /api/schedule/slots?class_id=|teacher_id= */
+export interface ScheduleSlot {
+  id: string;
+  class: ClassRef;
+  subject: ScheduleSlotSubjectRef;
+  teacher: TeacherRef;
+  room: ScheduleSlotRoomRef | null;
+  day_of_week: DayOfWeek;
+  period_start: number;
+  period_end: number;
+}
+
+export interface ScheduleSlotInput {
+  class_id: string;
+  subject_id: string;
+  teacher_id: string;
+  room_id?: string | null;
+  day_of_week: DayOfWeek;
+  period_start: number;
+  period_end: number;
+}
+
+/** POST /api/schedule/copy → { copied, skipped: [{reason}] } */
+export interface ScheduleCopyResult {
+  copied: number;
+  skipped: { reason: string }[];
+}
+
+/** GET /api/schedule/today?class_id=|teacher_id= */
+export interface ScheduleTodaySlot extends ScheduleSlot {
+  is_now: boolean;
+}
+
+export interface CurrentPeriodInfo {
+  number: number;
+  starts_at: string;
+  ends_at: string;
+}
+
+/** GET /api/schedule/current-period */
+export interface CurrentPeriodResult {
+  period: CurrentPeriodInfo | null;
+  next_starts_at: string | null;
+}

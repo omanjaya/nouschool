@@ -2,11 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import type { ImportCommitResult, ImportPreviewResult } from '../../lib/types';
 
-export type ImportEntity = 'students' | 'teachers';
+export type ImportEntity = 'students' | 'teachers' | 'schedule';
 
 export const IMPORT_ENTITY_LABEL: Record<ImportEntity, string> = {
   students: 'siswa',
   teachers: 'guru',
+  schedule: 'jadwal',
 };
 
 /** URL template CSV — dibuka langsung lewat <a href>, bukan fetch (lihat lib/api.ts). */
@@ -33,6 +34,12 @@ export function useImportCommit(entity: ImportEntity) {
       api.post<ImportCommitResult>(`/import/${entity}/commit`, { upload_id: uploadId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [entity] });
+      // Slot jadwal disimpan di bawah query key 'schedule-slots' (features/schedule/api.ts),
+      // bukan 'schedule' — invalidasi tambahan supaya builder & grid ikut refresh.
+      if (entity === 'schedule') {
+        queryClient.invalidateQueries({ queryKey: ['schedule-slots'] });
+        queryClient.invalidateQueries({ queryKey: ['schedule-today'] });
+      }
     },
   });
 }

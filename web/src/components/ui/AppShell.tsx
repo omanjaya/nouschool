@@ -17,7 +17,7 @@ interface AppShellProps {
 export function AppShell({ children, navItems, userName, onLogout }: AppShellProps) {
   return (
     <div className="min-h-dvh bg-bg text-ink lg:flex">
-      <aside className="hidden lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-line lg:py-6">
+      <aside className="hidden lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-line lg:py-6 print:hidden">
         <div className="px-5 pb-6">
           <span className="text-[18px] font-semibold text-ink">NouSchool</span>
         </div>
@@ -57,11 +57,11 @@ export function AppShell({ children, navItems, userName, onLogout }: AppShellPro
       </aside>
 
       <div className="flex min-h-dvh flex-1 flex-col lg:min-h-0">
-        <main className="flex-1 pb-[68px] lg:pb-0">{children}</main>
+        <main className="flex-1 pb-[68px] lg:pb-0 print:pb-0">{children}</main>
 
         <nav
           aria-label="Navigasi utama"
-          className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface lg:hidden"
+          className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface lg:hidden print:hidden"
         >
           <ul className="flex">
             {navItems.map((item) => (

@@ -25,19 +25,38 @@ const ACTION_LABEL: Record<ImportRow['action'], string> = {
   error: 'Error',
 };
 
-function rowDisplayName(row: ImportRow): string {
-  return row.data.nama ?? row.data.name ?? `Baris ${row.row}`;
+/** Judul kartu diambil dari kolom nama-nama ini dulu (data entity-spesifik). */
+const ENTITY_TITLE_KEYS: Record<ImportEntity, string[]> = {
+  students: ['nama', 'name'],
+  teachers: ['nama', 'name'],
+  schedule: ['rombel'],
+};
+
+const ENTITY_TITLE: Record<ImportEntity, string> = {
+  students: 'Siswa',
+  teachers: 'Guru',
+  schedule: 'Jadwal',
+};
+
+/** Judul baris: kolom identitas entity kalau ada, jatuh ke "Baris N" — dinamis per entity. */
+function rowDisplayName(row: ImportRow, entity: ImportEntity): string {
+  for (const key of ENTITY_TITLE_KEYS[entity]) {
+    const value = row.data[key];
+    if (value) return value;
+  }
+  return `Baris ${row.row}`;
 }
 
-function rowSubtitle(row: ImportRow): string {
-  const entries = Object.entries(row.data).filter(([key]) => key !== 'nama' && key !== 'name');
-  return entries
-    .filter(([, value]) => value)
+/** Subjudul: sisa kolom data (selain yang dipakai jadi judul), digabung apa adanya — kolom dinamis, tidak hardcode entity siswa/guru. */
+function rowSubtitle(row: ImportRow, entity: ImportEntity): string {
+  const titleKeys = ENTITY_TITLE_KEYS[entity];
+  return Object.entries(row.data)
+    .filter(([key, value]) => !titleKeys.includes(key) && value)
     .map(([, value]) => value)
     .join(' · ');
 }
 
-/** Wizard 3 langkah: upload → preview & validasi → commit. Dipakai untuk import siswa & guru. */
+/** Wizard 3 langkah: upload → preview & validasi → commit. Entity-parameterized: siswa, guru, jadwal. */
 export function ImportWizard({ entity, backTo }: ImportWizardProps) {
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
@@ -85,7 +104,7 @@ export function ImportWizard({ entity, backTo }: ImportWizardProps) {
           <ChevronLeft size={16} strokeWidth={2} aria-hidden="true" />
           Kembali
         </button>
-        <h1 className="text-[21px] font-semibold text-ink">Import Data {label === 'siswa' ? 'Siswa' : 'Guru'}</h1>
+        <h1 className="text-[21px] font-semibold text-ink">Import Data {ENTITY_TITLE[entity]}</h1>
         <p className="text-[12px] text-muted">Langkah {step === 'upload' ? '1' : step === 'preview' ? '2' : '3'} dari 3</p>
       </div>
 
@@ -160,8 +179,12 @@ export function ImportWizard({ entity, backTo }: ImportWizardProps) {
               {preview.data.rows.map((row) => (
                 <ListRow
                   key={row.row}
-                  title={rowDisplayName(row)}
-                  subtitle={row.action === 'error' ? row.messages.join('; ') || rowSubtitle(row) : rowSubtitle(row)}
+                  title={rowDisplayName(row, entity)}
+                  subtitle={
+                    row.action === 'error'
+                      ? row.messages.join('; ') || rowSubtitle(row, entity)
+                      : rowSubtitle(row, entity)
+                  }
                   trailing={
                     <Tag variant={row.action === 'error' ? 'danger' : row.action === 'update' ? 'neutral' : 'now'}>
                       {ACTION_LABEL[row.action]}
@@ -197,7 +220,7 @@ export function ImportWizard({ entity, backTo }: ImportWizardProps) {
             <StatTile label="Dilewati" value={commit.data.skipped} />
           </div>
           <Button type="button" onClick={() => navigate(backTo)}>
-            Selesai — Lihat Daftar {label === 'siswa' ? 'Siswa' : 'Guru'}
+            Selesai — Lihat Daftar {ENTITY_TITLE[entity]}
           </Button>
         </div>
       )}

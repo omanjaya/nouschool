@@ -28,6 +28,11 @@ import { LeaveApprovalsPage } from './features/leave/LeaveApprovalsPage';
 import { LeaveApprovalDetailPage } from './features/leave/LeaveApprovalDetailPage';
 import { LeaveRecapPage } from './features/leave/LeaveRecapPage';
 import { Button } from './components/ui/Button';
+import { PeriodsPage } from './features/schedule/PeriodsPage';
+import { RoomsPage } from './features/schedule/RoomsPage';
+import { RoomsPrintPage } from './features/schedule/RoomsPrintPage';
+import { ScheduleBuilderPage } from './features/schedule/ScheduleBuilderPage';
+import { SchedulePage } from './features/schedule/SchedulePage';
 import type { Me } from './lib/types';
 
 function getGreeting(hour: number) {
@@ -46,6 +51,10 @@ function BerandaPage({ me }: { me: Me }) {
   // admin_sekolah yang belum punya slot nav untuk /izin (lihat lib/nav.ts).
   const canManageLeave = me.role === 'admin_sekolah';
   const isStaff = me.role !== 'siswa' && me.role !== 'orang_tua';
+  // Kartu jalan pintas ke /jadwal — guru & siswa belum tentu punya item nav
+  // ke /jadwal (hanya siswa yang punya, lihat lib/nav.ts), jadi kartu ini
+  // jadi entry point untuk guru; untuk siswa tetap ditampilkan sebagai jalan pintas.
+  const canViewOwnSchedule = me.role === 'guru' || me.role === 'siswa';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -98,7 +107,23 @@ function BerandaPage({ me }: { me: Me }) {
         </Card>
       )}
 
-      {!canWriteAttendance && !canViewRecap && !isStaff && (
+      {canViewOwnSchedule && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Jadwal Hari Ini</p>
+            <p className="text-[12px] text-muted">
+              {me.role === 'guru' ? 'Lihat jadwal mengajar Anda hari ini.' : 'Lihat jadwal pelajaran Anda hari ini.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/jadwal')}>
+              Lihat Jadwal
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {!canWriteAttendance && !canViewRecap && !isStaff && !canViewOwnSchedule && (
         <Card>
           <p className="text-[14px] text-ink">Belum ada modul lain untuk ditampilkan di sini.</p>
         </Card>
@@ -150,11 +175,18 @@ function AuthenticatedShell() {
           <Route path="rombel" element={<ClassesListPage />} />
           <Route path="guru" element={<TeachersListPage />} />
           <Route path="mapel" element={<SubjectsListPage />} />
+          <Route path="jadwal" element={<ScheduleBuilderPage />} />
+          <Route path="jam" element={<PeriodsPage />} />
+          <Route path="ruangan" element={<RoomsPage />} />
         </Route>
         <Route path="/data/siswa/import" element={<ImportWizard entity="students" backTo="/data/siswa" />} />
         <Route path="/data/siswa/:id" element={<StudentDetailPage />} />
         <Route path="/data/rombel/:id" element={<ClassDetailPage />} />
         <Route path="/data/guru/import" element={<ImportWizard entity="teachers" backTo="/data/guru" />} />
+        <Route path="/data/jadwal/import" element={<ImportWizard entity="schedule" backTo="/data/jadwal" />} />
+        <Route path="/data/ruangan/cetak" element={<RoomsPrintPage />} />
+
+        <Route path="/jadwal" element={<SchedulePage />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
