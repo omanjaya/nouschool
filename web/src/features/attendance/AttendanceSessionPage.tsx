@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { MessageSquare, ScanLine } from 'lucide-react';
+import { MessageSquare, RefreshCw, ScanLine } from 'lucide-react';
 import { AppBar } from '../../components/ui/AppBar';
 import { ListRow } from '../../components/ui/ListRow';
 import { StatusChip } from '../../components/ui/StatusChip';
@@ -14,6 +14,7 @@ import { ApiError } from '../../lib/api';
 import { formatDate } from '../../lib/date';
 import { hasFeature } from '../../lib/features';
 import { useQrScanner } from '../../lib/useQrScanner';
+import { useRealtimeEvents } from '../../lib/realtime';
 import { useMe } from '../auth/api';
 import { useAttendanceScan, useAttendanceSession, useFinalizeAttendanceSession, useSaveAttendanceRecords } from './api';
 import { AttendanceNoteDialog } from './AttendanceNoteDialog';
@@ -67,6 +68,11 @@ export function AttendanceSessionPage() {
   const [noteStudentId, setNoteStudentId] = useState<string | null>(null);
   const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  // Fase 12 (docs/06 dkk): perangkat lain mengubah sesi yang SAMA sedang
+  // dibuka di sini SAAT kita sedang mengedit (`dirty`) — lihat efek realtime
+  // di bawah `syncFromServer`.
+  const [remoteUpdateAvailable, setRemoteUpdateAvailable] = useState(false);
+  const [confirmReloadOpen, setConfirmReloadOpen] = useState(false);
 
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFeed, setScanFeed] = useState<ScanFeedItem[]>([]);
@@ -169,6 +175,38 @@ export function AttendanceSessionPage() {
     setDirty(false);
   }
 
+  /**
+   * Fase 12: sesi ini SEDANG dibuka di layar ini — kalau perangkat lain
+   * mengubah sesi yang SAMA (`session_id` cocok):
+   * - `dirty` (ada perubahan lokal belum tersimpan) → JANGAN timpa diam-diam,
+   *   cukup tampilkan indikator non-blokir; guru memilih simpan (menimpa
+   *   perubahan perangkat lain) atau "Muat Ulang" (buang perubahan lokal).
+   * - tidak `dirty` → refetch senyap & langsung terapkan ke state lokal
+   *   (tanpa ini, invalidasi query cache di App.tsx tidak otomatis tercermin
+   *   ke `records`, karena efek inisialisasi di atas hanya berjalan sekali).
+   */
+  useRealtimeEvents({
+    'attendance.session': (event) => {
+      if (!id || String(event.data.session_id) !== id) return;
+      if (dirty) {
+        setRemoteUpdateAvailable(true);
+        return;
+      }
+      refetch().then((result) => {
+        if (result.data) syncFromServer(result.data);
+      });
+    },
+  });
+
+  function handleReloadFromRemote() {
+    refetch().then((result) => {
+      if (result.data) syncFromServer(result.data);
+      setRemoteUpdateAvailable(false);
+      setConfirmReloadOpen(false);
+      showToast('Sesi dimuat ulang.');
+    });
+  }
+
   function goBack() {
     navigate('/absensi');
   }
@@ -225,6 +263,9 @@ export function AttendanceSessionPage() {
       const result = await saveMutation.mutateAsync(payload);
       syncFromServer(result);
       setHasSaved(true);
+      // Menyimpan sengaja menimpa perubahan perangkat lain yang tadi ditandai
+      // (bulk PUT mengirim seluruh snapshot lokal) — indikator tidak relevan lagi.
+      setRemoteUpdateAvailable(false);
       showToast('Absensi tersimpan');
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : 'Gagal menyimpan absensi.', 'error');
@@ -236,6 +277,7 @@ export function AttendanceSessionPage() {
       const result = await finalizeMutation.mutateAsync();
       syncFromServer(result);
       setConfirmFinalizeOpen(false);
+      setRemoteUpdateAvailable(false);
       showToast('Sesi absensi dikunci.');
     } catch (err) {
       setConfirmFinalizeOpen(false);
@@ -287,6 +329,22 @@ export function AttendanceSessionPage() {
             <StatusChip key={status} status={status} size="sm" count={counts[status]} />
           ))}
         </div>
+
+        {remoteUpdateAvailable && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-st-terlambat-line px-4 py-2">
+            <p className="text-[12px] font-medium text-st-terlambat">
+              Ada pembaruan dari perangkat lain — simpan untuk menimpa atau muat ulang.
+            </p>
+            <button
+              type="button"
+              onClick={() => setConfirmReloadOpen(true)}
+              className="flex shrink-0 items-center gap-1.5 text-[12px] font-semibold text-st-terlambat hover:underline"
+            >
+              <RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
+              Muat Ulang
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mx-auto w-full max-w-[640px] flex-1 px-5 py-4">
@@ -384,6 +442,20 @@ export function AttendanceSessionPage() {
           </Button>
           <Button variant="danger" onClick={goBack}>
             Keluar Tanpa Simpan
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog open={confirmReloadOpen} onClose={() => setConfirmReloadOpen(false)} title="Muat ulang sesi ini?">
+        <p className="text-[14px] text-ink">
+          Perubahan absensi yang belum disimpan di layar ini akan hilang, digantikan data terbaru dari perangkat lain.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setConfirmReloadOpen(false)}>
+            Batal
+          </Button>
+          <Button variant="danger" onClick={handleReloadFromRemote}>
+            Muat Ulang
           </Button>
         </div>
       </Dialog>

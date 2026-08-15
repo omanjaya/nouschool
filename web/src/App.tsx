@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Megaphone, MonitorPlay, QrCode, MapPin, ReceiptText } from 'lucide-react';
 import { formatTimeOfDay } from './lib/date';
 import { hasFeature } from './lib/features';
-import { useLogout, useMe } from './features/auth/api';
+import { useRealtimeConnection, useRealtimeEvents, useRealtimeState } from './lib/realtime';
+import { useLogout, useMe, ME_QUERY_KEY } from './features/auth/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { RequireLogin } from './features/auth/RequireLogin';
 import { AppShell } from './components/ui/AppShell';
@@ -29,35 +32,52 @@ import { AttendanceSessionPage } from './features/attendance/AttendanceSessionPa
 import { AttendanceRecapPage } from './features/attendance/AttendanceRecapPage';
 import { AttendanceHistoryPage } from './features/attendance/AttendanceHistoryPage';
 import { CheckInPage } from './features/attendance/CheckInPage';
-import { useSelfCheckinStatus } from './features/attendance/api';
+import {
+  useSelfCheckinStatus,
+  attendanceSessionQueryKey,
+  ATTENDANCE_CLASSES_KEY,
+  ATTENDANCE_SLOTS_TODAY_KEY,
+  ATTENDANCE_SUMMARY_KEY,
+  ATTENDANCE_ANOMALIES_KEY,
+} from './features/attendance/api';
 import { LeavePage } from './features/leave/LeavePage';
 import { LeaveDetailPage } from './features/leave/LeaveDetailPage';
 import { LeaveApprovalsPage } from './features/leave/LeaveApprovalsPage';
 import { LeaveApprovalDetailPage } from './features/leave/LeaveApprovalDetailPage';
 import { LeaveRecapPage } from './features/leave/LeaveRecapPage';
+import { LEAVE_REQUESTS_KEY, LEAVE_APPROVALS_KEY, LEAVE_SUMMARY_KEY } from './features/leave/api';
 import { Button } from './components/ui/Button';
 import { PeriodsPage } from './features/schedule/PeriodsPage';
 import { RoomsPage } from './features/schedule/RoomsPage';
 import { RoomsPrintPage } from './features/schedule/RoomsPrintPage';
 import { ScheduleBuilderPage } from './features/schedule/ScheduleBuilderPage';
 import { SchedulePage } from './features/schedule/SchedulePage';
+import { SCHEDULE_SLOTS_QUERY_KEY, PERIODS_QUERY_KEY, ROOMS_QUERY_KEY } from './features/schedule/api';
 import { ScanPage } from './features/teaching/ScanPage';
 import { JournalsPage } from './features/teaching/JournalsPage';
 import { MonitoringPage } from './features/teaching/MonitoringPage';
 import { ComplianceRecapPage } from './features/teaching/ComplianceRecapPage';
+import { TEACHING_STATUS_QUERY_KEY, TEACHING_COMPLIANCE_QUERY_KEY } from './features/teaching/api';
 import { AnnouncementsPage } from './features/announcements/AnnouncementsPage';
+import { ANNOUNCEMENTS_QUERY_KEY } from './features/announcements/api';
 import { TvPage } from './features/tv/TvPage';
+import { TV_BOARD_QUERY_KEY } from './features/tv/api';
 import { KepsekHomePage } from './features/dashboard/KepsekHomePage';
 import { NotificationsPage } from './features/notifications/NotificationsPage';
 import { PushPromptBanner } from './features/notifications/PushPromptBanner';
-import { useUnreadNotificationCount } from './features/notifications/api';
+import { useUnreadNotificationCount, NOTIFICATIONS_QUERY_KEY } from './features/notifications/api';
 import { BillingPage } from './features/billing/BillingPage';
 import { SubscriptionBanner } from './features/billing/SubscriptionBanner';
+import { BILLING_QUERY_KEY } from './features/billing/api';
 import { PlansPage } from './features/admin/PlansPage';
 import { LandingPage } from './features/landing/LandingPage';
 import { usePublicContext } from './features/branding/api';
 import { useAppBranding } from './lib/useAppBranding';
 import { Skeleton } from './components/ui/Skeleton';
+import { STUDENTS_QUERY_KEY } from './features/students/api';
+import { CLASSES_QUERY_KEY } from './features/classes/api';
+import { TEACHERS_QUERY_KEY } from './features/teachers/api';
+import { SUBJECTS_QUERY_KEY } from './features/subjects/api';
 import type { Me } from './lib/types';
 
 /**
@@ -260,12 +280,113 @@ function BerandaPage({ me }: { me: Me }) {
   );
 }
 
+/**
+ * Fase 12 (docs/06 dkk, realtime WebSocket, kontrak `GET /api/ws`): mapping
+ * event server→client ke `invalidateQueries` — event HANYA sinyal, data
+ * sebenarnya tetap diambil lewat REST existing. Tiap query key di bawah
+ * dicocokkan satu-satu terhadap yang benar-benar diekspor `features/*\/api.ts`
+ * (lihat import di atas), BUKAN ditebak. Dipasang sekali di `AuthenticatedShell`
+ * — TV (`TvPage`) sengaja punya invalidasi sendiri yang lebih spesifik
+ * (lihat `features/tv/TvPage.tsx`), dan koneksi socket-nya sendiri sudah
+ * berjalan lebih tinggi lewat `useRealtimeConnection` di `App()`.
+ */
+function useRealtime(queryClient: QueryClient) {
+  useRealtimeEvents({
+    // {session_id, class_id, date} — sesi yang sedang dibuka + daftar rombel
+    // (badge jumlah tercatat) + jadwal per-mapel guru hari ini.
+    'attendance.session': (event) => {
+      queryClient.invalidateQueries({ queryKey: attendanceSessionQueryKey(String(event.data.session_id)) });
+      queryClient.invalidateQueries({ queryKey: [ATTENDANCE_CLASSES_KEY] });
+      queryClient.invalidateQueries({ queryKey: [ATTENDANCE_SLOTS_TODAY_KEY] });
+    },
+    // {date} — rekap harian per rombel + papan TV + anomali check-in.
+    'attendance.summary': () => {
+      queryClient.invalidateQueries({ queryKey: [ATTENDANCE_SUMMARY_KEY] });
+      queryClient.invalidateQueries({ queryKey: TV_BOARD_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: [ATTENDANCE_ANOMALIES_KEY] });
+    },
+    // {date} — monitoring status mengajar + papan TV + rekap ketertiban mengajar.
+    'teaching.status': () => {
+      queryClient.invalidateQueries({ queryKey: [TEACHING_STATUS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: TV_BOARD_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: [TEACHING_COMPLIANCE_QUERY_KEY] });
+    },
+    // {} — daftar notifikasi + ringkasan unread (badge nav AppShell update instan).
+    notification: () => {
+      queryClient.invalidateQueries({ queryKey: [NOTIFICATIONS_QUERY_KEY] });
+    },
+    // {request_id} — daftar izin (mine/all) + antrian approval + rekap izin.
+    leave: () => {
+      queryClient.invalidateQueries({ queryKey: [LEAVE_REQUESTS_KEY] });
+      queryClient.invalidateQueries({ queryKey: LEAVE_APPROVALS_KEY });
+      queryClient.invalidateQueries({ queryKey: [LEAVE_SUMMARY_KEY] });
+    },
+    // {} — pengumuman (CRUD & aktif) + papan TV.
+    announcement: () => {
+      queryClient.invalidateQueries({ queryKey: [ANNOUNCEMENTS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: TV_BOARD_QUERY_KEY });
+    },
+    // {} — slot jadwal builder + jadwal hari ini (guru/siswa) + jam & ruangan.
+    schedule: () => {
+      queryClient.invalidateQueries({ queryKey: [SCHEDULE_SLOTS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['schedule-today'] });
+      queryClient.invalidateQueries({ queryKey: PERIODS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ROOMS_QUERY_KEY });
+    },
+    // {} — langganan/invoice + /api/me (subscription & features snapshot dipakai feature gating).
+    billing: () => {
+      queryClient.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
+    },
+    // {} — data induk siswa/rombel/guru/mapel (mis. import selesai di device lain).
+    students: () => {
+      queryClient.invalidateQueries({ queryKey: [STUDENTS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: [CLASSES_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: TEACHERS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: SUBJECTS_QUERY_KEY });
+    },
+  });
+}
+
+/**
+ * Garis tipis "Menyambung ulang…" di atas konten (docs/10 — halus, tidak
+ * mengganggu). Hanya tampil kalau status `reconnecting` (percobaan ke-2 dst —
+ * lihat `RealtimeClient.open`, percobaan PERTAMA statusnya `connecting`)
+ * bertahan lebih dari 5 detik, supaya gangguan sekejap tidak membuatnya
+ * berkedip dan TIDAK PERNAH muncul saat pemuatan awal.
+ */
+function RealtimeReconnectBanner() {
+  const state = useRealtimeState();
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (state !== 'reconnecting') {
+      setVisible(false);
+      return;
+    }
+    const id = window.setTimeout(() => setVisible(true), 5000);
+    return () => window.clearTimeout(id);
+  }, [state]);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      role="status"
+      className="flex items-center justify-center gap-2 bg-st-terlambat-line px-4 py-1.5 text-center text-[11px] font-medium text-st-terlambat"
+    >
+      Menyambung ulang…
+    </div>
+  );
+}
+
 /** Rute + AppShell untuk pengguna yang sudah login — nav & sapaan mengikuti /api/me. */
 function AuthenticatedShell() {
   const { data: me } = useMe();
   const { data: context } = usePublicContext();
   const logout = useLogout();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // Hooks harus tetap dipanggil tanpa syarat (react-hooks/rules-of-hooks) —
   // dihitung dari `me` yang mungkin belum ada, baru cabang render (return
@@ -275,6 +396,7 @@ function AuthenticatedShell() {
   // merender AppShell — jangan ikut memicu fetch unread count untuknya.
   const hasNotificationsNav = me?.role !== 'display' && navItems.some((item) => item.to === '/notifikasi');
   const { data: unreadCount } = useUnreadNotificationCount(hasNotificationsNav);
+  useRealtime(queryClient);
 
   // RequireLogin sudah menjamin me ada & sukses saat komponen ini dirender.
   if (!me) return null;
@@ -307,6 +429,7 @@ function AuthenticatedShell() {
       appName={brandName}
       logoUrl={brandLogoUrl}
     >
+      <RealtimeReconnectBanner />
       <SubscriptionBanner me={me} />
       <Routes>
         <Route
@@ -412,6 +535,12 @@ function App() {
   // `useMe()` sejak app dimuat — berlaku juga di layar publik (docs/01 §branding).
   const branding = useAppBranding();
   const { data: me, isLoading: meLoading } = useMe();
+  // Fase 12: koneksi WebSocket dipasang di titik paling atas ini (bukan di
+  // `AuthenticatedShell`) supaya role `display` (dialihkan ke `/tv` tanpa
+  // pernah merender shell itu) tetap tersambung — lihat komentar di
+  // `useRealtimeConnection`. Hanya host TENANT (`me.school` ada) yang punya
+  // endpoint ini; host platform/super admin sengaja TIDAK connect.
+  useRealtimeConnection(Boolean(me?.school));
 
   // Tunggu keduanya selesai sekali di awal supaya rute "/" bisa memutuskan
   // landing page vs. app biasa tanpa race (lihat `showLanding` di bawah).

@@ -52,6 +52,10 @@ export default defineConfig({
         // Host header asli (mis. demo.localhost:5173) HARUS diteruskan —
         // backend memakai Host untuk resolusi tenant multi-sekolah.
         changeOrigin: false,
+        // Fase 12 (docs/06 dkk, realtime WebSocket): upgrade `GET /api/ws`
+        // juga lewat proxy ini — tanpa ini Vite hanya meneruskan HTTP biasa
+        // dan handshake WebSocket akan gagal di dev.
+        ws: true,
       },
       // Fase 11 (docs/01-tenant.md §branding): manifest PWA dinamis per tenant
       // — di dev, vite-plugin-pwa TIDAK menyuntik/menyajikan manifest sendiri

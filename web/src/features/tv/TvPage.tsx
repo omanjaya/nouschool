@@ -3,8 +3,9 @@ import { Navigate } from 'react-router-dom';
 import { WifiOff } from 'lucide-react';
 import { formatDate } from '../../lib/date';
 import { formatClock } from '../schedule/format';
+import { useRealtimeEvents, useRealtimeState } from '../../lib/realtime';
 import { useMe } from '../auth/api';
-import { useTvBoard } from './api';
+import { useTvBoard, TV_BOARD_POLL_MS, TV_BOARD_POLL_WS_CONNECTED_MS } from './api';
 import { useServerClock } from './useServerClock';
 import { formatClockWithSeconds, formatCountdown, parseWallClock } from './clock';
 import type { TeachingStatus, TvTeachingItem, TvAnnouncement } from '../../lib/types';
@@ -22,6 +23,23 @@ const STATUS_BADGE: Record<TeachingStatus, { label: string; bg: string; text: st
 
 function roomLine(item: TvTeachingItem): string {
   return item.room_name || 'Tanpa ruangan';
+}
+
+/**
+ * Fase 12: titik kecil status realtime WS — hijau (`st-hadir`) saat
+ * tersambung, abu (`muted`) selain itu (menyambung/reconnecting/putus).
+ * Terpisah dari indikator "Koneksi terputus" existing (bottom-right, itu
+ * untuk kegagalan fetch REST `/tv/board`, bukan status socket).
+ */
+function RealtimeStatusDot({ connected }: { connected: boolean }) {
+  return (
+    <span
+      role="status"
+      aria-label={connected ? 'Realtime tersambung' : 'Realtime tidak tersambung'}
+      title={connected ? 'Realtime tersambung' : 'Realtime tidak tersambung'}
+      className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${connected ? 'bg-st-hadir' : 'bg-muted'}`}
+    />
+  );
 }
 
 /** Jadwal ke ms sampai jam 03:00 lokal berikutnya — guard auto full-reload harian (redeploy TV). */
@@ -104,7 +122,18 @@ function TvAnnouncementPanel({ announcements }: { announcements: TvAnnouncement[
 export function TvPage() {
   const { data: me } = useMe();
   const canView = me?.role === 'display' || me?.role === 'kepala_sekolah' || me?.role === 'admin_sekolah';
-  const { data, isLoading, isError, refetch } = useTvBoard();
+  const rtState = useRealtimeState();
+  const rtConnected = rtState === 'connected';
+  // Fase 12: polling tetap ada sebagai fallback, dilonggarkan saat WS
+  // tersambung (event realtime jadi jalur update utama, lihat di bawah).
+  const { data, isLoading, isError, refetch } = useTvBoard(rtConnected ? TV_BOARD_POLL_WS_CONNECTED_MS : TV_BOARD_POLL_MS);
+  // Sinyal saja (docs/06/12) — begitu salah satu event ini datang, refetch
+  // REST `/tv/board` segera alih-alih menunggu jadwal polling berikutnya.
+  useRealtimeEvents({
+    'attendance.summary': () => refetch(),
+    'teaching.status': () => refetch(),
+    announcement: () => refetch(),
+  });
   const reloadScheduled = useRef(false);
 
   const clientNow = useServerClock(data?.now.date, data?.now.time, data?.generated_at);
@@ -159,7 +188,10 @@ export function TvPage() {
     <div className="flex min-h-dvh w-full flex-col gap-8 bg-bg p-10 text-ink">
       <header className="flex items-center justify-between">
         <p className="text-[28px] font-semibold text-ink">{data.school.name}</p>
-        <p className="text-[16px] uppercase tracking-[0.1em] text-muted">Dashboard TV</p>
+        <p className="flex items-center gap-2 text-[16px] uppercase tracking-[0.1em] text-muted">
+          <RealtimeStatusDot connected={rtConnected} />
+          Dashboard TV
+        </p>
       </header>
 
       <div className="grid flex-1 grid-cols-3 gap-10 overflow-hidden">
