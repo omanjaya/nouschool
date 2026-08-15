@@ -12,13 +12,15 @@ Status: ⬜ belum · 🚧 sedang dikerjakan · ✅ selesai. **Update file ini se
 
 Catatan mesin dev (Windows): port 7929–8171 direserve Hyper-V → backend dev pakai PORT=8210; Vite proxy `/api` → 8210.
 
-## Fase 1 — Tenant + Identity (tulang punggung) ⬜
-- ⬜ Middleware resolusi tenant (Host → school_id, cache) + `/internal/check-domain`
-- ⬜ Auth: login/logout, argon2id, session cookie, rate limit
-- ⬜ RBAC: permission map, `requireAuth`, `requirePerm`
-- ⬜ Panel super admin minimal: CRUD sekolah, tahun ajaran
-- ⬜ Halaman pengaturan sekolah (kerangka) + pola school_settings jalan end-to-end
-- ⬜ Audit log helper
+## Fase 1 — Tenant + Identity (tulang punggung) ✅
+Terverifikasi end-to-end di Docker dev: login super admin (host platform) & admin sekolah (`demo.localhost`), CRUD sekolah, settings branding, 401/403 benar. UI `web/`: login, panel super admin, pengaturan branding, profil — build hijau.
+Dev: `make docker-up` → `make docker-migrate` → bootstrap `go run ./cmd/bootstrap ... -demo` (admin demo: `admin`/`admin12345` di `demo.localhost:5173`). Catatan: Air wajib `poll = true` (bind mount Windows tidak meneruskan file event).
+- ✅ Middleware resolusi tenant (Host → school_id, cache) + `/internal/check-domain`
+- ✅ Auth: login/logout, argon2id, session cookie, rate limit
+- ✅ RBAC: permission map, `requireAuth`, `requirePerm`
+- ✅ Panel super admin minimal: CRUD sekolah, tahun ajaran (endpoint backend `/api/admin/schools`)
+- ✅ Pola school_settings jalan end-to-end (`GET/PUT /api/settings/{module}`, module `branding`) + halaman UI `/pengaturan`
+- ✅ Audit log helper (`identity.Service.Log`, dipanggil dari create/update school, activate tahun ajaran, put settings)
 
 ## Fase 2 — Student ⬜
 - ⬜ CRUD siswa, rombel, enrollment, guru (profil), mapel

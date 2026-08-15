@@ -24,6 +24,10 @@ interface ApiErrorBody {
   };
 }
 
+interface ApiSuccessBody<T> {
+  data: T;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
@@ -53,7 +57,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return undefined as T;
   }
 
-  return (await res.json()) as T;
+  // Semua response sukses dibungkus `{ data: ... }` — unwrap di sini supaya
+  // pemanggil cukup bekerja dengan tipe datanya langsung.
+  const body = (await res.json()) as ApiSuccessBody<T>;
+  return body.data;
 }
 
 function withBody(method: string) {

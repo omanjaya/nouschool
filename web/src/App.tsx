@@ -1,8 +1,15 @@
-import { Routes, Route } from 'react-router-dom';
-import { CalendarX } from 'lucide-react';
+import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { useLogout, useMe } from './features/auth/api';
+import { LoginPage } from './features/auth/LoginPage';
+import { RequireLogin } from './features/auth/RequireLogin';
 import { AppShell } from './components/ui/AppShell';
+import { getNavItems } from './lib/nav';
 import { Card } from './components/ui/Card';
-import { EmptyState } from './components/ui/EmptyState';
+import { SchoolsListPage } from './features/admin/SchoolsListPage';
+import { SchoolDetailPage } from './features/admin/SchoolDetailPage';
+import { SettingsPage } from './features/settings/SettingsPage';
+import { ProfilePage } from './features/profile/ProfilePage';
+import type { Me } from './lib/types';
 
 function getGreeting(hour: number) {
   if (hour < 11) return 'Selamat pagi';
@@ -11,34 +18,69 @@ function getGreeting(hour: number) {
   return 'Selamat malam';
 }
 
-function BerandaPage() {
+function BerandaPage({ me }: { me: Me }) {
   const greeting = getGreeting(new Date().getHours());
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Beranda</p>
-        <h1 className="text-[21px] font-semibold text-ink">{greeting}</h1>
+        <h1 className="text-[21px] font-semibold text-ink">
+          {greeting}, {me.name}
+        </h1>
       </div>
 
       <Card>
-        <p className="text-[14px] text-ink">Fase 0 — scaffold berhasil</p>
-      </Card>
-
-      <Card variant="plain" className="p-0">
-        <EmptyState icon={CalendarX} message="Belum ada jadwal untuk ditampilkan" />
+        <p className="text-[14px] text-ink">Fase 1 — belum ada modul lain untuk ditampilkan di sini.</p>
       </Card>
     </div>
   );
 }
 
-function App() {
+/** Rute + AppShell untuk pengguna yang sudah login — nav & sapaan mengikuti /api/me. */
+function AuthenticatedShell() {
+  const { data: me } = useMe();
+  const logout = useLogout();
+  const navigate = useNavigate();
+
+  // RequireLogin sudah menjamin me ada & sukses saat komponen ini dirender.
+  if (!me) return null;
+
+  const isPlatformAdmin = me.is_super_admin && !me.school;
+  const navItems = getNavItems(me);
+
+  async function handleLogout() {
+    await logout.mutateAsync();
+    navigate('/login', { replace: true });
+  }
+
   return (
-    <AppShell>
+    <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout}>
       <Routes>
-        <Route path="/" element={<BerandaPage />} />
+        <Route path="/" element={isPlatformAdmin ? <Navigate to="/admin" replace /> : <BerandaPage me={me} />} />
+        <Route path="/admin" element={<SchoolsListPage />} />
+        <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
+        <Route path="/pengaturan" element={<SettingsPage />} />
+        <Route path="/profil" element={<ProfilePage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>
+  );
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/*"
+        element={
+          <RequireLogin>
+            <AuthenticatedShell />
+          </RequireLogin>
+        }
+      />
+    </Routes>
   );
 }
 
