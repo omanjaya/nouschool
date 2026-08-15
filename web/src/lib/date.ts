@@ -109,3 +109,29 @@ export function formatTimeOfDay(isoDateTime: string): string {
 export function currentISOMonth(): string {
   return todayISODate().slice(0, 7);
 }
+
+/**
+ * Waktu relatif ringkas untuk inbox notifikasi (docs/08) — "Baru saja", "5 mnt lalu",
+ * "2 jam lalu", "Kemarin", lalu jatuh balik ke tanggal biasa ("18 Agu 2026") untuk
+ * yang lebih lama dari kemarin.
+ */
+export function formatRelativeTime(isoDateTime: string): string {
+  const d = new Date(isoDateTime);
+  if (Number.isNaN(d.getTime())) return isoDateTime;
+
+  const now = new Date();
+  const diffSec = Math.floor((now.getTime() - d.getTime()) / 1000);
+
+  if (diffSec < 60) return 'Baru saja';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} mnt lalu`;
+  const diffHour = Math.floor(diffMin / 60);
+
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dayDiff = Math.round((startOfToday.getTime() - startOfDate.getTime()) / 86_400_000);
+
+  if (dayDiff <= 0) return `${diffHour} jam lalu`;
+  if (dayDiff === 1) return 'Kemarin';
+  return formatDate(toISODate(d));
+}

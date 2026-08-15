@@ -44,3 +44,26 @@ export function Select({ className = '', children, ...rest }: SelectHTMLAttribut
     </select>
   );
 }
+
+interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
+  label: string;
+}
+
+/** Checkbox baris tunggal — label 14px di kanan kotak, aksen `--primary` (docs/10 token). */
+export function Checkbox({ label, className = '', id, disabled, ...rest }: CheckboxProps) {
+  return (
+    <label
+      htmlFor={id}
+      className={`flex min-h-6 items-center gap-2 text-[14px] text-ink ${disabled ? 'opacity-50' : ''} ${className}`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        disabled={disabled}
+        className="h-4 w-4 shrink-0 rounded border border-line accent-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed"
+        {...rest}
+      />
+      {label}
+    </label>
+  );
+}

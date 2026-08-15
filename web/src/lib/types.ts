@@ -692,6 +692,47 @@ export interface AttendanceSettings {
   late_after_min: number;
 }
 
+/* ---- Notifikasi in-app & Web Push (Fase 9, docs/08-notification.md) ---- */
+
+/** GET /api/notifications?page= — inbox notifikasi in-app. */
+export interface NotificationItem {
+  id: string;
+  event: string;
+  title: string;
+  body: string;
+  link: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationListResult {
+  items: NotificationItem[];
+  unread_count: number;
+}
+
+/** POST /api/notifications/read — `{ids}` (baris terpilih) atau `{all: true}` (semua). */
+export type NotificationsReadInput = { ids: string[] } | { all: true };
+
+/** GET /api/push/public-key — kunci VAPID publik (base64url), dipakai `applicationServerKey`. */
+export interface PushPublicKey {
+  key: string;
+}
+
+/** POST /api/push/subscribe — dari `PushSubscription.toJSON()`. */
+export interface PushSubscribeInput {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
+/** Channel notifikasi pluggable (docs/08 — in_app selalu aktif, sisanya diatur super admin per sekolah). */
+export type NotificationChannel = 'in_app' | 'web_push' | 'whatsapp' | 'email';
+
+/** GET/PUT /api/admin/schools/{id}/settings/notification (super admin). */
+export interface NotificationChannelSettings {
+  channels: NotificationChannel[];
+}
+
 /* ---- Absensi mode per-mapel dari jadwal (guru, Fase 6) ---- */
 
 /**

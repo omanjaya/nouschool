@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { AcademicYear, School } from '../../lib/types';
+import type { AcademicYear, NotificationChannelSettings, School } from '../../lib/types';
 
 export const SCHOOLS_QUERY_KEY = ['admin', 'schools'] as const;
 
@@ -81,6 +81,30 @@ export function useActivateAcademicYear(schoolId: string) {
       api.post<AcademicYear>(`/admin/schools/${schoolId}/academic-years/${academicYearId}/activate`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: academicYearsQueryKey(schoolId) });
+    },
+  });
+}
+
+/** Pengaturan channel notifikasi per sekolah — hanya super admin (docs/08-notification.md). */
+export function notificationSettingsQueryKey(schoolId: string) {
+  return ['admin', 'schools', schoolId, 'settings', 'notification'] as const;
+}
+
+export function useNotificationChannelSettings(schoolId: string) {
+  return useQuery({
+    queryKey: notificationSettingsQueryKey(schoolId),
+    queryFn: () => api.get<NotificationChannelSettings>(`/admin/schools/${schoolId}/settings/notification`),
+    enabled: schoolId.length > 0,
+  });
+}
+
+export function useUpdateNotificationChannelSettings(schoolId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NotificationChannelSettings) =>
+      api.put<NotificationChannelSettings>(`/admin/schools/${schoolId}/settings/notification`, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: notificationSettingsQueryKey(schoolId) });
     },
   });
 }

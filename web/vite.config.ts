@@ -10,6 +10,16 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Fase 9 (docs/08-notification.md): strategi custom `injectManifest` — SW
+      // sendiri di src/sw.ts precache manifest + handler `push`/`notificationclick`
+      // untuk Web Push. Sebelumnya `generateSW` (SW auto-generate tanpa handler push).
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        // SW sudah memanggil cleanupOutdatedCaches() sendiri (src/sw.ts).
+        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+      },
       devOptions: {
         enabled: false,
       },

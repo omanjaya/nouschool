@@ -7,6 +7,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { useTvBoard } from '../tv/api';
 import { getGreeting } from '../../lib/greeting';
+import { PushPromptBanner } from '../notifications/PushPromptBanner';
 import type { Me } from '../../lib/types';
 
 interface QuickLink {
@@ -45,6 +46,8 @@ export function KepsekHomePage({ me }: { me: Me }) {
           {greeting}, {me.name}
         </h1>
       </div>
+
+      <PushPromptBanner />
 
       {isLoading ? (
         <div className="flex flex-col gap-2">

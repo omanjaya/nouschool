@@ -60,6 +60,7 @@ export function getNavItems(me: Me): NavItemDef[] {
       { to: '/', label: 'Beranda', icon: House },
       { to: '/data', label: 'Data', icon: Users },
       { to: '/pengaturan', label: 'Pengaturan', icon: Settings },
+      { to: '/notifikasi', label: 'Notifikasi', icon: Bell },
       { to: '/profil', label: 'Profil', icon: User },
     ];
   }

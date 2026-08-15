@@ -8,13 +8,27 @@ interface AppShellProps {
   navItems: NavItemDef[];
   userName?: string;
   onLogout?: () => void;
+  /** Angka badge per path nav (mis. unread notifikasi) — 0/undefined = tidak tampil. */
+  badgeCounts?: Record<string, number>;
+}
+
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-ink"
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
 }
 
 /**
  * Bottom tab bar di mobile (<1024px), sidebar kiri di desktop (>=1024px).
  * Item aktif: warna --primary; underline 2px hanya di mobile.
  */
-export function AppShell({ children, navItems, userName, onLogout }: AppShellProps) {
+export function AppShell({ children, navItems, userName, onLogout, badgeCounts }: AppShellProps) {
   return (
     <div className="min-h-dvh bg-bg text-ink lg:flex">
       <aside className="hidden lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-line lg:py-6 print:hidden">
@@ -35,6 +49,7 @@ export function AppShell({ children, navItems, userName, onLogout }: AppShellPro
             >
               <item.icon size={20} strokeWidth={2} aria-hidden="true" />
               {item.label}
+              <NavBadge count={badgeCounts?.[item.to] ?? 0} />
             </NavLink>
           ))}
         </nav>
@@ -79,12 +94,22 @@ export function AppShell({ children, navItems, userName, onLogout }: AppShellPro
                           className="absolute top-0 h-[2px] w-8 rounded-full bg-primary"
                         />
                       )}
-                      <item.icon
-                        size={20}
-                        strokeWidth={2}
-                        aria-hidden="true"
-                        className={isActive ? 'text-primary' : 'text-muted'}
-                      />
+                      <span className="relative">
+                        <item.icon
+                          size={20}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                          className={isActive ? 'text-primary' : 'text-muted'}
+                        />
+                        {(badgeCounts?.[item.to] ?? 0) > 0 && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-ink"
+                          >
+                            {(badgeCounts?.[item.to] ?? 0) > 99 ? '99+' : badgeCounts?.[item.to]}
+                          </span>
+                        )}
+                      </span>
                       <span className={`text-[11px] ${isActive ? 'text-primary' : 'text-muted'}`}>
                         {item.label}
                       </span>

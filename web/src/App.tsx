@@ -46,6 +46,9 @@ import { ComplianceRecapPage } from './features/teaching/ComplianceRecapPage';
 import { AnnouncementsPage } from './features/announcements/AnnouncementsPage';
 import { TvPage } from './features/tv/TvPage';
 import { KepsekHomePage } from './features/dashboard/KepsekHomePage';
+import { NotificationsPage } from './features/notifications/NotificationsPage';
+import { PushPromptBanner } from './features/notifications/PushPromptBanner';
+import { useUnreadNotificationCount } from './features/notifications/api';
 import type { Me } from './lib/types';
 
 /** Kartu "Check-in Kehadiran" di Beranda siswa — muncul hanya kalau sekolah mengaktifkan metode self_checkin. */
@@ -109,6 +112,8 @@ function BerandaPage({ me }: { me: Me }) {
           {greeting}, {me.name}
         </h1>
       </div>
+
+      <PushPromptBanner />
 
       {isSiswa && <SelfCheckinCard />}
 
@@ -229,6 +234,15 @@ function AuthenticatedShell() {
   const logout = useLogout();
   const navigate = useNavigate();
 
+  // Hooks harus tetap dipanggil tanpa syarat (react-hooks/rules-of-hooks) —
+  // dihitung dari `me` yang mungkin belum ada, baru cabang render (return
+  // null / <Navigate>) di bawah setelah semua hook dipanggil.
+  const navItems = me ? getNavItems(me) : [];
+  // role `display` (dashboard TV) dialihkan ke /tv di bawah tanpa pernah
+  // merender AppShell — jangan ikut memicu fetch unread count untuknya.
+  const hasNotificationsNav = me?.role !== 'display' && navItems.some((item) => item.to === '/notifikasi');
+  const { data: unreadCount } = useUnreadNotificationCount(hasNotificationsNav);
+
   // RequireLogin sudah menjamin me ada & sukses saat komponen ini dirender.
   if (!me) return null;
 
@@ -240,7 +254,7 @@ function AuthenticatedShell() {
   }
 
   const isPlatformAdmin = me.is_super_admin && !me.school;
-  const navItems = getNavItems(me);
+  const badgeCounts = hasNotificationsNav ? { '/notifikasi': unreadCount ?? 0 } : undefined;
 
   async function handleLogout() {
     await logout.mutateAsync();
@@ -248,7 +262,7 @@ function AuthenticatedShell() {
   }
 
   return (
-    <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout}>
+    <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout} badgeCounts={badgeCounts}>
       <Routes>
         <Route
           path="/"
@@ -266,6 +280,7 @@ function AuthenticatedShell() {
         <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
         <Route path="/pengaturan" element={<SettingsPage />} />
         <Route path="/profil" element={<ProfilePage />} />
+        <Route path="/notifikasi" element={<NotificationsPage />} />
 
         <Route path="/absensi" element={<AttendanceClassesPage />} />
         <Route path="/absensi/sesi/:id" element={<AttendanceSessionPage />} />

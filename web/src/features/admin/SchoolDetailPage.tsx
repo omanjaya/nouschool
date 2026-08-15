@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Building2, CalendarRange, ChevronLeft } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
@@ -9,19 +9,21 @@ import { ListRow } from '../../components/ui/ListRow';
 import { Tag } from '../../components/ui/Tag';
 import { Dialog } from '../../components/ui/Dialog';
 import { Button } from '../../components/ui/Button';
-import { Field, Input, Select } from '../../components/ui/Field';
+import { Checkbox, Field, Input, Select } from '../../components/ui/Field';
 import { useToast } from '../../components/ui/Toast';
 import {
   useAcademicYears,
   useActivateAcademicYear,
   useCreateAcademicYear,
+  useNotificationChannelSettings,
   useSchools,
+  useUpdateNotificationChannelSettings,
   useUpdateSchool,
 } from './api';
 import { TIMEZONES } from '../../lib/timezones';
 import { formatDate } from '../../lib/date';
 import { ApiError } from '../../lib/api';
-import type { School } from '../../lib/types';
+import type { NotificationChannel, School } from '../../lib/types';
 
 export function SchoolDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -69,6 +71,7 @@ export function SchoolDetailPage() {
 
       <SchoolEditForm school={school} />
       <AcademicYearsSection schoolId={school.id} />
+      <NotificationChannelsSection schoolId={school.id} />
     </div>
   );
 }
@@ -267,5 +270,78 @@ function AcademicYearsSection({ schoolId }: { schoolId: string }) {
         </div>
       </Dialog>
     </div>
+  );
+}
+
+const CHANNEL_OPTIONS: { value: NotificationChannel; label: string; alwaysOn?: boolean }[] = [
+  { value: 'in_app', label: 'In-app (selalu aktif)', alwaysOn: true },
+  { value: 'web_push', label: 'Web Push' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'email', label: 'Email' },
+];
+
+/**
+ * Seksi "Notifikasi" — channel aktif per sekolah (docs/08-notification.md: super
+ * admin yang mengatur, bukan admin sekolah, karena WA/email pakai kredensial &
+ * biaya platform). `in_app` selalu aktif, tidak bisa dimatikan.
+ */
+function NotificationChannelsSection({ schoolId }: { schoolId: string }) {
+  const { data, isLoading, isError, refetch } = useNotificationChannelSettings(schoolId);
+  const update = useUpdateNotificationChannelSettings(schoolId);
+  const { showToast } = useToast();
+  const [channels, setChannels] = useState<NotificationChannel[]>(['in_app']);
+
+  useEffect(() => {
+    if (!data) return;
+    setChannels(data.channels.includes('in_app') ? data.channels : ['in_app', ...data.channels]);
+  }, [data]);
+
+  function toggle(channel: NotificationChannel) {
+    if (channel === 'in_app') return;
+    setChannels((prev) => (prev.includes(channel) ? prev.filter((c) => c !== channel) : [...prev, channel]));
+  }
+
+  function handleSave() {
+    update.mutate({ channels }, { onSuccess: () => showToast('Pengaturan notifikasi disimpan.') });
+  }
+
+  if (isLoading) {
+    return <Skeleton className="h-44 w-full" />;
+  }
+
+  if (isError || !data) {
+    return <ErrorState message="Gagal memuat pengaturan notifikasi." onRetry={() => refetch()} />;
+  }
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <div>
+        <p className="text-[14px] font-semibold text-ink">Notifikasi</p>
+        <p className="text-[12px] text-muted">Channel yang aktif untuk mengirim notifikasi ke pengguna sekolah ini.</p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {CHANNEL_OPTIONS.map((opt) => (
+          <Checkbox
+            key={opt.value}
+            id={`notif-channel-${opt.value}`}
+            label={opt.label}
+            checked={channels.includes(opt.value)}
+            disabled={opt.alwaysOn}
+            onChange={() => toggle(opt.value)}
+          />
+        ))}
+      </div>
+
+      {update.isError && (
+        <p className="text-[12px] text-danger">
+          {update.error instanceof ApiError ? update.error.message : 'Gagal menyimpan pengaturan notifikasi.'}
+        </p>
+      )}
+
+      <Button variant="secondary" onClick={handleSave} loading={update.isPending} className="self-start">
+        Simpan Pengaturan Notifikasi
+      </Button>
+    </Card>
   );
 }
