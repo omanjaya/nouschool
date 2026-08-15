@@ -9,8 +9,8 @@ import { Tag } from '../../components/ui/Tag';
 import { Input } from '../../components/ui/Field';
 import { todayISODate } from '../../lib/date';
 import { useMe } from '../auth/api';
-import { useAttendanceSummary } from './api';
-import type { AttendanceClassSummary } from '../../lib/types';
+import { useAttendanceAnomalies, useAttendanceSummary } from './api';
+import type { AttendanceAnomaly, AttendanceClassSummary } from '../../lib/types';
 
 function formatCounts(row: AttendanceClassSummary): string {
   const parts: string[] = [];
@@ -28,11 +28,22 @@ function SessionStatusTag({ status }: { status: AttendanceClassSummary['session_
   return <Tag variant="neutral">Belum diabsen</Tag>;
 }
 
+function AnomalyIssueTag({ issue }: { issue: AttendanceAnomaly['issue'] }) {
+  if (issue === 'same_location') return <Tag variant="danger">Lokasi sama</Tag>;
+  return <Tag variant="warning">Akurasi rendah</Tag>;
+}
+
 export function AttendanceRecapPage() {
   const { data: me } = useMe();
   const [date, setDate] = useState(todayISODate());
   const canView = me?.role === 'admin_sekolah' || me?.role === 'kepala_sekolah';
   const { data: rows, isLoading, isError, refetch } = useAttendanceSummary(date, canView);
+  const {
+    data: anomalies,
+    isLoading: anomaliesLoading,
+    isError: anomaliesError,
+    refetch: refetchAnomalies,
+  } = useAttendanceAnomalies(date, canView);
 
   if (me && !canView) {
     return <Navigate to="/" replace />;
@@ -76,6 +87,28 @@ export function AttendanceRecapPage() {
           ))}
         </div>
       )}
+
+      <div className="flex flex-col gap-3 border-t border-line pt-6">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Anomali Check-in</p>
+        {anomaliesLoading ? (
+          <Skeleton className="h-14 w-full" />
+        ) : anomaliesError ? (
+          <ErrorState message="Gagal memuat anomali check-in." onRetry={() => refetchAnomalies()} />
+        ) : anomalies && anomalies.length === 0 ? (
+          <p className="text-[13px] text-muted">Tidak ada anomali.</p>
+        ) : (
+          <div>
+            {anomalies?.map((a) => (
+              <ListRow
+                key={a.student_id}
+                title={a.name}
+                subtitle={`${a.class_name} · ${a.detail}`}
+                trailing={<AnomalyIssueTag issue={a.issue} />}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

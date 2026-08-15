@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { Megaphone, QrCode } from 'lucide-react';
+import { Megaphone, QrCode, MapPin } from 'lucide-react';
+import { formatTimeOfDay } from './lib/date';
 import { useLogout, useMe } from './features/auth/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { RequireLogin } from './features/auth/RequireLogin';
@@ -17,6 +18,7 @@ import { StudentsListPage } from './features/students/StudentsListPage';
 import { StudentDetailPage } from './features/students/StudentDetailPage';
 import { ClassesListPage } from './features/classes/ClassesListPage';
 import { ClassDetailPage } from './features/classes/ClassDetailPage';
+import { ClassQrCardsPage } from './features/classes/ClassQrCardsPage';
 import { TeachersListPage } from './features/teachers/TeachersListPage';
 import { SubjectsListPage } from './features/subjects/SubjectsListPage';
 import { ImportWizard } from './features/import/ImportWizard';
@@ -24,6 +26,8 @@ import { AttendanceClassesPage } from './features/attendance/AttendanceClassesPa
 import { AttendanceSessionPage } from './features/attendance/AttendanceSessionPage';
 import { AttendanceRecapPage } from './features/attendance/AttendanceRecapPage';
 import { AttendanceHistoryPage } from './features/attendance/AttendanceHistoryPage';
+import { CheckInPage } from './features/attendance/CheckInPage';
+import { useSelfCheckinStatus } from './features/attendance/api';
 import { LeavePage } from './features/leave/LeavePage';
 import { LeaveDetailPage } from './features/leave/LeaveDetailPage';
 import { LeaveApprovalsPage } from './features/leave/LeaveApprovalsPage';
@@ -43,6 +47,33 @@ import { AnnouncementsPage } from './features/announcements/AnnouncementsPage';
 import { TvPage } from './features/tv/TvPage';
 import { KepsekHomePage } from './features/dashboard/KepsekHomePage';
 import type { Me } from './lib/types';
+
+/** Kartu "Check-in Kehadiran" di Beranda siswa — muncul hanya kalau sekolah mengaktifkan metode self_checkin. */
+function SelfCheckinCard() {
+  const navigate = useNavigate();
+  const { data } = useSelfCheckinStatus(true);
+
+  if (!data || !data.enabled) return null;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <p className="text-[14px] font-semibold text-ink">Check-in Kehadiran</p>
+        <p className="text-[12px] text-muted">
+          {data.today
+            ? `Anda sudah check-in pukul ${formatTimeOfDay(data.today.checked_at)}.`
+            : 'Absen datang mandiri lewat lokasi HP Anda.'}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => navigate('/checkin')}>
+          <MapPin size={16} strokeWidth={2} aria-hidden="true" />
+          {data.today ? 'Lihat Check-in' : 'Check-in Sekarang'}
+        </Button>
+      </div>
+    </Card>
+  );
+}
 
 function BerandaPage({ me }: { me: Me }) {
   const greeting = getGreeting(new Date().getHours());
@@ -66,6 +97,9 @@ function BerandaPage({ me }: { me: Me }) {
   // Kartu kelola pengumuman TV/beranda — kepsek sudah punya jalan pintas ini di
   // KepsekHomePage (lihat AuthenticatedShell), jadi kartu Beranda ini khusus admin.
   const canManageAnnouncements = me.role === 'admin_sekolah';
+  // Kartu check-in mandiri (Fase 8) — hanya siswa, dan hook di dalamnya
+  // sendiri yang memutuskan tampil/tidak berdasar `self_checkin` aktif.
+  const isSiswa = me.role === 'siswa';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -75,6 +109,8 @@ function BerandaPage({ me }: { me: Me }) {
           {greeting}, {me.name}
         </h1>
       </div>
+
+      {isSiswa && <SelfCheckinCard />}
 
       {canScanQr && (
         <Card className="flex flex-col gap-3">
@@ -235,6 +271,7 @@ function AuthenticatedShell() {
         <Route path="/absensi/sesi/:id" element={<AttendanceSessionPage />} />
         <Route path="/absensi/rekap" element={<AttendanceRecapPage />} />
         <Route path="/kehadiran" element={<AttendanceHistoryPage />} />
+        <Route path="/checkin" element={<CheckInPage />} />
 
         <Route path="/scan" element={<ScanPage />} />
         <Route path="/jurnal" element={<JournalsPage />} />
@@ -261,6 +298,7 @@ function AuthenticatedShell() {
         <Route path="/data/siswa/import" element={<ImportWizard entity="students" backTo="/data/siswa" />} />
         <Route path="/data/siswa/:id" element={<StudentDetailPage />} />
         <Route path="/data/rombel/:id" element={<ClassDetailPage />} />
+        <Route path="/data/rombel/:id/kartu-qr" element={<ClassQrCardsPage />} />
         <Route path="/data/guru/import" element={<ImportWizard entity="teachers" backTo="/data/guru" />} />
         <Route path="/data/jadwal/import" element={<ImportWizard entity="schedule" backTo="/data/jadwal" />} />
         <Route path="/data/ruangan/cetak" element={<RoomsPrintPage />} />

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft, Copy, Download, KeyRound, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ChevronLeft, Copy, Download, IdCard, KeyRound, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -36,6 +36,7 @@ function downloadInvitationsCsv(className: string, rows: GeneratedInvitation[]) 
 
 export function ClassDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { data: classes, isLoading, isError, refetch } = useClasses();
   const schoolClass = useMemo(() => classes?.find((c) => c.id === id), [classes, id]);
 
@@ -132,6 +133,10 @@ export function ClassDetailPage() {
         <Button variant="secondary" onClick={handleGenerate} loading={generateInvitations.isPending}>
           <KeyRound size={16} strokeWidth={2} aria-hidden="true" />
           Generate Kode Undangan
+        </Button>
+        <Button variant="secondary" onClick={() => navigate(`/data/rombel/${id}/kartu-qr`)}>
+          <IdCard size={16} strokeWidth={2} aria-hidden="true" />
+          Kartu QR
         </Button>
       </div>
 

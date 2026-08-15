@@ -11,6 +11,7 @@ import { useToast } from '../../components/ui/Toast';
 import { useBranding, useUpdateBranding } from './api';
 import { ApiError } from '../../lib/api';
 import { LeaveSettingsSection } from '../leave/LeaveSettingsSection';
+import { AttendanceSettingsSection } from '../attendance/AttendanceSettingsSection';
 
 /** /pengaturan — hanya admin_sekolah, area sekolah (host tenant). */
 export function SettingsPage() {
@@ -36,6 +37,13 @@ export function SettingsPage() {
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-8 px-5 py-6">
       <BrandingForm />
+      <div className="flex flex-col gap-4 border-t border-line pt-6">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Absensi</p>
+          <h2 className="text-[18px] font-semibold text-ink">Pengaturan Absensi</h2>
+        </div>
+        <AttendanceSettingsSection />
+      </div>
       <div className="flex flex-col gap-4 border-t border-line pt-6">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Izin</p>

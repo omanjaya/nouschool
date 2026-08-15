@@ -10,6 +10,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
+import { useQrScanner } from '../../lib/useQrScanner';
 import { useMe } from '../auth/api';
 import { useClasses } from '../classes/api';
 import { useSubjects } from '../subjects/api';
@@ -17,33 +18,7 @@ import { useRooms } from '../schedule/api';
 import { useCreateJournalManual, useTeachingScan } from './api';
 import type { TeachingScanResult } from '../../lib/types';
 
-/**
- * BarcodeDetector API native — belum masuk `lib.dom` TypeScript resmi dan
- * dukungan browser masih terbatas (terutama non-Chromium). Deklarasi tipe
- * minimal lokal di sini supaya pemakaiannya type-safe (bukan `any` telanjang)
- * TANPA menambah dependency baru (batasan tugas — dilarang pakai library QR).
- */
-interface DetectedBarcodeShape {
-  rawValue: string;
-  format: string;
-}
-
-interface BarcodeDetectorInstance {
-  detect(source: CanvasImageSource): Promise<DetectedBarcodeShape[]>;
-}
-
-interface BarcodeDetectorConstructor {
-  new (options?: { formats?: string[] }): BarcodeDetectorInstance;
-}
-
-declare global {
-  interface Window {
-    BarcodeDetector?: BarcodeDetectorConstructor;
-  }
-}
-
 const ROOM_QR_PREFIX = 'nouschool:room:';
-const DETECT_INTERVAL_MS = 400;
 
 type ScanInput = { room_token: string } | { room_id: string };
 
@@ -58,13 +33,8 @@ export function ScanPage() {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const detectTimerRef = useRef<number | null>(null);
-  const detectorRef = useRef<BarcodeDetectorInstance | null>(null);
   const busyRef = useRef(false);
 
-  const [cameraLive, setCameraLive] = useState(false);
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
   const [showFallback, setShowFallback] = useState(false);
   const [result, setResult] = useState<TeachingScanResult | null>(null);
@@ -79,18 +49,6 @@ export function ScanPage() {
   const { data: rooms, isLoading: roomsLoading, isError: roomsError, refetch: refetchRooms } = useRooms();
   const { data: classes } = useClasses();
   const { data: subjects } = useSubjects();
-
-  const stopCamera = useCallback(() => {
-    if (detectTimerRef.current !== null) {
-      window.clearInterval(detectTimerRef.current);
-      detectTimerRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setCameraLive(false);
-  }, []);
 
   const submitScan = useCallback(
     async (input: ScanInput) => {
@@ -107,69 +65,41 @@ export function ScanPage() {
         busyRef.current = false;
       }
     },
-    [scan, showToast, stopCamera],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scan, showToast],
   );
 
-  const runDetect = useCallback(async () => {
-    if (busyRef.current) return;
-    const video = videoRef.current;
-    const detector = detectorRef.current;
-    if (!video || !detector || video.readyState < 2) return;
-    try {
-      const barcodes = await detector.detect(video);
-      const match = barcodes.find((b) => b.rawValue.startsWith(ROOM_QR_PREFIX));
-      if (!match) return;
-      const token = match.rawValue.slice(ROOM_QR_PREFIX.length).trim();
+  const handleDetect = useCallback(
+    (rawValue: string) => {
+      if (busyRef.current) return;
+      if (!rawValue.startsWith(ROOM_QR_PREFIX)) return;
+      const token = rawValue.slice(ROOM_QR_PREFIX.length).trim();
       if (!token) return;
-      await submitScan({ room_token: token });
-    } catch {
-      // Frame gagal dibaca (mis. video belum siap) — abaikan, coba lagi di interval berikutnya.
-    }
-  }, [submitScan]);
+      submitScan({ room_token: token });
+    },
+    [submitScan],
+  );
+
+  const { videoRef, cameraLive, error: scanError, start: startCamera, stop: stopCamera } = useQrScanner(handleDetect);
 
   // Inisialisasi kamera + detector sekali saat halaman dibuka; cleanup wajib
   // saat unmount/route change (matikan stream & timer, jangan biarkan kamera
-  // tetap menyala di background).
+  // tetap menyala di background) — ditangani hook `useQrScanner` sendiri.
   useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      if (!('BarcodeDetector' in window) || !window.BarcodeDetector) {
-        setFallbackReason('Perangkat ini belum mendukung pemindaian QR otomatis. Pilih ruangan secara manual.');
-        setShowFallback(true);
-        return;
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        detectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] });
-        setCameraLive(true);
-        detectTimerRef.current = window.setInterval(runDetect, DETECT_INTERVAL_MS);
-      } catch {
-        setFallbackReason('Kamera tidak dapat diakses (izin ditolak atau tidak tersedia). Pilih ruangan secara manual.');
-        setShowFallback(true);
-      }
-    }
-
-    init();
-
-    return () => {
-      cancelled = true;
-      stopCamera();
-    };
+    startCamera();
+    return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Kamera tidak didukung / izin ditolak → beralih ke daftar ruangan manual,
+  // dengan pesan persis seperti sebelum refactor (hook mengirim pesan generik,
+  // halaman ini menambahkan ajakan "Pilih ruangan secara manual.").
+  useEffect(() => {
+    if (scanError) {
+      setFallbackReason(`${scanError} Pilih ruangan secara manual.`);
+      setShowFallback(true);
+    }
+  }, [scanError]);
 
   // Reset form pilih kelas/mapel setiap kali dialog "tidak ada jadwal" dibuka ulang.
   useEffect(() => {

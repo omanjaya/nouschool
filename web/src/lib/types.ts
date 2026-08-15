@@ -603,6 +603,95 @@ export interface TeachingComplianceRow {
   material_pct: number;
 }
 
+/* ---- Kartu QR siswa & scan kartu (Fase 8, docs/05-attendance.md) ---- */
+
+/** POST /api/attendance/qr-cards/generate, GET /api/attendance/qr-cards?class_id= */
+export interface StudentQrCard {
+  student_id: string;
+  name: string;
+  nis: string;
+  token: string;
+}
+
+/** POST /api/attendance/sessions/{id}/scan {token} */
+export interface AttendanceScanResult {
+  student_id: string;
+  name: string;
+  nis: string;
+  status: AttendanceStatus;
+  already_marked: boolean;
+}
+
+/* ---- Self check-in siswa (Fase 8) ---- */
+
+export interface SelfCheckinWindow {
+  open_from: string;
+  close_at: string;
+}
+
+export interface SelfCheckinToday {
+  status: AttendanceStatus;
+  checked_at: string;
+}
+
+/** GET /api/attendance/self-checkin/status (siswa). */
+export interface SelfCheckinStatus {
+  enabled: boolean;
+  window: SelfCheckinWindow | null;
+  /**
+   * ASUMSI: jam "HH:MM" waktu lokal sekolah (batas toleransi terlambat),
+   * konsisten dengan format `window.open_from`/`close_at` — bukan menit
+   * (beda dari `AttendanceSettings.late_after_min` yang dipakai admin
+   * mengonfigurasinya sebagai durasi).
+   */
+  late_after: string | null;
+  today: SelfCheckinToday | null;
+}
+
+export interface SelfCheckinInput {
+  lat: number;
+  lng: number;
+  accuracy: number;
+}
+
+/** POST /api/attendance/self-checkin */
+export interface SelfCheckinResult {
+  status: AttendanceStatus;
+  checked_at: string;
+}
+
+/* ---- Anomali check-in (Fase 8, admin/kepsek) ---- */
+
+/** GET /api/attendance/anomalies?date=&class_id= */
+export interface AttendanceAnomaly {
+  student_id: string;
+  name: string;
+  class_name: string;
+  issue: 'same_location' | 'low_accuracy';
+  detail: string;
+}
+
+/* ---- Pengaturan absensi (Fase 8, admin — GET/PUT /api/settings/attendance) ---- */
+
+export type AttendanceMode = 'daily' | 'per_subject';
+export type AttendanceMethod = 'manual' | 'qr_card' | 'self_checkin';
+
+export interface AttendanceSelfCheckinRule {
+  lat: number;
+  lng: number;
+  radius_m: number;
+  open_from: string;
+  close_at: string;
+}
+
+export interface AttendanceSettings {
+  mode: AttendanceMode;
+  methods: AttendanceMethod[];
+  self_checkin: AttendanceSelfCheckinRule | null;
+  edit_window_hours: number;
+  late_after_min: number;
+}
+
 /* ---- Absensi mode per-mapel dari jadwal (guru, Fase 6) ---- */
 
 /**

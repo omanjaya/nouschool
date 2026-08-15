@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, ScanLine } from 'lucide-react';
 import { AppBar } from '../../components/ui/AppBar';
 import { ListRow } from '../../components/ui/ListRow';
 import { StatusChip } from '../../components/ui/StatusChip';
@@ -12,10 +12,26 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
 import { formatDate } from '../../lib/date';
+import { useQrScanner } from '../../lib/useQrScanner';
 import { useMe } from '../auth/api';
-import { useAttendanceSession, useFinalizeAttendanceSession, useSaveAttendanceRecords } from './api';
+import { useAttendanceScan, useAttendanceSession, useFinalizeAttendanceSession, useSaveAttendanceRecords } from './api';
 import { AttendanceNoteDialog } from './AttendanceNoteDialog';
 import type { AttendanceRecordInput, AttendanceSessionResult, AttendanceStatus } from '../../lib/types';
+
+/** Nilai sama diabaikan kalau terpindai lagi dalam jendela ini (kartu tetap di depan kamera). */
+const SCAN_DEBOUNCE_MS = 3000;
+/** Berapa lama flash tepi hijau/merah tampil setelah tiap hasil scan. */
+const SCAN_FLASH_MS = 400;
+/** Batas jumlah baris di daftar "hasil scan terakhir" (FIFO, terbaru di atas). */
+const SCAN_FEED_LIMIT = 20;
+
+interface ScanFeedItem {
+  id: string;
+  name: string;
+  ok: boolean;
+  alreadyMarked?: boolean;
+  message?: string;
+}
 
 const CYCLE: AttendanceStatus[] = ['hadir', 'terlambat', 'izin', 'sakit', 'alpa'];
 
@@ -42,6 +58,7 @@ export function AttendanceSessionPage() {
   const { data, isLoading, isError, refetch } = useAttendanceSession(id);
   const saveMutation = useSaveAttendanceRecords(id ?? '');
   const finalizeMutation = useFinalizeAttendanceSession(id ?? '');
+  const scanMutation = useAttendanceScan(id ?? '');
 
   const [records, setRecords] = useState<LocalRecords | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -49,6 +66,75 @@ export function AttendanceSessionPage() {
   const [noteStudentId, setNoteStudentId] = useState<string | null>(null);
   const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanFeed, setScanFeed] = useState<ScanFeedItem[]>([]);
+  const [scanFlash, setScanFlash] = useState<'success' | 'error' | null>(null);
+  const lastSeenRef = useRef<Map<string, number>>(new Map());
+  const feedIdRef = useRef(0);
+
+  const handleScanDetect = useCallback(
+    (rawValue: string) => {
+      const now = Date.now();
+      const last = lastSeenRef.current.get(rawValue);
+      if (last && now - last < SCAN_DEBOUNCE_MS) return;
+      lastSeenRef.current.set(rawValue, now);
+
+      scanMutation.mutate(rawValue, {
+        onSuccess: (res) => {
+          setScanFlash('success');
+          window.setTimeout(() => setScanFlash(null), SCAN_FLASH_MS);
+          feedIdRef.current += 1;
+          setScanFeed((prev) =>
+            [{ id: `s-${feedIdRef.current}`, name: res.name, ok: true, alreadyMarked: res.already_marked }, ...prev].slice(
+              0,
+              SCAN_FEED_LIMIT,
+            ),
+          );
+          setRecords((prev) => {
+            if (!prev) return prev;
+            const cur = prev[res.student_id];
+            return { ...prev, [res.student_id]: { status: res.status, note: cur?.note ?? '' } };
+          });
+          setHasSaved(true);
+        },
+        onError: (err) => {
+          setScanFlash('error');
+          window.setTimeout(() => setScanFlash(null), SCAN_FLASH_MS);
+          feedIdRef.current += 1;
+          setScanFeed((prev) =>
+            [
+              {
+                id: `e-${feedIdRef.current}`,
+                name: err instanceof ApiError ? err.message : 'Gagal memindai kartu.',
+                ok: false,
+              },
+              ...prev,
+            ].slice(0, SCAN_FEED_LIMIT),
+          );
+        },
+      });
+    },
+    [scanMutation],
+  );
+
+  const { videoRef: scanVideoRef, cameraLive: scanCameraLive, error: scanCamError, start: startScan, stop: stopScan } =
+    useQrScanner(handleScanDetect);
+
+  useEffect(() => {
+    if (!scanOpen) return;
+    startScan();
+    return () => stopScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanOpen]);
+
+  // Reset daftar hasil & dedupe token setiap kali overlay scan dibuka ulang.
+  useEffect(() => {
+    if (scanOpen) {
+      setScanFeed([]);
+      lastSeenRef.current = new Map();
+    }
+  }, [scanOpen]);
 
   // Inisialisasi state lokal sekali dari data server (default siswa tanpa record = hadir).
   useEffect(() => {
@@ -184,7 +270,16 @@ export function AttendanceSessionPage() {
           title={data.session.class_name}
           subtitle={`Absensi harian · ${formatDate(data.session.date)}`}
           onBack={handleBack}
-          action={data.session.status === 'finalized' ? <Tag variant="done">Terkunci</Tag> : undefined}
+          action={
+            data.session.status === 'open' ? (
+              <Button variant="secondary" onClick={() => setScanOpen(true)}>
+                <ScanLine size={16} strokeWidth={2} aria-hidden="true" />
+                Scan Kartu
+              </Button>
+            ) : data.session.status === 'finalized' ? (
+              <Tag variant="done">Terkunci</Tag>
+            ) : undefined
+          }
         />
         <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2.5">
           {CYCLE.map((status) => (
@@ -291,6 +386,75 @@ export function AttendanceSessionPage() {
           </Button>
         </div>
       </Dialog>
+
+      {scanOpen && (
+        <div className="fixed inset-0 z-30 bg-ink">
+          <video ref={scanVideoRef} className="h-full w-full object-cover" playsInline muted aria-hidden="true" />
+
+          {/* Flash tepi tipis: hijau = tersimpan, merah = gagal (docs/10 — tanpa glow/shadow dekoratif, hanya inset border). */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 transition-opacity duration-200"
+            style={{
+              opacity: scanFlash ? 1 : 0,
+              boxShadow:
+                scanFlash === 'success'
+                  ? 'inset 0 0 0 6px rgba(14,107,78,0.85)'
+                  : scanFlash === 'error'
+                    ? 'inset 0 0 0 6px rgba(179,56,42,0.85)'
+                    : 'none',
+            }}
+          />
+
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-10 pb-[40%]">
+            <div
+              className="aspect-square w-full max-w-[240px] rounded-lg"
+              style={{ border: '2px solid rgba(255,255,255,0.85)' }}
+            />
+          </div>
+
+          <div
+            className="absolute inset-x-0 top-0 flex items-center gap-3 px-4 py-3"
+            style={{ backgroundColor: 'rgba(23,35,58,0.6)' }}
+          >
+            <p className="flex-1 text-center text-[13px] font-medium text-[rgba(255,255,255,0.92)]">
+              {scanCamError ?? (scanCameraLive ? 'Arahkan kamera ke kartu QR siswa' : 'Menyiapkan kamera…')}
+            </p>
+          </div>
+
+          <div className="absolute inset-x-0 bottom-0 flex max-h-[45%] flex-col gap-2 border-t border-line bg-surface px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Hasil Scan Terakhir</p>
+              <Button variant="secondary" onClick={() => setScanOpen(false)}>
+                Selesai Scan
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {scanFeed.length === 0 ? (
+                <p className="py-4 text-center text-[13px] text-muted">Belum ada kartu terpindai.</p>
+              ) : (
+                <div>
+                  {scanFeed.map((item) => (
+                    <ListRow
+                      key={item.id}
+                      title={item.name}
+                      trailing={
+                        item.ok ? (
+                          <Tag variant={item.alreadyMarked ? 'neutral' : 'success'}>
+                            {item.alreadyMarked ? 'Sudah tercatat' : 'Hadir'}
+                          </Tag>
+                        ) : (
+                          <span className="text-[12px] text-danger">{item.message}</span>
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
