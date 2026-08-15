@@ -19,6 +19,32 @@ type AcademicYear struct {
 	IsActive bool        `json:"is_active"`
 }
 
+type AttendanceRecord struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	SessionID int64              `json:"session_id"`
+	StudentID int64              `json:"student_id"`
+	Status    string             `json:"status"`
+	Method    string             `json:"method"`
+	MarkedBy  int64              `json:"marked_by"`
+	MarkedAt  pgtype.Timestamptz `json:"marked_at"`
+	Meta      []byte             `json:"meta"`
+	Note      pgtype.Text        `json:"note"`
+}
+
+type AttendanceSession struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	ClassID        int64              `json:"class_id"`
+	Date           pgtype.Date        `json:"date"`
+	Type           string             `json:"type"`
+	ScheduleSlotID pgtype.Int8        `json:"schedule_slot_id"`
+	OpenedBy       int64              `json:"opened_by"`
+	Status         string             `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type AuditLog struct {
 	ID       int64              `json:"id"`
 	SchoolID pgtype.Int8        `json:"school_id"`

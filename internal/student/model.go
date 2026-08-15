@@ -155,6 +155,13 @@ type InvitationCodes struct {
 	GuardianCode *string `json:"guardian_code"`
 }
 
+// ChildRef adalah shape satu baris response GET /api/me/children (role orang_tua).
+type ChildRef struct {
+	StudentID int64  `json:"student_id"`
+	Name      string `json:"name"`
+	ClassName string `json:"class_name"`
+}
+
 // InvitationInfo adalah shape response GET /api/auth/invitation/{code}.
 type InvitationInfo struct {
 	Role        string `json:"role"`

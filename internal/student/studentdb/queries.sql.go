@@ -559,6 +559,48 @@ func (q *Queries) GetTeacherByUserID(ctx context.Context, arg GetTeacherByUserID
 	return i, err
 }
 
+const listChildrenForGuardian = `-- name: ListChildrenForGuardian :many
+SELECT s.id, s.name, c.name AS class_name
+FROM guardians g
+JOIN students s ON s.id = g.student_id
+LEFT JOIN enrollments e ON e.student_id = s.id
+LEFT JOIN classes c ON c.id = e.class_id AND c.academic_year_id = $1::bigint
+WHERE g.user_id = $2::bigint AND s.school_id = $3::bigint
+ORDER BY s.name
+`
+
+type ListChildrenForGuardianParams struct {
+	AcademicYearID int64 `json:"academic_year_id"`
+	UserID         int64 `json:"user_id"`
+	SchoolID       int64 `json:"school_id"`
+}
+
+type ListChildrenForGuardianRow struct {
+	ID        int64       `json:"id"`
+	Name      string      `json:"name"`
+	ClassName pgtype.Text `json:"class_name"`
+}
+
+func (q *Queries) ListChildrenForGuardian(ctx context.Context, arg ListChildrenForGuardianParams) ([]ListChildrenForGuardianRow, error) {
+	rows, err := q.db.Query(ctx, listChildrenForGuardian, arg.AcademicYearID, arg.UserID, arg.SchoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChildrenForGuardianRow
+	for rows.Next() {
+		var i ListChildrenForGuardianRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.ClassName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listClasses = `-- name: ListClasses :many
 SELECT c.id, c.school_id, c.academic_year_id, c.name, c.grade, c.major, c.homeroom_teacher_id,
        t.id AS teacher_row_id, u.id AS teacher_user_id, u.name AS teacher_name,

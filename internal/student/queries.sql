@@ -126,6 +126,15 @@ SELECT * FROM guardians WHERE user_id = $1 AND student_id = $2;
 -- name: CountGuardiansForStudent :one
 SELECT COUNT(*) FROM guardians WHERE student_id = $1;
 
+-- name: ListChildrenForGuardian :many
+SELECT s.id, s.name, c.name AS class_name
+FROM guardians g
+JOIN students s ON s.id = g.student_id
+LEFT JOIN enrollments e ON e.student_id = s.id
+LEFT JOIN classes c ON c.id = e.class_id AND c.academic_year_id = sqlc.arg(academic_year_id)::bigint
+WHERE g.user_id = sqlc.arg(user_id)::bigint AND s.school_id = sqlc.arg(school_id)::bigint
+ORDER BY s.name;
+
 -- -- teachers --
 
 -- name: CreateTeacher :one

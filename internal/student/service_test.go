@@ -90,6 +90,10 @@ func (f *fakeRepo) HasGuardian(ctx context.Context, studentID int64) (bool, erro
 	return len(f.guardians[studentID]) > 0, nil
 }
 
+func (f *fakeRepo) ListChildrenForGuardian(ctx context.Context, schoolID, userID, academicYearID int64) ([]ChildRef, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) CreateTeacher(ctx context.Context, schoolID, userID int64, nip string) (Teacher, error) {
 	return Teacher{}, nil
 }

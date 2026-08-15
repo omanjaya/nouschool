@@ -39,6 +39,7 @@ type studentRepository interface {
 	CreateGuardian(ctx context.Context, schoolID, userID, studentID int64, relation string) error
 	IsGuardianOf(ctx context.Context, userID, studentID int64) (bool, error)
 	HasGuardian(ctx context.Context, studentID int64) (bool, error)
+	ListChildrenForGuardian(ctx context.Context, schoolID, userID, academicYearID int64) ([]ChildRef, error)
 
 	CreateTeacher(ctx context.Context, schoolID, userID int64, nip string) (Teacher, error)
 	UpdateTeacher(ctx context.Context, schoolID, id int64, nip string) (Teacher, error)
@@ -425,6 +426,21 @@ func (r *Repository) HasGuardian(ctx context.Context, studentID int64) (bool, er
 		return false, err
 	}
 	return n > 0, nil
+}
+
+// ListChildrenForGuardian — dipakai GET /api/me/children (role orang_tua).
+func (r *Repository) ListChildrenForGuardian(ctx context.Context, schoolID, userID, academicYearID int64) ([]ChildRef, error) {
+	rows, err := r.q.ListChildrenForGuardian(ctx, studentdb.ListChildrenForGuardianParams{
+		AcademicYearID: academicYearID, UserID: userID, SchoolID: schoolID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChildRef, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ChildRef{StudentID: row.ID, Name: row.Name, ClassName: row.ClassName.String})
+	}
+	return out, nil
 }
 
 // -- teachers --

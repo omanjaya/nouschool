@@ -10,7 +10,9 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/identity"
+	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
 	"github.com/omanjaya/nouschool/internal/platform/database"
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
@@ -70,10 +72,21 @@ func main() {
 		studentSvc := student.NewService(studentRepo, identitySvc, tenantSvc)
 		studentHandler := student.NewHandler(studentSvc)
 
+		// --- modul attendance (absensi siswa mode daily) ---
+		// identitySvc, tenantSvc, studentSvc memenuhi attendance.IdentityGateway /
+		// attendance.AcademicYearLookup / attendance.StudentAccess secara
+		// STRUKTURAL (consumer-side interface dideklarasikan di
+		// internal/attendance — lihat CLAUDE.md) — attendance TIDAK mengimpor
+		// identity/tenant/student untuk tipe apa pun.
+		attendanceRepo := attendance.NewRepository(pool)
+		attendanceSvc := attendance.NewService(attendanceRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
+		attendanceHandler := attendance.NewHandler(attendanceSvc)
+
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		student.RegisterRoutes(mux, studentHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 
 		tenantResolverMW = hostResolver.Middleware
 	} else {

@@ -29,12 +29,23 @@ Terverifikasi end-to-end di Docker dev (`demo.localhost`): list rombel (2) & sis
 - ✅ Undangan akun siswa/ortu/guru (generate massal + aktivasi)
 - ✅ Object-level access ortu/siswa + test
 
-## Fase 3 — Attendance mode daily (nilai tercepat) ⬜
-- ⬜ Settings attendance + sesi/record skema
-- ⬜ Absen manual (UI guru mobile-first, bulk save)
-- ⬜ Jendela edit + finalize + audit
-- ⬜ Rekap harian kelas & riwayat per siswa (view ortu/siswa)
-- ⬜ **Milestone: sekolah pertama bisa pakai absensi harian**
+## Fase 3 — Attendance mode daily (nilai tercepat) 🚧 (backend selesai, UI belum)
+Backend terverifikasi end-to-end di Docker dev (`demo.localhost`, admin): GET
+rombel+status sesi hari ini, buat sesi (idempoten), bulk isi absen (hadir/
+sakit/terlambat), GET sesi, finalize (menolak bila ada yang belum diabsen),
+edit setelah finalize sebagai admin (audit_log old/new tercatat), rekap
+harian per rombel (angka benar), aktivasi akun orang tua dari kode undangan +
+`GET /api/me/children` + riwayat absen anak sendiri (200) vs siswa lain (403).
+`go build/vet/test ./...` hijau. UI guru mobile-first (Fase 3 lanjutan) belum
+dikerjakan — backend siap dipakai frontend.
+- ✅ Settings attendance (`GET/PUT /api/settings/attendance`) + skema
+  `attendance_sessions`/`attendance_records` (migrasi `00004_attendance.sql`,
+  partial unique daily/subject, `schedule_slot_id` tanpa FK — ditambah Fase 5)
+- ✅ Absen manual — bulk upsert transaksional (`PUT /api/attendance/sessions/{id}/records`)
+- ✅ Jendela edit (`edit_window_hours`, default admin bypass) + finalize (menolak jika ada belum diabsen) + audit (hanya perubahan record yang SUDAH ada nilainya)
+- ✅ Rekap harian kelas (`GET /api/attendance/summary`) & riwayat per siswa (`GET /api/students/{id}/attendance`, perm `attendance:report` ATAU object-level ortu/siswa via `student.Service.CanViewStudent`) + `GET /api/me/children`
+- ⬜ UI guru mobile-first (bulk save) — **belum dikerjakan**
+- ⬜ **Milestone: sekolah pertama bisa pakai absensi harian** (backend siap; menunggu UI)
 
 ## Fase 4 — Leave (izin guru) ⬜
 - ⬜ Settings chain + snapshot approval steps

@@ -3,6 +3,8 @@ package tenant
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/omanjaya/nouschool/internal/attendance"
 )
 
 // Settings adalah kontrak yang wajib dipenuhi tiap struct settings modul
@@ -63,6 +65,9 @@ func NewModuleSettings(module string) (Settings, bool) {
 	case "branding":
 		b := DefaultBrandingSettings()
 		return &b, true
+	case "attendance":
+		a := attendance.DefaultSettings()
+		return &a, true
 	default:
 		return nil, false
 	}

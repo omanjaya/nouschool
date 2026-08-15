@@ -385,6 +385,17 @@ func (h *Handler) UpdateSubject(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, subj)
 }
 
+// GetMyChildren — GET /api/me/children (role orang_tua).
+func (h *Handler) GetMyChildren(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	children, err := h.svc.ListMyChildren(ctx, reqctx.SchoolID(ctx), reqctx.UserID(ctx))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, children)
+}
+
 // -- undangan --
 
 type generateInvitationsRequest struct {

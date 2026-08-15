@@ -35,6 +35,9 @@ func RegisterRoutes(
 	mux.Handle("POST /api/classes/{id}/students", manage(h.EnrollStudents))
 	mux.Handle("DELETE /api/classes/{id}/students/{studentId}", manage(h.UnenrollStudent))
 
+	// -- orang tua --
+	mux.Handle("GET /api/me/children", auth(h.GetMyChildren))
+
 	// -- guru --
 	mux.Handle("GET /api/teachers", read(h.ListTeachers))
 	mux.Handle("POST /api/teachers", manage(h.CreateTeacher))

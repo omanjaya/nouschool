@@ -205,6 +205,39 @@ func (s *Service) checkStudentAccess(ctx context.Context, rec StudentRecord) err
 	return httpx.ErrForbidden
 }
 
+// CanViewStudent adalah kebutuhan lintas modul (mis. attendance, lewat
+// consumer-side interface StudentAccess yang dideklarasikan di sisi pemakai —
+// lihat CLAUDE.md) untuk aturan object-level YANG SAMA dengan GetStudent:
+// siswa boleh melihat dirinya sendiri, orang tua boleh melihat anak yang
+// terhubung lewat guardians. Method ini SENGAJA TIDAK mengecek permission
+// modul student (student:read) — pemanggil menggerbang permission MODULNYA
+// SENDIRI lebih dulu (mis. attendance:report) dan hanya jatuh ke sini sebagai
+// fallback object-level, persis pola checkStudentAccess di bawah.
+func (s *Service) CanViewStudent(ctx context.Context, userID int64, role string, schoolID, studentID int64) error {
+	rec, err := s.repo.GetStudent(ctx, schoolID, 0, studentID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return httpx.ErrNotFound
+		}
+		return err
+	}
+	switch role {
+	case RoleSiswa:
+		if rec.UserID != 0 && rec.UserID == userID {
+			return nil
+		}
+	case RoleOrangTua:
+		ok, err := s.repo.IsGuardianOf(ctx, userID, rec.ID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+	}
+	return httpx.ErrForbidden
+}
+
 func (s *Service) GetStudent(ctx context.Context, schoolID, id int64) (Student, error) {
 	yearID, err := s.currentYearID(ctx, schoolID)
 	if err != nil {
@@ -648,6 +681,16 @@ func (s *Service) UpdateSubject(ctx context.Context, actorUserID, schoolID, id i
 
 func (s *Service) ListSubjects(ctx context.Context, schoolID int64) ([]Subject, error) {
 	return s.repo.ListSubjects(ctx, schoolID)
+}
+
+// ListMyChildren — GET /api/me/children (role orang_tua): daftar anak yang
+// terhubung lewat guardians, disertai nama rombel pada tahun ajaran aktif.
+func (s *Service) ListMyChildren(ctx context.Context, schoolID, userID int64) ([]ChildRef, error) {
+	yearID, err := s.currentYearID(ctx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListChildrenForGuardian(ctx, schoolID, userID, yearID)
 }
 
 // -- undangan --
