@@ -1,0 +1,46 @@
+# === DEV ===
+# Jalankan: caddy run  (butuh Caddy terinstall; opsional saat dev — Vite proxy juga bisa)
+localhost {
+	handle /api/* {
+		reverse_proxy localhost:8080
+	}
+	handle {
+		reverse_proxy localhost:5173
+	}
+}
+
+# === PROD (aktifkan di VPS, hapus blok dev di atas) ===
+# {
+# 	email admin@nouschool.id
+# 	on_demand_tls {
+# 		ask http://localhost:8080/internal/check-domain
+# 	}
+# }
+#
+# *.nouschool.id, nouschool.id {
+# 	tls {
+# 		dns <provider> <token>   # wildcard butuh DNS challenge
+# 	}
+# 	handle /api/* {
+# 		reverse_proxy localhost:8080
+# 	}
+# 	handle {
+# 		root * /srv/nouschool/web/dist
+# 		try_files {path} /index.html
+# 		file_server
+# 	}
+# }
+#
+# https:// {
+# 	tls {
+# 		on_demand
+# 	}
+# 	handle /api/* {
+# 		reverse_proxy localhost:8080
+# 	}
+# 	handle {
+# 		root * /srv/nouschool/web/dist
+# 		try_files {path} /index.html
+# 		file_server
+# 	}
+# }
