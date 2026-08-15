@@ -92,3 +92,20 @@ export function formatDateTime(isoDateTime: string): string {
   const mm = String(d.getMinutes()).padStart(2, '0');
   return `${formatDate(toISODate(d))} · ${hh}.${mm}`;
 }
+
+/**
+ * Ambil jam saja dari timestamp — "08.30" (jam 24-jam, docs/10 #8). Dipakai baris
+ * ringkas (jurnal mengajar, monitoring status guru) yang hanya perlu jam tanpa tanggal.
+ */
+export function formatTimeOfDay(isoDateTime: string): string {
+  const d = new Date(isoDateTime);
+  if (Number.isNaN(d.getTime())) return '-';
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}.${mm}`;
+}
+
+/** Bulan berjalan (perangkat) dikodekan "YYYY-MM" — dipakai filter jurnal "Bulan Ini". */
+export function currentISOMonth(): string {
+  return todayISODate().slice(0, 7);
+}

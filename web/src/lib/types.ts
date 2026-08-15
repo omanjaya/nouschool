@@ -410,3 +410,145 @@ export interface CurrentPeriodResult {
   period: CurrentPeriodInfo | null;
   next_starts_at: string | null;
 }
+
+/* ---- Teaching / jurnal mengajar & monitoring (Fase 6, docs/06-teaching.md) ---- */
+
+/** Flag konteks jurnal — "satu scan tiga hasil" (docs/06 #1). */
+export type JournalFlag = 'room_mismatch' | 'unscheduled' | 'manual_pick';
+
+export type JournalStatus = 'ongoing' | 'done';
+
+/**
+ * `teaching_journals` — dibuat lewat scan QR ruangan atau entri manual di luar
+ * jadwal. `material`/`note` diasumsikan bisa `null` (belum diisi guru), konsisten
+ * dengan field catatan lain di kontrak (mis. `AttendanceRecord.note`).
+ */
+export interface Journal {
+  id: string;
+  teacher: TeacherRef;
+  class: ClassRef;
+  subject: ScheduleSlotSubjectRef | null;
+  room: ScheduleSlotRoomRef | null;
+  /** ASUMSI: id string konsisten dgn `ScheduleSlot.id`, bukan angka murni. */
+  schedule_slot_id: string | null;
+  date: string;
+  started_at: string;
+  ended_at: string | null;
+  material: string | null;
+  note: string | null;
+  flags: JournalFlag[];
+  status: JournalStatus;
+}
+
+/** GET /api/teaching/journals?scope=&date=|month= */
+export interface JournalListResult {
+  items: Journal[];
+}
+
+export interface TeachingJournalCreateInput {
+  room_id?: string;
+  class_id: string;
+  subject_id: string;
+}
+
+export interface TeachingJournalUpdateInput {
+  material?: string;
+  note?: string;
+}
+
+/** POST /api/teaching/scan — hasil "tidak ada jadwal di jam ini di ruangan ini". */
+export interface TeachingScanNeedsManualResult {
+  needs_manual: true;
+  room: { id: string; name: string };
+}
+
+/**
+ * POST /api/teaching/scan — hasil normal: jurnal dibuka + sesi absensi disiapkan
+ * sekaligus. `attendance_session_id` diketik `number` sesuai kontrak literal;
+ * dipakai hanya untuk interpolasi path (`/absensi/sesi/${id}`).
+ */
+export interface TeachingScanJournalResult {
+  needs_manual: false;
+  journal: Journal;
+  attendance_session_id: number;
+}
+
+export type TeachingScanResult = TeachingScanJournalResult | TeachingScanNeedsManualResult;
+
+/* ---- Status mengajar / monitoring (kepsek & admin, docs/06 #2) ---- */
+
+export type TeachingStatus = 'mengajar' | 'belum_masuk' | 'izin' | 'belum_mulai' | 'selesai';
+
+/**
+ * ASUMSI: `starts_at`/`ends_at` di sini adalah timestamptz penuh untuk
+ * kemunculan slot pada tanggal yang difilter (bukan jam "HH:MM" seperti
+ * `Period.starts_at`) — supaya frontend bisa menentukan grup "sedang
+ * berlangsung" murni dari data ini tanpa fetch tambahan ke `/periods`.
+ */
+export interface TeachingStatusSlot {
+  id: string;
+  class: ClassRef;
+  subject: ScheduleSlotSubjectRef;
+  teacher: TeacherRef;
+  room: ScheduleSlotRoomRef | null;
+  day_of_week: DayOfWeek;
+  period_start: number;
+  period_end: number;
+  /** Jam dinding "HH:MM" (bukan timestamp) — dari definisi periods sekolah. */
+  period_starts_at: string;
+  period_ends_at: string;
+}
+
+export interface TeachingStatusItem {
+  slot: TeachingStatusSlot;
+  teacher: TeacherRef;
+  status: TeachingStatus;
+  journal_id: string | null;
+  /** Ruang AKTUAL hasil scan — beda dari `slot.room` kalau guru pindah ruangan. */
+  room_actual: ScheduleSlotRoomRef | null;
+}
+
+export interface TeachingStatusSummary {
+  mengajar: number;
+  belum_masuk: number;
+  izin: number;
+  belum_mulai: number;
+  selesai: number;
+}
+
+/** GET /api/teaching/status?date= */
+export interface TeachingStatusResult {
+  items: TeachingStatusItem[];
+  current_period: CurrentPeriodInfo | null;
+  summary: TeachingStatusSummary;
+}
+
+/* ---- Absensi mode per-mapel dari jadwal (guru, Fase 6) ---- */
+
+/**
+ * Sesi absensi pada `slots-today` — beda dari `AttendanceClassSession` (dipakai
+ * `attendance/classes`) karena sudah menyertakan `total` langsung (di daftar
+ * rombel harian, total datang dari `student_count` pada item induk, bukan
+ * dari objek sesi itu sendiri).
+ */
+export interface AttendanceSlotSession {
+  id: string;
+  status: AttendanceSessionStatus;
+  marked_count: number;
+  total: number;
+}
+
+/** GET /api/attendance/slots-today (guru) — satu baris per slot jadwal hari ini. */
+export interface AttendanceSlotToday {
+  slot: {
+    id: string;
+    class: ClassRef;
+    subject: ScheduleSlotSubjectRef;
+    period_start: number;
+    period_end: number;
+    starts_at: string;
+    ends_at: string;
+    is_now: boolean;
+  };
+  session: AttendanceSlotSession | null;
+}

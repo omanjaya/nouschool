@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react';
 
-type TagVariant = 'now' | 'done' | 'neutral' | 'danger' | 'success' | 'warning';
+type TagVariant = 'now' | 'done' | 'neutral' | 'danger' | 'success' | 'warning' | 'info';
 
 const VARIANT_CLASS: Record<TagVariant, string> = {
   now: 'bg-primary-soft text-primary',
   done: 'bg-surface-2 text-muted',
   neutral: 'bg-surface-2 text-ink',
   danger: 'bg-danger-soft text-danger',
-  /** Status semantik "baik" (mis. izin disetujui) — token --st-hadir. */
+  /** Status semantik "baik" (mis. izin disetujui, guru sedang mengajar) — token --st-hadir. */
   success: 'bg-st-hadir-line text-st-hadir',
   /** Status semantik "menunggu/perlu perhatian" (mis. izin pending) — token --st-terlambat. */
   warning: 'bg-st-terlambat-line text-st-terlambat',
+  /** Status semantik netral-informatif (mis. guru berstatus izin) — token --st-izin. */
+  info: 'bg-st-izin-line text-st-izin',
 };
 
 interface TagProps {

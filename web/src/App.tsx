@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { QrCode } from 'lucide-react';
 import { useLogout, useMe } from './features/auth/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { RequireLogin } from './features/auth/RequireLogin';
@@ -33,6 +34,9 @@ import { RoomsPage } from './features/schedule/RoomsPage';
 import { RoomsPrintPage } from './features/schedule/RoomsPrintPage';
 import { ScheduleBuilderPage } from './features/schedule/ScheduleBuilderPage';
 import { SchedulePage } from './features/schedule/SchedulePage';
+import { ScanPage } from './features/teaching/ScanPage';
+import { JournalsPage } from './features/teaching/JournalsPage';
+import { MonitoringPage } from './features/teaching/MonitoringPage';
 import type { Me } from './lib/types';
 
 function getGreeting(hour: number) {
@@ -55,6 +59,12 @@ function BerandaPage({ me }: { me: Me }) {
   // ke /jadwal (hanya siswa yang punya, lihat lib/nav.ts), jadi kartu ini
   // jadi entry point untuk guru; untuk siswa tetap ditampilkan sebagai jalan pintas.
   const canViewOwnSchedule = me.role === 'guru' || me.role === 'siswa';
+  // Kartu jalan pintas ke scan QR ruangan (Fase 6, docs/06-teaching.md) — hanya
+  // guru yang mengajar bisa memindai QR untuk membuka jurnal + absensi.
+  const canScanQr = me.role === 'guru';
+  // Kartu monitoring status mengajar guru — untuk peran yang mengawasi jalannya
+  // KBM, bukan guru sendiri.
+  const canViewMonitoring = me.role === 'kepala_sekolah' || me.role === 'admin_sekolah';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -64,6 +74,35 @@ function BerandaPage({ me }: { me: Me }) {
           {greeting}, {me.name}
         </h1>
       </div>
+
+      {canScanQr && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Scan QR Kelas</p>
+            <p className="text-[12px] text-muted">Satu scan: jurnal mengajar terisi + absensi siswa siap diisi.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => navigate('/scan')}>
+              <QrCode size={16} strokeWidth={2} aria-hidden="true" />
+              Scan QR Ruangan
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {canViewMonitoring && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Monitoring Guru</p>
+            <p className="text-[12px] text-muted">Lihat guru yang sedang mengajar, izin, atau belum masuk kelas.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/monitoring')}>
+              Buka Monitoring
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {canWriteAttendance || canViewRecap ? (
         <Card className="flex flex-col gap-3">
@@ -162,6 +201,10 @@ function AuthenticatedShell() {
         <Route path="/absensi/sesi/:id" element={<AttendanceSessionPage />} />
         <Route path="/absensi/rekap" element={<AttendanceRecapPage />} />
         <Route path="/kehadiran" element={<AttendanceHistoryPage />} />
+
+        <Route path="/scan" element={<ScanPage />} />
+        <Route path="/jurnal" element={<JournalsPage />} />
+        <Route path="/monitoring" element={<MonitoringPage />} />
 
         <Route path="/izin" element={<LeavePage />} />
         <Route path="/izin/rekap" element={<LeaveRecapPage />} />

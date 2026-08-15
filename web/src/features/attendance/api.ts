@@ -5,6 +5,7 @@ import type {
   AttendanceClassSummary,
   AttendanceRecordInput,
   AttendanceSessionResult,
+  AttendanceSlotToday,
   ChildRef,
   StudentAttendanceHistory,
 } from '../../lib/types';
@@ -13,6 +14,7 @@ export const ATTENDANCE_CLASSES_KEY = 'attendance-classes' as const;
 export const ATTENDANCE_SESSION_KEY = 'attendance-session' as const;
 export const ATTENDANCE_SUMMARY_KEY = 'attendance-summary' as const;
 export const ATTENDANCE_HISTORY_KEY = 'attendance-history' as const;
+export const ATTENDANCE_SLOTS_TODAY_KEY = 'attendance-slots-today' as const;
 
 /** GET /api/attendance/classes?date= — daftar rombel guru/admin untuk satu tanggal. */
 export function useAttendanceClasses(date: string) {
@@ -69,6 +71,35 @@ export function useFinalizeAttendanceSession(id: string) {
     onSuccess: (data) => {
       queryClient.setQueryData(attendanceSessionQueryKey(id), data);
       queryClient.invalidateQueries({ queryKey: [ATTENDANCE_CLASSES_KEY] });
+    },
+  });
+}
+
+/**
+ * GET /api/attendance/slots-today (guru) — jadwal mengajar hari ini mode
+ * per-mapel, satu baris per slot dengan status sesi absensinya. Di sekolah
+ * mode daily-only ini mengembalikan array kosong (bukan error) — heuristik
+ * dipakai `AttendanceClassesPage` untuk memutuskan menampilkan seksi
+ * "Jadwal Mengajar Hari Ini" atau tidak (lihat docs/05-attendance.md).
+ */
+export function useAttendanceSlotsToday(enabled = true) {
+  return useQuery({
+    queryKey: [ATTENDANCE_SLOTS_TODAY_KEY],
+    queryFn: () => api.get<AttendanceSlotToday[]>('/attendance/slots-today'),
+    enabled,
+  });
+}
+
+/** POST /api/attendance/sessions {schedule_slot_id} — buka sesi absensi mode per-mapel dari slot jadwal. */
+export function useOpenAttendanceSessionForSlot() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleSlotId: string) =>
+      api.post<AttendanceSessionResult>('/attendance/sessions', { schedule_slot_id: scheduleSlotId }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(attendanceSessionQueryKey(data.session.id), data);
+      queryClient.invalidateQueries({ queryKey: [ATTENDANCE_CLASSES_KEY] });
+      queryClient.invalidateQueries({ queryKey: [ATTENDANCE_SLOTS_TODAY_KEY] });
     },
   });
 }
