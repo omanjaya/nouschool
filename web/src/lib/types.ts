@@ -55,6 +55,56 @@ export interface Me {
 export interface Branding {
   app_name: string;
   primary_color: string;
+  /** Path penyimpanan internal logo — bukan URL yang bisa dipakai langsung; tampilan logo memakai `PublicContextBranding.logo_url`. */
+  logo_path?: string | null;
+}
+
+/* ---- Konteks publik & branding runtime (Fase 11, docs/01-tenant.md §branding) ---- */
+
+export interface PublicContextSchool {
+  name: string;
+  slug: string;
+}
+
+export interface PublicContextBranding {
+  app_name: string;
+  primary_color: string;
+  logo_url: string | null;
+}
+
+/** GET /api/public/context — publik, dipanggil sekali saat app load (`lib/useAppBranding`). */
+export type PublicContext =
+  | { platform: true }
+  | { platform: false; school: PublicContextSchool; branding: PublicContextBranding };
+
+/* ---- Custom domain (Fase 11, docs/01-tenant.md §Custom domain & Caddy) ---- */
+
+/** GET /api/custom-domain (admin). */
+export interface CustomDomainStatus {
+  domain: string | null;
+  pending_domain: string | null;
+  verified: boolean;
+  server_ip: string;
+  instructions: string;
+}
+
+/* ---- Minat sekolah / landing page (Fase 11) ---- */
+
+export interface InterestLeadInput {
+  school_name: string;
+  contact_name: string;
+  phone: string;
+  email?: string;
+  note?: string;
+}
+
+/**
+ * GET /api/admin/interest — ASUMSI: tiap baris punya `id` (belum eksplisit
+ * di kontrak ringkas), dipakai sebagai key list di `InterestLeadsPage`.
+ */
+export interface InterestLead extends InterestLeadInput {
+  id: string;
+  created_at: string;
 }
 
 /* ---- Student (Fase 2) ---- */

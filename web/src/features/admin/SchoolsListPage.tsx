@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, ShieldAlert, Tags } from 'lucide-react';
+import { Building2, Mail, Plus, ShieldAlert, Tags } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -40,6 +40,10 @@ export function SchoolsListPage() {
           <h1 className="text-[21px] font-semibold text-ink">Sekolah</h1>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => navigate('/admin/minat')}>
+            <Mail size={16} strokeWidth={2} aria-hidden="true" />
+            Minat Sekolah
+          </Button>
           <Button variant="secondary" onClick={() => navigate('/admin/plans')}>
             <Tags size={16} strokeWidth={2} aria-hidden="true" />
             Plan & Harga

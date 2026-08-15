@@ -7,6 +7,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0E6B4E" />
     <meta name="description" content="NouSchool — absensi, izin guru, dan monitoring sekolah." />
+    <!--
+      Manifest PWA dinamis per tenant (docs/01-tenant.md §branding): di PROD,
+      backend men-generate manifest ini dari branding sekolah (nama, ikon,
+      theme_color) di path `/manifest.webmanifest` — Caddy WAJIB merutekan
+      path ini ke backend (bukan file statis `dist/manifest.webmanifest` hasil
+      build vite-plugin-pwa) supaya tenant memakai manifest dinamisnya sendiri,
+      bukan manifest statis default NouSchool. Host platform (tanpa tenant)
+      boleh tetap memakai manifest statis. Di DEV, `vite.config.ts` mem-proxy
+      path ini ke backend (lihat proxy `/manifest.webmanifest`) supaya tenant
+      dev juga mendapat manifest dinamis alih-alih 404 (vite-plugin-pwa
+      `devOptions.enabled: false`, jadi tidak menyuntik manifest di dev).
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>NouSchool</title>
   </head>
   <body>

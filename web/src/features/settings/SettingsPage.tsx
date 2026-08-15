@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Image as ImageIcon, ShieldAlert } from 'lucide-react';
 import { useMe } from '../auth/api';
+import { usePublicContext } from '../branding/api';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -8,10 +9,14 @@ import { Card } from '../../components/ui/Card';
 import { Field, Input } from '../../components/ui/Field';
 import { Button } from '../../components/ui/Button';
 import { useToast } from '../../components/ui/Toast';
-import { useBranding, useUpdateBranding } from './api';
+import { useBranding, useUpdateBranding, useUploadBrandingLogo } from './api';
 import { ApiError } from '../../lib/api';
+import { applyBrandColor } from '../../lib/color';
 import { LeaveSettingsSection } from '../leave/LeaveSettingsSection';
 import { AttendanceSettingsSection } from '../attendance/AttendanceSettingsSection';
+import { CustomDomainSection } from './CustomDomainSection';
+
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
 /** /pengaturan — hanya admin_sekolah, area sekolah (host tenant). */
 export function SettingsPage() {
@@ -38,6 +43,9 @@ export function SettingsPage() {
     <div className="mx-auto flex max-w-[640px] flex-col gap-8 px-5 py-6">
       <BrandingForm />
       <div className="flex flex-col gap-4 border-t border-line pt-6">
+        <CustomDomainSection />
+      </div>
+      <div className="flex flex-col gap-4 border-t border-line pt-6">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Absensi</p>
           <h2 className="text-[18px] font-semibold text-ink">Pengaturan Absensi</h2>
@@ -57,10 +65,14 @@ export function SettingsPage() {
 
 function BrandingForm() {
   const { data: branding, isLoading, isError, refetch } = useBranding();
+  const { data: context } = usePublicContext();
   const update = useUpdateBranding();
+  const uploadLogo = useUploadBrandingLogo();
   const { showToast } = useToast();
   const [appName, setAppName] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#0E6B4E');
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (branding) {
@@ -73,9 +85,33 @@ function BrandingForm() {
     e.preventDefault();
     update.mutate(
       { app_name: appName, primary_color: primaryColor },
-      { onSuccess: () => showToast('Pengaturan disimpan.') },
+      {
+        onSuccess: () => {
+          // Preview live warna: cukup terapkan begitu simpan sukses (bukan
+          // saat drag color picker) — sederhana & tidak butuh logika revert.
+          applyBrandColor(primaryColor);
+          showToast('Pengaturan disimpan.');
+        },
+      },
     );
   }
+
+  function handlePickLogo(file: File | null) {
+    if (!file) return;
+    if (file.size > MAX_LOGO_BYTES) {
+      showToast('Ukuran logo maksimal 2MB.', 'error');
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setLogoPreview(objectUrl);
+    uploadLogo.mutate(file, {
+      onSuccess: () => showToast('Logo diperbarui.'),
+      onError: () => setLogoPreview(null),
+    });
+  }
+
+  const currentLogoUrl = context && !context.platform ? context.branding.logo_url : null;
+  const displayedLogo = logoPreview ?? currentLogoUrl;
 
   return (
     <div className="flex flex-col gap-6">
@@ -91,6 +127,46 @@ function BrandingForm() {
       ) : (
         <Card>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[12px] font-medium text-muted">Logo sekolah</label>
+              <div className="flex items-center gap-3">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-surface-2">
+                  {displayedLogo ? (
+                    <img src={displayedLogo} alt="Logo sekolah" className="h-full w-full object-contain" />
+                  ) : (
+                    <ImageIcon size={24} strokeWidth={2} className="text-muted" aria-hidden="true" />
+                  )}
+                </div>
+                <div className="flex flex-col gap-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="hidden"
+                    onChange={(e) => {
+                      handlePickLogo(e.target.files?.[0] ?? null);
+                      e.target.value = '';
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={uploadLogo.isPending}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="self-start"
+                  >
+                    Ganti Logo
+                  </Button>
+                  <span className="text-[12px] text-muted">PNG/JPG, maksimal 2MB.</span>
+                </div>
+              </div>
+              {uploadLogo.isError && (
+                <p className="text-[12px] text-danger">
+                  {uploadLogo.error instanceof ApiError ? uploadLogo.error.message : 'Gagal mengunggah logo.'}
+                </p>
+              )}
+            </div>
+
             <Field label="Nama aplikasi" htmlFor="app-name">
               <Input id="app-name" value={appName} onChange={(e) => setAppName(e.target.value)} required />
             </Field>

@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import type {
   AcademicYear,
   AdminSchoolBillingResult,
+  InterestLead,
   NotificationChannelSettings,
   Plan,
   PlanUpdateInput,
@@ -199,5 +200,17 @@ export function useVoidInvoice(schoolId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: schoolBillingQueryKey(schoolId) });
     },
+  });
+}
+
+/* ---- Minat sekolah dari landing page (Fase 11) ---- */
+
+export const INTEREST_LEADS_QUERY_KEY = ['admin', 'interest'] as const;
+
+/** GET /api/admin/interest (super admin) — daftar minat sekolah dari form landing page. */
+export function useInterestLeads() {
+  return useQuery({
+    queryKey: INTEREST_LEADS_QUERY_KEY,
+    queryFn: () => api.get<InterestLead[]>('/admin/interest'),
   });
 }

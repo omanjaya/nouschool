@@ -2,12 +2,22 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import type { ImportCommitResult, ImportPreviewResult } from '../../lib/types';
 
-export type ImportEntity = 'students' | 'teachers' | 'schedule';
+/** `dapodik` = import peserta didik dari file export aplikasi Dapodik (docs/03-student.md), bukan template NouSchool sendiri. */
+export type ImportEntity = 'students' | 'teachers' | 'schedule' | 'dapodik';
 
 export const IMPORT_ENTITY_LABEL: Record<ImportEntity, string> = {
   students: 'siswa',
   teachers: 'guru',
   schedule: 'jadwal',
+  dapodik: 'Dapodik',
+};
+
+/** Entity dengan template Excel NouSchool sendiri — `dapodik` memakai format export bawaan Dapodik, jadi tidak ada template untuk diunduh. */
+export const IMPORT_ENTITY_HAS_TEMPLATE: Record<ImportEntity, boolean> = {
+  students: true,
+  teachers: true,
+  schedule: true,
+  dapodik: false,
 };
 
 /** URL template CSV — dibuka langsung lewat <a href>, bukan fetch (lihat lib/api.ts). */
@@ -39,6 +49,11 @@ export function useImportCommit(entity: ImportEntity) {
       if (entity === 'schedule') {
         queryClient.invalidateQueries({ queryKey: ['schedule-slots'] });
         queryClient.invalidateQueries({ queryKey: ['schedule-today'] });
+      }
+      // Import Dapodik menulis ke tabel `students` yang sama dengan import
+      // biasa (docs/03-student.md) — query key-nya 'students', bukan 'dapodik'.
+      if (entity === 'dapodik') {
+        queryClient.invalidateQueries({ queryKey: ['students'] });
       }
     },
   });

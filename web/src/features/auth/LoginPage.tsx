@@ -4,6 +4,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { Field, Input } from '../../components/ui/Field';
 import { Button } from '../../components/ui/Button';
 import { ApiError } from '../../lib/api';
+import { BrandMark } from '../branding/BrandMark';
 import { useLogin, useMe } from './api';
 
 /** Layar penuh tanpa AppShell, maks 400px, tengah. */
@@ -45,7 +46,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-bg px-5">
       <div className="w-full max-w-[400px]">
-        <p className="mb-8 text-center text-[21px] font-semibold text-ink">NouSchool</p>
+        <BrandMark className="mb-8" />
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Field label="Email atau username" htmlFor="identifier">

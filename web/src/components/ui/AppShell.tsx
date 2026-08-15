@@ -10,6 +10,10 @@ interface AppShellProps {
   onLogout?: () => void;
   /** Angka badge per path nav (mis. unread notifikasi) — 0/undefined = tidak tampil. */
   badgeCounts?: Record<string, number>;
+  /** Nama aplikasi di sidebar desktop — default "NouSchool" (docs/01 §branding). */
+  appName?: string;
+  /** Logo kecil di sebelah nama, ditampilkan hanya kalau ada (docs/01 §branding). */
+  logoUrl?: string | null;
 }
 
 function NavBadge({ count }: { count: number }) {
@@ -28,12 +32,23 @@ function NavBadge({ count }: { count: number }) {
  * Bottom tab bar di mobile (<1024px), sidebar kiri di desktop (>=1024px).
  * Item aktif: warna --primary; underline 2px hanya di mobile.
  */
-export function AppShell({ children, navItems, userName, onLogout, badgeCounts }: AppShellProps) {
+export function AppShell({
+  children,
+  navItems,
+  userName,
+  onLogout,
+  badgeCounts,
+  appName = 'NouSchool',
+  logoUrl = null,
+}: AppShellProps) {
   return (
     <div className="min-h-dvh bg-bg text-ink lg:flex">
       <aside className="hidden lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-line lg:py-6 print:hidden">
-        <div className="px-5 pb-6">
-          <span className="text-[18px] font-semibold text-ink">NouSchool</span>
+        <div className="flex items-center gap-2 px-5 pb-6">
+          {logoUrl && (
+            <img src={logoUrl} alt="" className="h-6 w-6 shrink-0 rounded object-contain" />
+          )}
+          <span className="truncate text-[18px] font-semibold text-ink">{appName}</span>
         </div>
         <nav className="flex flex-col gap-1 px-3">
           {navItems.map((item) => (

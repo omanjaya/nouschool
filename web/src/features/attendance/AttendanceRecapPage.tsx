@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { FileBarChart } from 'lucide-react';
+import { Download, FileBarChart } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Tag } from '../../components/ui/Tag';
-import { Input } from '../../components/ui/Field';
-import { todayISODate } from '../../lib/date';
+import { Input, Select } from '../../components/ui/Field';
+import { currentISOMonth, todayISODate } from '../../lib/date';
 import { useMe } from '../auth/api';
+import { useClasses } from '../classes/api';
 import { useAttendanceAnomalies, useAttendanceSummary } from './api';
 import type { AttendanceAnomaly, AttendanceClassSummary } from '../../lib/types';
 
@@ -36,8 +37,12 @@ function AnomalyIssueTag({ issue }: { issue: AttendanceAnomaly['issue'] }) {
 export function AttendanceRecapPage() {
   const { data: me } = useMe();
   const [date, setDate] = useState(todayISODate());
+  const [exportMonth, setExportMonth] = useState(currentISOMonth());
+  const [exportClassId, setExportClassId] = useState('');
   const canView = me?.role === 'admin_sekolah' || me?.role === 'kepala_sekolah';
   const { data: rows, isLoading, isError, refetch } = useAttendanceSummary(date, canView);
+  const { data: classes } = useClasses();
+  const exportHref = `/api/attendance/export?month=${exportMonth}${exportClassId ? `&class_id=${exportClassId}` : ''}`;
   const {
     data: anomalies,
     isLoading: anomaliesLoading,
@@ -87,6 +92,41 @@ export function AttendanceRecapPage() {
           ))}
         </div>
       )}
+
+      <div className="flex flex-col gap-3 border-t border-line pt-6">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Export Rekap Bulanan</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="max-w-[180px]">
+            <Input
+              type="month"
+              value={exportMonth}
+              onChange={(e) => setExportMonth(e.target.value)}
+              aria-label="Pilih bulan export"
+            />
+          </div>
+          <div className="sm:w-48">
+            <Select
+              value={exportClassId}
+              onChange={(e) => setExportClassId(e.target.value)}
+              aria-label="Filter rombel export"
+            >
+              <option value="">Semua rombel</option>
+              {classes?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <a
+            href={exportHref}
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line px-4 text-[14px] font-medium text-ink transition-colors duration-150 hover:bg-surface-2"
+          >
+            <Download size={16} strokeWidth={2} aria-hidden="true" />
+            Unduh Excel
+          </a>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-3 border-t border-line pt-6">
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Anomali Check-in</p>

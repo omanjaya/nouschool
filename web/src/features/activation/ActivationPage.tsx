@@ -4,6 +4,7 @@ import { KeyRound } from 'lucide-react';
 import { Field, Input } from '../../components/ui/Field';
 import { Button } from '../../components/ui/Button';
 import { ApiError } from '../../lib/api';
+import { BrandMark } from '../branding/BrandMark';
 import { useMe } from '../auth/api';
 import { useActivate, useInvitationInfo } from './api';
 import type { InvitationInfo } from '../../lib/types';
@@ -47,7 +48,7 @@ export function ActivationPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-bg px-5 py-10">
       <div className="w-full max-w-[400px]">
-        <p className="mb-8 text-center text-[21px] font-semibold text-ink">NouSchool</p>
+        <BrandMark className="mb-8" />
 
         {!invitation.data ? (
           <form onSubmit={handleCheckCode} className="flex flex-col gap-4">

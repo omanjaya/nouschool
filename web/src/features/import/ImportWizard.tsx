@@ -9,7 +9,14 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
 import type { ImportRow } from '../../lib/types';
-import { IMPORT_ENTITY_LABEL, importTemplateUrl, useImportCommit, useImportPreview, type ImportEntity } from './api';
+import {
+  IMPORT_ENTITY_HAS_TEMPLATE,
+  IMPORT_ENTITY_LABEL,
+  importTemplateUrl,
+  useImportCommit,
+  useImportPreview,
+  type ImportEntity,
+} from './api';
 
 interface ImportWizardProps {
   entity: ImportEntity;
@@ -30,12 +37,14 @@ const ENTITY_TITLE_KEYS: Record<ImportEntity, string[]> = {
   students: ['nama', 'name'],
   teachers: ['nama', 'name'],
   schedule: ['rombel'],
+  dapodik: ['nama', 'name'],
 };
 
 const ENTITY_TITLE: Record<ImportEntity, string> = {
   students: 'Siswa',
   teachers: 'Guru',
   schedule: 'Jadwal',
+  dapodik: 'Dapodik',
 };
 
 /** Judul baris: kolom identitas entity kalau ada, jatuh ke "Baris N" — dinamis per entity. */
@@ -110,13 +119,20 @@ export function ImportWizard({ entity, backTo }: ImportWizardProps) {
 
       {step === 'upload' && (
         <div className="flex flex-col gap-4">
-          <a
-            href={importTemplateUrl(entity)}
-            className="inline-flex w-fit items-center gap-1.5 text-[12px] font-medium text-primary hover:opacity-80"
-          >
-            <FileSpreadsheet size={16} strokeWidth={2} aria-hidden="true" />
-            Unduh template {label}
-          </a>
+          {IMPORT_ENTITY_HAS_TEMPLATE[entity] ? (
+            <a
+              href={importTemplateUrl(entity)}
+              className="inline-flex w-fit items-center gap-1.5 text-[12px] font-medium text-primary hover:opacity-80"
+            >
+              <FileSpreadsheet size={16} strokeWidth={2} aria-hidden="true" />
+              Unduh template {label}
+            </a>
+          ) : (
+            <p className="text-[12px] text-muted">
+              Terima file export peserta didik dari aplikasi Dapodik (.xlsx/.csv) — tidak perlu diubah formatnya
+              dulu.
+            </p>
+          )}
 
           <div
             onDragOver={(e) => {

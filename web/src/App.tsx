@@ -11,6 +11,7 @@ import { getGreeting } from './lib/greeting';
 import { Card } from './components/ui/Card';
 import { SchoolsListPage } from './features/admin/SchoolsListPage';
 import { SchoolDetailPage } from './features/admin/SchoolDetailPage';
+import { InterestLeadsPage } from './features/admin/InterestLeadsPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
 import { ActivationPage } from './features/activation/ActivationPage';
@@ -53,6 +54,10 @@ import { useUnreadNotificationCount } from './features/notifications/api';
 import { BillingPage } from './features/billing/BillingPage';
 import { SubscriptionBanner } from './features/billing/SubscriptionBanner';
 import { PlansPage } from './features/admin/PlansPage';
+import { LandingPage } from './features/landing/LandingPage';
+import { usePublicContext } from './features/branding/api';
+import { useAppBranding } from './lib/useAppBranding';
+import { Skeleton } from './components/ui/Skeleton';
 import type { Me } from './lib/types';
 
 /**
@@ -258,6 +263,7 @@ function BerandaPage({ me }: { me: Me }) {
 /** Rute + AppShell untuk pengguna yang sudah login — nav & sapaan mengikuti /api/me. */
 function AuthenticatedShell() {
   const { data: me } = useMe();
+  const { data: context } = usePublicContext();
   const logout = useLogout();
   const navigate = useNavigate();
 
@@ -282,6 +288,10 @@ function AuthenticatedShell() {
 
   const isPlatformAdmin = me.is_super_admin && !me.school;
   const badgeCounts = hasNotificationsNav ? { '/notifikasi': unreadCount ?? 0 } : undefined;
+  // Host platform (admin.nouschool.id) tidak punya branding sekolah — AppShell
+  // jatuh ke default "NouSchool" (docs/01 §branding).
+  const brandName = context && !context.platform ? context.branding.app_name : undefined;
+  const brandLogoUrl = context && !context.platform ? context.branding.logo_url : null;
 
   async function handleLogout() {
     await logout.mutateAsync();
@@ -289,7 +299,14 @@ function AuthenticatedShell() {
   }
 
   return (
-    <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout} badgeCounts={badgeCounts}>
+    <AppShell
+      navItems={navItems}
+      userName={me.name}
+      onLogout={handleLogout}
+      badgeCounts={badgeCounts}
+      appName={brandName}
+      logoUrl={brandLogoUrl}
+    >
       <SubscriptionBanner me={me} />
       <Routes>
         <Route
@@ -307,6 +324,7 @@ function AuthenticatedShell() {
         <Route path="/admin" element={<SchoolsListPage />} />
         <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
         <Route path="/admin/plans" element={<PlansPage />} />
+        <Route path="/admin/minat" element={<InterestLeadsPage />} />
         <Route path="/tagihan" element={<BillingPage />} />
         <Route path="/pengaturan" element={<SettingsPage />} />
         <Route path="/profil" element={<ProfilePage />} />
@@ -341,6 +359,10 @@ function AuthenticatedShell() {
           <Route path="ruangan" element={<RoomsPage />} />
         </Route>
         <Route path="/data/siswa/import" element={<ImportWizard entity="students" backTo="/data/siswa" />} />
+        <Route
+          path="/data/siswa/import-dapodik"
+          element={<ImportWizard entity="dapodik" backTo="/data/siswa" />}
+        />
         <Route path="/data/siswa/:id" element={<StudentDetailPage />} />
         <Route path="/data/rombel/:id" element={<ClassDetailPage />} />
         <Route path="/data/rombel/:id/kartu-qr" element={<ClassQrCardsPage />} />
@@ -375,7 +397,33 @@ function TvRouteGuard() {
   return <TvPage />;
 }
 
+/** Placeholder layar penuh saat status login/branding awal belum diketahui — bukan spinner fullscreen (docs/10 #7). */
+function BootSkeleton() {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-bg px-6">
+      <Skeleton className="h-6 w-40" />
+      <Skeleton className="h-4 w-56" />
+    </div>
+  );
+}
+
 function App() {
+  // Dipanggil di sini (bukan di dalam satu rute) supaya berjalan paralel dengan
+  // `useMe()` sejak app dimuat — berlaku juga di layar publik (docs/01 §branding).
+  const branding = useAppBranding();
+  const { data: me, isLoading: meLoading } = useMe();
+
+  // Tunggu keduanya selesai sekali di awal supaya rute "/" bisa memutuskan
+  // landing page vs. app biasa tanpa race (lihat `showLanding` di bawah).
+  if (branding.isLoading || meLoading) {
+    return <BootSkeleton />;
+  }
+
+  // Landing page publik hanya di host platform (context.platform === true)
+  // DAN pengunjung belum login — selain itu "/" tetap masuk alur biasa
+  // (RequireLogin → /login, atau AuthenticatedShell kalau sudah login).
+  const showLanding = branding.data?.platform === true && !me;
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -390,6 +438,7 @@ function App() {
           </RequireLogin>
         }
       />
+      {showLanding && <Route path="/" element={<LandingPage />} />}
       <Route
         path="/*"
         element={

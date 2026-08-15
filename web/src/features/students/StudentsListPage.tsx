@@ -54,6 +54,10 @@ export function StudentsListPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="secondary" onClick={() => navigate('/data/siswa/import-dapodik')}>
+          <Upload size={16} strokeWidth={2} aria-hidden="true" />
+          Import Dapodik
+        </Button>
         <Button variant="secondary" onClick={() => navigate('/data/siswa/import')}>
           <Upload size={16} strokeWidth={2} aria-hidden="true" />
           Import
@@ -64,13 +68,18 @@ export function StudentsListPage() {
         </Button>
       </div>
 
-      <a
-        href={importTemplateUrl('students')}
-        className="inline-flex w-fit items-center gap-1.5 text-[12px] font-medium text-primary hover:opacity-80"
-      >
-        <FileSpreadsheet size={16} strokeWidth={2} aria-hidden="true" />
-        Unduh template Excel
-      </a>
+      <div className="flex flex-col gap-1">
+        <a
+          href={importTemplateUrl('students')}
+          className="inline-flex w-fit items-center gap-1.5 text-[12px] font-medium text-primary hover:opacity-80"
+        >
+          <FileSpreadsheet size={16} strokeWidth={2} aria-hidden="true" />
+          Unduh template Excel
+        </a>
+        <p className="text-[12px] text-muted">
+          Terima file export peserta didik dari aplikasi Dapodik (.xlsx/.csv) lewat tombol &quot;Import Dapodik&quot;.
+        </p>
+      </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">

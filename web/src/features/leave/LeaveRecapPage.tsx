@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { FileBarChart } from 'lucide-react';
+import { Download, FileBarChart } from 'lucide-react';
 import { AppBar } from '../../components/ui/AppBar';
 import { ListRow } from '../../components/ui/ListRow';
 import { SegmentedControl, type SegmentedOption } from '../../components/ui/SegmentedControl';
@@ -39,6 +39,7 @@ export function LeaveRecapPage() {
   const { data: rows, isLoading, isError, refetch } = useLeaveSummary(from, to, canView);
   const { data: types } = useLeaveTypes();
   const typeLabels = new Map((types ?? []).map((t) => [t.key, t.label]));
+  const exportHref = `/api/leave/export?from=${from}&to=${to}`;
 
   if (me && !canView) {
     return <Navigate to="/izin" replace />;
@@ -49,7 +50,16 @@ export function LeaveRecapPage() {
       <AppBar title="Rekap Izin" subtitle="Izin" onBack={() => navigate('/izin')} />
 
       <div className="mx-auto flex w-full max-w-[640px] flex-1 flex-col gap-5 px-5 py-5">
-        <SegmentedControl options={RANGE_OPTIONS} value={range} onChange={setRange} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SegmentedControl options={RANGE_OPTIONS} value={range} onChange={setRange} />
+          <a
+            href={exportHref}
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line px-4 text-[14px] font-medium text-ink transition-colors duration-150 hover:bg-surface-2"
+          >
+            <Download size={16} strokeWidth={2} aria-hidden="true" />
+            Unduh Excel
+          </a>
+        </div>
 
         {isLoading ? (
           <div className="flex flex-col gap-2">

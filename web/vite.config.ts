@@ -53,6 +53,16 @@ export default defineConfig({
         // backend memakai Host untuk resolusi tenant multi-sekolah.
         changeOrigin: false,
       },
+      // Fase 11 (docs/01-tenant.md §branding): manifest PWA dinamis per tenant
+      // — di dev, vite-plugin-pwa TIDAK menyuntik/menyajikan manifest sendiri
+      // (devOptions.enabled: false), jadi `/manifest.webmanifest` diproksi
+      // langsung ke backend supaya tenant dev dapat manifest dari branding
+      // sekolahnya, bukan 404. Di PROD ini jadi tanggung jawab Caddy (lihat
+      // catatan di index.html).
+      '/manifest.webmanifest': {
+        target: process.env.VITE_API_PROXY ?? 'http://localhost:8210',
+        changeOrigin: false,
+      },
     },
   },
 })
