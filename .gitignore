@@ -29,3 +29,4 @@ Thumbs.db
 
 # Backup database (data runtime, bukan kode — lihat scripts/backup.sh)
 /backups/
+*.log
