@@ -22,6 +22,11 @@ import { AttendanceClassesPage } from './features/attendance/AttendanceClassesPa
 import { AttendanceSessionPage } from './features/attendance/AttendanceSessionPage';
 import { AttendanceRecapPage } from './features/attendance/AttendanceRecapPage';
 import { AttendanceHistoryPage } from './features/attendance/AttendanceHistoryPage';
+import { LeavePage } from './features/leave/LeavePage';
+import { LeaveDetailPage } from './features/leave/LeaveDetailPage';
+import { LeaveApprovalsPage } from './features/leave/LeaveApprovalsPage';
+import { LeaveApprovalDetailPage } from './features/leave/LeaveApprovalDetailPage';
+import { LeaveRecapPage } from './features/leave/LeaveRecapPage';
 import { Button } from './components/ui/Button';
 import type { Me } from './lib/types';
 
@@ -37,6 +42,10 @@ function BerandaPage({ me }: { me: Me }) {
   const navigate = useNavigate();
   const canWriteAttendance = me.role === 'admin_sekolah';
   const canViewRecap = me.role === 'admin_sekolah' || me.role === 'kepala_sekolah';
+  // guru & kepala_sekolah sudah punya item nav "Izin" — kartu ini terutama untuk
+  // admin_sekolah yang belum punya slot nav untuk /izin (lihat lib/nav.ts).
+  const canManageLeave = me.role === 'admin_sekolah';
+  const isStaff = me.role !== 'siswa' && me.role !== 'orang_tua';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -66,9 +75,32 @@ function BerandaPage({ me }: { me: Me }) {
             )}
           </div>
         </Card>
-      ) : (
+      ) : null}
+
+      {isStaff && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Izin</p>
+            <p className="text-[12px] text-muted">
+              {canManageLeave ? 'Ajukan izin atau lihat rekap izin guru.' : 'Ajukan izin atau lihat status pengajuan Anda.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/izin')}>
+              Ajukan Izin
+            </Button>
+            {canManageLeave && (
+              <Button variant="secondary" onClick={() => navigate('/izin/rekap')}>
+                Rekap Izin
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {!canWriteAttendance && !canViewRecap && !isStaff && (
         <Card>
-          <p className="text-[14px] text-ink">Fase 1 — belum ada modul lain untuk ditampilkan di sini.</p>
+          <p className="text-[14px] text-ink">Belum ada modul lain untuk ditampilkan di sini.</p>
         </Card>
       )}
     </div>
@@ -105,6 +137,12 @@ function AuthenticatedShell() {
         <Route path="/absensi/sesi/:id" element={<AttendanceSessionPage />} />
         <Route path="/absensi/rekap" element={<AttendanceRecapPage />} />
         <Route path="/kehadiran" element={<AttendanceHistoryPage />} />
+
+        <Route path="/izin" element={<LeavePage />} />
+        <Route path="/izin/rekap" element={<LeaveRecapPage />} />
+        <Route path="/izin/persetujuan" element={<LeaveApprovalsPage />} />
+        <Route path="/izin/persetujuan/:stepId" element={<LeaveApprovalDetailPage />} />
+        <Route path="/izin/:id" element={<LeaveDetailPage />} />
 
         <Route path="/data" element={<DataLayout />}>
           <Route index element={<Navigate to="siswa" replace />} />

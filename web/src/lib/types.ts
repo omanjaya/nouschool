@@ -253,3 +253,83 @@ export interface StudentAttendanceHistory {
   counts: Record<AttendanceStatus, number>;
   items: StudentAttendanceHistoryItem[];
 }
+
+/* ---- Leave / Izin guru (Fase 4, docs/07-leave.md) ---- */
+
+export type LeaveRequestStatus = 'pending' | 'approved' | 'rejected' | 'canceled';
+export type LeaveDecision = 'approved' | 'rejected';
+
+/** GET /api/leave/types → { types } */
+export interface LeaveType {
+  key: string;
+  label: string;
+}
+
+export interface LeaveRequestTeacherRef {
+  id: string;
+  name: string;
+}
+
+export interface LeaveApprovalStep {
+  id: string;
+  step_order: number;
+  approver_role: string;
+  approver_name: string | null;
+  decision: LeaveDecision | null;
+  decided_at: string | null;
+  comment: string | null;
+}
+
+/** Shape bersama create/list/cancel/decide — GET .../requests, POST .../cancel, POST .../decide. */
+export interface LeaveRequest {
+  id: string;
+  type: string;
+  type_label: string;
+  date_start: string;
+  date_end: string;
+  days: number;
+  reason: string;
+  status: LeaveRequestStatus;
+  created_at: string;
+  teacher: LeaveRequestTeacherRef;
+  attachment_url: string | null;
+  steps: LeaveApprovalStep[];
+}
+
+export interface LeaveRequestCreateInput {
+  type: string;
+  date_start: string;
+  date_end: string;
+  reason: string;
+  attachment?: File | null;
+}
+
+/** GET /api/leave/approvals → { items: [{step_id, request}] } — antrian menunggu keputusan user ini. */
+export interface LeaveApprovalQueueItem {
+  step_id: string;
+  request: LeaveRequest;
+}
+
+export interface LeaveDecideInput {
+  decision: LeaveDecision;
+  comment?: string;
+}
+
+/** GET /api/leave/summary?from=&to= (kepsek/admin). */
+export interface LeaveSummaryRow {
+  teacher_id: string;
+  name: string;
+  per_type: Record<string, number>;
+  total_days: number;
+}
+
+/* Settings module `leave` (GET/PUT /api/settings/leave). */
+export interface LeaveChainStep {
+  role: string;
+  user_id?: string | null;
+}
+
+export interface LeaveSettings {
+  types: LeaveType[];
+  chain: LeaveChainStep[];
+}

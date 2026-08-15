@@ -53,3 +53,42 @@ export function isoDateDaysAgo(days: number, fromIsoDate: string = todayISODate(
   d.setDate(d.getDate() - days);
   return toISODate(d);
 }
+
+/** Tanggal 1 di bulan berjalan (perangkat), "YYYY-MM-DD" — dipakai rentang "Bulan ini". */
+export function startOfMonthISODate(fromIsoDate: string = todayISODate()): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(fromIsoDate);
+  if (!match) return fromIsoDate;
+  const [, year, month] = match;
+  return `${year}-${month}-01`;
+}
+
+/**
+ * Rentang tanggal ringkas untuk satu baris — "18–20 Agu 2026" (rentang beda hari,
+ * bulan/tahun sama), "28 Agu–2 Sep 2026" (bulan beda), atau tanggal tunggal
+ * kalau start === end (docs/10-design-system.md #8).
+ */
+export function formatDateRange(startIso: string, endIso: string): string {
+  if (startIso === endIso) return formatDate(startIso);
+  const start = /^(\d{4})-(\d{2})-(\d{2})/.exec(startIso);
+  const end = /^(\d{4})-(\d{2})-(\d{2})/.exec(endIso);
+  if (!start || !end) return `${formatDate(startIso)} – ${formatDate(endIso)}`;
+  const [, sy, sm, sd] = start;
+  const [, ey, em] = end;
+  if (sy === ey && sm === em) {
+    return `${Number(sd)}–${formatDate(endIso)}`;
+  }
+  return `${formatDate(startIso)} – ${formatDate(endIso)}`;
+}
+
+/**
+ * Format tanggal+jam — "18 Agu 2026 · 08.30" (jam 24-jam, docs/10 #8). `isoDateTime`
+ * adalah timestamptz dari backend (mis. "2026-08-18T08:30:00Z"); ditampilkan di
+ * jam lokal perangkat.
+ */
+export function formatDateTime(isoDateTime: string): string {
+  const d = new Date(isoDateTime);
+  if (Number.isNaN(d.getTime())) return isoDateTime;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${formatDate(toISODate(d))} · ${hh}.${mm}`;
+}
