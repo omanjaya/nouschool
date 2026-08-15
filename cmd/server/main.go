@@ -10,10 +10,12 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/platform/config"
 	"github.com/omanjaya/nouschool/internal/platform/database"
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
 	"github.com/omanjaya/nouschool/internal/platform/middleware"
+	"github.com/omanjaya/nouschool/internal/tenant"
 )
 
 func main() {
@@ -22,6 +24,14 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	var tenantResolverMW middleware.Middleware = func(next http.Handler) http.Handler { return next }
 
 	// DB opsional saat dev supaya server bisa hidup sebelum Postgres siap.
 	if cfg.DatabaseURL != "" {
@@ -32,32 +42,40 @@ func main() {
 		}
 		defer pool.Close()
 		slog.Info("database terhubung")
-		_ = pool // fase 1: di-inject ke repository tiap modul
+
+		cookieSecure := cfg.Env == "prod"
+
+		// --- modul identity (auth, RBAC, session, audit) ---
+		identityRepo := identity.NewRepository(pool)
+		loginRateLimiter := identity.NewRateLimiter(5, 15*time.Minute, nil)
+		identitySvc := identity.NewService(identityRepo, loginRateLimiter, cookieSecure)
+		identityHandler := identity.NewHandler(identitySvc)
+
+		// --- modul tenant (sekolah, domain, tahun ajaran, settings) ---
+		tenantRepo := tenant.NewRepository(pool)
+		// identitySvc mengimplementasikan tenant.AuditLogger secara struktural
+		// (method Log) — tenant TIDAK mengimpor identity untuk tipe apa pun.
+		tenantSvc := tenant.NewService(tenantRepo, identitySvc)
+		settingsSvc := tenant.NewSettingsService(tenantRepo, identitySvc)
+		hostResolver := tenant.NewHostResolver(tenantRepo, cfg.BaseDomain)
+		tenantHandler := tenant.NewHandler(tenantSvc, settingsSvc, hostResolver)
+
+		// --- wiring routes ---
+		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
+		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
+
+		tenantResolverMW = hostResolver.Middleware
 	} else {
-		slog.Warn("DATABASE_URL kosong — jalan tanpa database (mode dev)")
+		slog.Warn("DATABASE_URL kosong — jalan tanpa database (mode dev, hanya /api/health aktif)")
 	}
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-
-	// Dipanggil Caddy (On-Demand TLS) untuk memvalidasi custom domain.
-	// Fase 1: cek ke tabel schools; sekarang tolak semua kecuali base domain.
-	mux.HandleFunc("GET /internal/check-domain", func(w http.ResponseWriter, r *http.Request) {
-		domain := r.URL.Query().Get("domain")
-		if domain == cfg.BaseDomain {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	})
-
+	// Urutan wajib: Recover -> Logger -> SecurityHeaders -> ResolveTenant -> routing
+	// (per-route RequireAuth/RequirePerm dipasang saat registrasi route di atas).
 	handler := middleware.Chain(mux,
 		middleware.Recover,
 		middleware.Logger,
 		middleware.SecurityHeaders,
+		tenantResolverMW,
 	)
 
 	srv := &http.Server{

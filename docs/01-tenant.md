@@ -64,7 +64,7 @@ school_settings (
   "app_name": "SMKN 2 Malang",
   "logo_url": "/uploads/{school_id}/logo.png",
   "icon_url": "/uploads/{school_id}/icon-512.png",
-  "primary_color": "#0F6B3A"
+  "primary_color": "#0E6B4E"
 }
 ```
 

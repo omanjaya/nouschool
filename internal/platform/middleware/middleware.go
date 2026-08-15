@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// Middleware adalah bentuk umum middleware http yang dipakai lintas modul
+// untuk wiring di main.go (mis. RequireAuth, RequirePerm, ResolveTenant).
+type Middleware = func(http.Handler) http.Handler
+
 // Chain menerapkan middleware berurutan: Chain(h, a, b) => a(b(h)).
 func Chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
 	for i := len(mws) - 1; i >= 0; i-- {
