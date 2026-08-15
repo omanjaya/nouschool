@@ -257,3 +257,73 @@ func (r *Repository) InsertAuditLog(ctx context.Context, in InsertAuditLogInput)
 		NewValue: in.NewValue,
 	})
 }
+
+// -- invitations --
+
+// Invitation adalah representasi domain dari baris tabel invitations.
+type Invitation struct {
+	ID        int64
+	SchoolID  int64
+	Code      string
+	Role      string
+	TargetID  int64
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+}
+
+func invitationFromDB(i identitydb.Invitation) Invitation {
+	inv := Invitation{
+		ID: i.ID, SchoolID: i.SchoolID, Code: i.Code, Role: i.Role,
+		TargetID: int8ToPtrVal(i.TargetID), ExpiresAt: i.ExpiresAt.Time,
+	}
+	if i.UsedAt.Valid {
+		t := i.UsedAt.Time
+		inv.UsedAt = &t
+	}
+	return inv
+}
+
+func int8ToPtrVal(v pgtype.Int8) int64 {
+	if !v.Valid {
+		return 0
+	}
+	return v.Int64
+}
+
+func (r *Repository) CreateInvitation(ctx context.Context, schoolID int64, code, role string, targetID int64, expiresAt time.Time) (Invitation, error) {
+	row, err := r.q.CreateInvitation(ctx, identitydb.CreateInvitationParams{
+		SchoolID: schoolID, Code: code, Role: role, TargetID: int8OrNil(&targetID),
+		ExpiresAt: pgtype.Timestamptz{Time: expiresAt, Valid: true},
+	})
+	if err != nil {
+		return Invitation{}, err
+	}
+	return invitationFromDB(row), nil
+}
+
+func (r *Repository) InvitationByCode(ctx context.Context, code string) (Invitation, error) {
+	row, err := r.q.GetInvitationByCode(ctx, code)
+	if err != nil {
+		return Invitation{}, mapNoRows(err)
+	}
+	return invitationFromDB(row), nil
+}
+
+// ActiveInvitation cari kode undangan yang belum terpakai & belum kedaluwarsa
+// untuk (school_id, role, target_id) — dipakai generator supaya idempoten.
+func (r *Repository) ActiveInvitation(ctx context.Context, schoolID int64, role string, targetID int64, now time.Time) (Invitation, error) {
+	row, err := r.q.GetActiveInvitationByRoleTarget(ctx, identitydb.GetActiveInvitationByRoleTargetParams{
+		SchoolID: schoolID, Role: role, TargetID: int8OrNil(&targetID),
+		ExpiresAt: pgtype.Timestamptz{Time: now, Valid: true},
+	})
+	if err != nil {
+		return Invitation{}, mapNoRows(err)
+	}
+	return invitationFromDB(row), nil
+}
+
+func (r *Repository) MarkInvitationUsed(ctx context.Context, code string, usedAt time.Time) error {
+	return r.q.MarkInvitationUsed(ctx, identitydb.MarkInvitationUsedParams{
+		Code: code, UsedAt: pgtype.Timestamptz{Time: usedAt, Valid: true},
+	})
+}

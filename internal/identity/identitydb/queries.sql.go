@@ -12,6 +12,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createInvitation = `-- name: CreateInvitation :one
+
+INSERT INTO invitations (school_id, code, role, target_id, expires_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, school_id, code, role, target_id, expires_at, used_at
+`
+
+type CreateInvitationParams struct {
+	SchoolID  int64              `json:"school_id"`
+	Code      string             `json:"code"`
+	Role      string             `json:"role"`
+	TargetID  pgtype.Int8        `json:"target_id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+// -- invitations --
+func (q *Queries) CreateInvitation(ctx context.Context, arg CreateInvitationParams) (Invitation, error) {
+	row := q.db.QueryRow(ctx, createInvitation,
+		arg.SchoolID,
+		arg.Code,
+		arg.Role,
+		arg.TargetID,
+		arg.ExpiresAt,
+	)
+	var i Invitation
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.Code,
+		&i.Role,
+		&i.TargetID,
+		&i.ExpiresAt,
+		&i.UsedAt,
+	)
+	return i, err
+}
+
 const createMembership = `-- name: CreateMembership :one
 INSERT INTO memberships (user_id, school_id, role, status)
 VALUES ($1, $2, $3, 'active')
@@ -138,6 +175,61 @@ type ExtendSessionParams struct {
 func (q *Queries) ExtendSession(ctx context.Context, arg ExtendSessionParams) error {
 	_, err := q.db.Exec(ctx, extendSession, arg.ID, arg.ExpiresAt)
 	return err
+}
+
+const getActiveInvitationByRoleTarget = `-- name: GetActiveInvitationByRoleTarget :one
+SELECT id, school_id, code, role, target_id, expires_at, used_at FROM invitations
+WHERE school_id = $1 AND role = $2 AND target_id = $3
+  AND used_at IS NULL AND expires_at > $4
+ORDER BY id DESC LIMIT 1
+`
+
+type GetActiveInvitationByRoleTargetParams struct {
+	SchoolID  int64              `json:"school_id"`
+	Role      string             `json:"role"`
+	TargetID  pgtype.Int8        `json:"target_id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+// Dipakai generator kode undangan supaya idempoten: kode lama yang belum
+// terpakai & belum kedaluwarsa dipakai ulang, bukan dibuat baru.
+func (q *Queries) GetActiveInvitationByRoleTarget(ctx context.Context, arg GetActiveInvitationByRoleTargetParams) (Invitation, error) {
+	row := q.db.QueryRow(ctx, getActiveInvitationByRoleTarget,
+		arg.SchoolID,
+		arg.Role,
+		arg.TargetID,
+		arg.ExpiresAt,
+	)
+	var i Invitation
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.Code,
+		&i.Role,
+		&i.TargetID,
+		&i.ExpiresAt,
+		&i.UsedAt,
+	)
+	return i, err
+}
+
+const getInvitationByCode = `-- name: GetInvitationByCode :one
+SELECT id, school_id, code, role, target_id, expires_at, used_at FROM invitations WHERE code = $1
+`
+
+func (q *Queries) GetInvitationByCode(ctx context.Context, code string) (Invitation, error) {
+	row := q.db.QueryRow(ctx, getInvitationByCode, code)
+	var i Invitation
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.Code,
+		&i.Role,
+		&i.TargetID,
+		&i.ExpiresAt,
+		&i.UsedAt,
+	)
+	return i, err
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
@@ -306,6 +398,20 @@ func (q *Queries) ListActiveMembershipsByUserSchool(ctx context.Context, arg Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const markInvitationUsed = `-- name: MarkInvitationUsed :exec
+UPDATE invitations SET used_at = $2 WHERE code = $1
+`
+
+type MarkInvitationUsedParams struct {
+	Code   string             `json:"code"`
+	UsedAt pgtype.Timestamptz `json:"used_at"`
+}
+
+func (q *Queries) MarkInvitationUsed(ctx context.Context, arg MarkInvitationUsedParams) error {
+	_, err := q.db.Exec(ctx, markInvitationUsed, arg.Code, arg.UsedAt)
+	return err
 }
 
 const setSuperAdmin = `-- name: SetSuperAdmin :exec

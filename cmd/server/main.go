@@ -15,6 +15,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/platform/database"
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
 	"github.com/omanjaya/nouschool/internal/platform/middleware"
+	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
 
@@ -60,9 +61,19 @@ func main() {
 		hostResolver := tenant.NewHostResolver(tenantRepo, cfg.BaseDomain)
 		tenantHandler := tenant.NewHandler(tenantSvc, settingsSvc, hostResolver)
 
+		// --- modul student (siswa, rombel, enrollment, wali, guru, mapel, import, undangan) ---
+		// identitySvc & tenantSvc memenuhi student.IdentityGateway /
+		// student.AcademicYearLookup secara STRUKTURAL (consumer-side interface
+		// dideklarasikan di internal/student — lihat CLAUDE.md) — student TIDAK
+		// mengimpor identity maupun tenant untuk tipe apa pun.
+		studentRepo := student.NewRepository(pool)
+		studentSvc := student.NewService(studentRepo, identitySvc, tenantSvc)
+		studentHandler := student.NewHandler(studentSvc)
+
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
+		student.RegisterRoutes(mux, studentHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 
 		tenantResolverMW = hostResolver.Middleware
 	} else {

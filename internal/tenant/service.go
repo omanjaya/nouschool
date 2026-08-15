@@ -141,6 +141,22 @@ func (s *Service) ListAcademicYears(ctx context.Context, schoolID int64) ([]Acad
 	return s.repo.ListAcademicYears(ctx, schoolID)
 }
 
+// ActiveAcademicYearID mengembalikan (id, true, nil) bila sekolah punya tahun
+// ajaran aktif, (0, false, nil) bila belum ada. Signature primitif ini
+// sengaja dipakai supaya modul lain (mis. student) bisa mendeklarasikan
+// consumer-side interface kecil tanpa mengimpor package tenant untuk tipe
+// AcademicYear (lihat aturan modular monolith di CLAUDE.md).
+func (s *Service) ActiveAcademicYearID(ctx context.Context, schoolID int64) (int64, bool, error) {
+	ay, err := s.repo.ActiveAcademicYear(ctx, schoolID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return ay.ID, true, nil
+}
+
 // ActivateAcademicYear mengaktifkan satu tahun ajaran secara eksklusif
 // (menonaktifkan yang lain) dalam satu transaksi.
 func (s *Service) ActivateAcademicYear(ctx context.Context, actorUserID, schoolID, id int64) (AcademicYear, error) {

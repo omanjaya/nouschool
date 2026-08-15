@@ -177,6 +177,19 @@ func (h *Handler) ActivateAcademicYear(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, ay)
 }
 
+// ListAcademicYearsForSchool — GET /api/academic-years. Daftar tahun ajaran
+// SEKOLAH SENDIRI (school_id dari reqctx, host tenant), dipakai UI untuk
+// filter (bukan panel admin lintas sekolah — beda dari ListAcademicYears
+// yang dipakai /api/admin/schools/{id}/academic-years).
+func (h *Handler) ListAcademicYearsForSchool(w http.ResponseWriter, r *http.Request) {
+	years, err := h.svc.ListAcademicYears(r.Context(), reqctx.SchoolID(r.Context()))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, years)
+}
+
 // GetSettings — GET /api/settings/{module}.
 func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	module := r.PathValue("module")

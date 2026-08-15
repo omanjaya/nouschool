@@ -19,6 +19,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/platform/config"
 	"github.com/omanjaya/nouschool/internal/platform/database"
+	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
 
@@ -101,6 +102,167 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("admin sekolah demo siap", "username", "admin", "password", "admin12345", "school_id", schoolID)
+
+	// --- data contoh modul student (Fase 2): rombel, siswa, guru, mapel ---
+	activeYear, err := tenantRepo.ActiveAcademicYear(ctx, schoolID)
+	if err != nil {
+		slog.Error("gagal mengambil tahun ajaran aktif sekolah demo", "err", err)
+		os.Exit(1)
+	}
+
+	studentRepo := student.NewRepository(pool)
+	// identitySvc dipakai lewat consumer-side interface student.IdentityGateway
+	// (HashPassword/CreateAccount/CreateMembership) — cukup rate limiter kosong
+	// karena bootstrap tidak pernah memanggil Login.
+	identitySvc := identity.NewService(identityRepo, identity.NewRateLimiter(5, 15*time.Minute, nil), false)
+
+	classIDs, err := ensureDemoClasses(ctx, studentRepo, schoolID, activeYear.ID)
+	if err != nil {
+		slog.Error("gagal menyiapkan rombel demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("rombel demo siap", "count", len(classIDs))
+
+	if err := ensureDemoStudents(ctx, studentRepo, schoolID, activeYear.ID, classIDs); err != nil {
+		slog.Error("gagal menyiapkan siswa demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("siswa demo siap", "count", 8)
+
+	if err := ensureDemoTeachers(ctx, identitySvc, studentRepo, schoolID); err != nil {
+		slog.Error("gagal menyiapkan guru demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("guru demo siap", "count", 2)
+
+	if err := ensureDemoSubjects(ctx, studentRepo, schoolID); err != nil {
+		slog.Error("gagal menyiapkan mapel demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("mapel demo siap", "count", 3)
+}
+
+// ensureDemoClasses membuat 2 rombel contoh pada tahun ajaran aktif bila
+// belum ada (idempoten by (school_id, academic_year_id, name)).
+func ensureDemoClasses(ctx context.Context, repo *student.Repository, schoolID, yearID int64) (map[string]int64, error) {
+	specs := []struct{ name, grade, major string }{
+		{"XII RPL 1", "XII", "RPL"},
+		{"XI RPL 2", "XI", "RPL"},
+	}
+	ids := make(map[string]int64, len(specs))
+	for _, sp := range specs {
+		existing, err := repo.GetClassByNameYear(ctx, schoolID, yearID, sp.name)
+		if err == nil {
+			ids[sp.name] = existing.ID
+			continue
+		}
+		if !errors.Is(err, student.ErrNotFound) {
+			return nil, err
+		}
+		created, err := repo.CreateClass(ctx, student.ClassRecord{
+			SchoolID: schoolID, AcademicYearID: yearID, Name: sp.name, Grade: sp.grade, Major: sp.major,
+		})
+		if err != nil {
+			return nil, err
+		}
+		ids[sp.name] = created.ID
+	}
+	return ids, nil
+}
+
+// ensureDemoStudents membuat 8 siswa contoh (NIS 22101-22108) & mendaftarkan
+// masing-masing ke rombelnya bila belum ada (idempoten by (school_id, nis)).
+func ensureDemoStudents(ctx context.Context, repo *student.Repository, schoolID, yearID int64, classIDs map[string]int64) error {
+	specs := []struct{ nis, name, gender, class string }{
+		{"22101", "Ahmad Fauzi", "L", "XII RPL 1"},
+		{"22102", "Siti Nurhaliza", "P", "XII RPL 1"},
+		{"22103", "Budi Santoso", "L", "XII RPL 1"},
+		{"22104", "Dewi Lestari", "P", "XII RPL 1"},
+		{"22105", "Rizky Pratama", "L", "XI RPL 2"},
+		{"22106", "Putri Ayu Anggraini", "P", "XI RPL 2"},
+		{"22107", "Agus Setiawan", "L", "XI RPL 2"},
+		{"22108", "Nadia Salsabila", "P", "XI RPL 2"},
+	}
+	for _, sp := range specs {
+		rec, err := repo.GetStudentByNIS(ctx, schoolID, sp.nis)
+		if errors.Is(err, student.ErrNotFound) {
+			rec, err = repo.CreateStudent(ctx, student.CreateStudentInput{
+				SchoolID: schoolID, NIS: sp.nis, Name: sp.name, Gender: sp.gender,
+			})
+			if err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+		classID, ok := classIDs[sp.class]
+		if !ok {
+			return fmt.Errorf("bootstrap: rombel %q tidak ditemukan untuk siswa %s", sp.class, sp.nis)
+		}
+		if _, err := repo.EnrollStudentsBatch(ctx, schoolID, classID, yearID, []int64{rec.ID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureDemoTeachers membuat 2 akun guru contoh (idempoten by email) —
+// password contoh "guru12345" (bukan placeholder acak, supaya bisa dipakai
+// login demo langsung tanpa lewat alur undangan).
+func ensureDemoTeachers(ctx context.Context, identitySvc *identity.Service, repo *student.Repository, schoolID int64) error {
+	specs := []struct{ name, email string }{
+		{"Rendi Saputra", "rendi@demo.sch.id"},
+		{"Sari Wulandari", "sari@demo.sch.id"},
+	}
+	for _, sp := range specs {
+		userID, exists, err := identitySvc.UserIDByEmail(ctx, sp.email)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			hash, err := identitySvc.HashPassword("guru12345")
+			if err != nil {
+				return err
+			}
+			userID, err = identitySvc.CreateAccount(ctx, sp.email, "", hash, sp.name)
+			if err != nil {
+				return err
+			}
+		}
+		if err := identitySvc.CreateMembership(ctx, userID, schoolID, identity.RoleGuru); err != nil {
+			return err
+		}
+		if _, err := repo.GetTeacherByUserID(ctx, schoolID, userID); err != nil {
+			if !errors.Is(err, student.ErrNotFound) {
+				return err
+			}
+			if _, err := repo.CreateTeacher(ctx, schoolID, userID, ""); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ensureDemoSubjects membuat 3 mapel contoh bila belum ada (idempoten by
+// (school_id, code)).
+func ensureDemoSubjects(ctx context.Context, repo *student.Repository, schoolID int64) error {
+	specs := []struct{ code, name string }{
+		{"BDT", "Basis Data"},
+		{"PWB", "Pemrograman Web"},
+		{"MTK", "Matematika"},
+	}
+	for _, sp := range specs {
+		if _, err := repo.GetSubjectByCode(ctx, schoolID, sp.code); err != nil {
+			if !errors.Is(err, student.ErrNotFound) {
+				return err
+			}
+			if _, err := repo.CreateSubject(ctx, schoolID, sp.code, sp.name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 type upsertUserInput struct {

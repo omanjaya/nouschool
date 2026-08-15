@@ -30,6 +30,9 @@ func RegisterRoutes(
 	mux.Handle("POST /api/admin/schools/{id}/academic-years", adminOnly(h.CreateAcademicYear))
 	mux.Handle("POST /api/admin/schools/{id}/academic-years/{ayID}/activate", adminOnly(h.ActivateAcademicYear))
 
+	// Daftar tahun ajaran sekolah sendiri (host tenant, siapa saja yang login) — untuk filter UI.
+	mux.Handle("GET /api/academic-years", requireAuth(http.HandlerFunc(h.ListAcademicYearsForSchool)))
+
 	// Settings tenant — GET siapa saja yang login di sekolah itu, PUT butuh settings:manage.
 	mux.Handle("GET /api/settings/{module}", requireAuth(http.HandlerFunc(h.GetSettings)))
 	mux.Handle("PUT /api/settings/{module}", requireAuth(requirePerm("settings:manage")(http.HandlerFunc(h.PutSettings))))

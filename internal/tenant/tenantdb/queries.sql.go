@@ -128,6 +128,24 @@ func (q *Queries) GetAcademicYear(ctx context.Context, arg GetAcademicYearParams
 	return i, err
 }
 
+const getActiveAcademicYear = `-- name: GetActiveAcademicYear :one
+SELECT id, school_id, name, starts_on, ends_on, is_active FROM academic_years WHERE school_id = $1 AND is_active = true
+`
+
+func (q *Queries) GetActiveAcademicYear(ctx context.Context, schoolID int64) (AcademicYear, error) {
+	row := q.db.QueryRow(ctx, getActiveAcademicYear, schoolID)
+	var i AcademicYear
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.Name,
+		&i.StartsOn,
+		&i.EndsOn,
+		&i.IsActive,
+	)
+	return i, err
+}
+
 const getSchoolByCustomDomain = `-- name: GetSchoolByCustomDomain :one
 SELECT id, name, slug, custom_domain, timezone, status, created_at FROM schools WHERE custom_domain = $1 AND status = 'active'
 `

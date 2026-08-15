@@ -31,6 +31,32 @@ type AuditLog struct {
 	At       pgtype.Timestamptz `json:"at"`
 }
 
+type Class struct {
+	ID                int64       `json:"id"`
+	SchoolID          int64       `json:"school_id"`
+	AcademicYearID    int64       `json:"academic_year_id"`
+	Name              string      `json:"name"`
+	Grade             string      `json:"grade"`
+	Major             pgtype.Text `json:"major"`
+	HomeroomTeacherID pgtype.Int8 `json:"homeroom_teacher_id"`
+}
+
+type Enrollment struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	StudentID int64              `json:"student_id"`
+	ClassID   int64              `json:"class_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type Guardian struct {
+	ID        int64  `json:"id"`
+	SchoolID  int64  `json:"school_id"`
+	UserID    int64  `json:"user_id"`
+	StudentID int64  `json:"student_id"`
+	Relation  string `json:"relation"`
+}
+
 type Invitation struct {
 	ID        int64              `json:"id"`
 	SchoolID  int64              `json:"school_id"`
@@ -77,6 +103,33 @@ type Session struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	Ip        *netip.Addr        `json:"ip"`
 	UserAgent pgtype.Text        `json:"user_agent"`
+}
+
+type Student struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	Nis       string             `json:"nis"`
+	Nisn      pgtype.Text        `json:"nisn"`
+	Name      string             `json:"name"`
+	Gender    pgtype.Text        `json:"gender"`
+	BirthDate pgtype.Date        `json:"birth_date"`
+	UserID    pgtype.Int8        `json:"user_id"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type Subject struct {
+	ID       int64  `json:"id"`
+	SchoolID int64  `json:"school_id"`
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+}
+
+type Teacher struct {
+	ID       int64       `json:"id"`
+	SchoolID int64       `json:"school_id"`
+	UserID   int64       `json:"user_id"`
+	Nip      pgtype.Text `json:"nip"`
 }
 
 type User struct {

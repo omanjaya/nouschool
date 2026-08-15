@@ -18,3 +18,12 @@ sql:
         out: "internal/identity/identitydb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/student/queries.sql"
+    gen:
+      go:
+        package: "studentdb"
+        out: "internal/student/studentdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

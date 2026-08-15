@@ -55,3 +55,24 @@ DELETE FROM sessions WHERE token_hash = $1;
 -- name: InsertAuditLog :exec
 INSERT INTO audit_log (school_id, user_id, action, entity, entity_id, old_value, new_value)
 VALUES ($1, $2, $3, $4, $5, $6, $7);
+
+-- -- invitations --
+
+-- name: CreateInvitation :one
+INSERT INTO invitations (school_id, code, role, target_id, expires_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *;
+
+-- name: GetInvitationByCode :one
+SELECT * FROM invitations WHERE code = $1;
+
+-- name: GetActiveInvitationByRoleTarget :one
+-- Dipakai generator kode undangan supaya idempoten: kode lama yang belum
+-- terpakai & belum kedaluwarsa dipakai ulang, bukan dibuat baru.
+SELECT * FROM invitations
+WHERE school_id = $1 AND role = $2 AND target_id = $3
+  AND used_at IS NULL AND expires_at > $4
+ORDER BY id DESC LIMIT 1;
+
+-- name: MarkInvitationUsed :exec
+UPDATE invitations SET used_at = $2 WHERE code = $1;

@@ -179,6 +179,16 @@ func (r *Repository) AcademicYear(ctx context.Context, id, schoolID int64) (Acad
 	return academicYearFromDB(row), nil
 }
 
+// ActiveAcademicYear mengembalikan satu-satunya tahun ajaran aktif sekolah,
+// atau ErrNotFound bila belum ada yang diaktifkan.
+func (r *Repository) ActiveAcademicYear(ctx context.Context, schoolID int64) (AcademicYear, error) {
+	row, err := r.q.GetActiveAcademicYear(ctx, schoolID)
+	if err != nil {
+		return AcademicYear{}, mapNoRows(err)
+	}
+	return academicYearFromDB(row), nil
+}
+
 // ActivateAcademicYear menonaktifkan semua tahun ajaran sekolah lalu
 // mengaktifkan satu id target, dalam satu transaksi (exclusive is_active).
 func (r *Repository) ActivateAcademicYear(ctx context.Context, id, schoolID int64) (AcademicYear, error) {

@@ -41,6 +41,9 @@ SELECT * FROM academic_years WHERE school_id = $1 ORDER BY starts_on DESC;
 -- name: GetAcademicYear :one
 SELECT * FROM academic_years WHERE id = $1 AND school_id = $2;
 
+-- name: GetActiveAcademicYear :one
+SELECT * FROM academic_years WHERE school_id = $1 AND is_active = true;
+
 -- name: DeactivateAcademicYears :exec
 UPDATE academic_years SET is_active = false WHERE school_id = $1 AND is_active = true;
 
