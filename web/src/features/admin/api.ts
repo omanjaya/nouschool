@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { AcademicYear, NotificationChannelSettings, School } from '../../lib/types';
+import type {
+  AcademicYear,
+  AdminSchoolBillingResult,
+  NotificationChannelSettings,
+  Plan,
+  PlanUpdateInput,
+  School,
+} from '../../lib/types';
 
 export const SCHOOLS_QUERY_KEY = ['admin', 'schools'] as const;
 
@@ -105,6 +112,92 @@ export function useUpdateNotificationChannelSettings(schoolId: string) {
       api.put<NotificationChannelSettings>(`/admin/schools/${schoolId}/settings/notification`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationSettingsQueryKey(schoolId) });
+    },
+  });
+}
+
+/* ---- Billing / Langganan — panel super admin (Fase 10, docs/09-billing.md) ---- */
+
+export const PLANS_QUERY_KEY = ['admin', 'plans'] as const;
+
+/** GET /api/admin/plans */
+export function usePlans() {
+  return useQuery({
+    queryKey: PLANS_QUERY_KEY,
+    queryFn: () => api.get<Plan[]>('/admin/plans'),
+  });
+}
+
+/** PUT /api/admin/plans/{code} */
+export function useUpdatePlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ code, input }: { code: string; input: PlanUpdateInput }) =>
+      api.put<Plan>(`/admin/plans/${code}`, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PLANS_QUERY_KEY });
+    },
+  });
+}
+
+export function schoolBillingQueryKey(schoolId: string) {
+  return ['admin', 'schools', schoolId, 'billing'] as const;
+}
+
+/** GET /api/admin/schools/{id}/billing — shape sama `GET /api/billing` + `proof_url` per invoice. */
+export function useSchoolBilling(schoolId: string) {
+  return useQuery({
+    queryKey: schoolBillingQueryKey(schoolId),
+    queryFn: () => api.get<AdminSchoolBillingResult>(`/admin/schools/${schoolId}/billing`),
+    enabled: schoolId.length > 0,
+  });
+}
+
+/** POST /api/admin/schools/{id}/subscriptions {plan_code} — buat/perpanjang langganan (bracket & harga dihitung server dari jumlah siswa aktif). */
+export function useCreateSubscription(schoolId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (planCode: string) =>
+      api.post(`/admin/schools/${schoolId}/subscriptions`, { plan_code: planCode }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: schoolBillingQueryKey(schoolId) });
+    },
+  });
+}
+
+/** POST /api/admin/schools/{id}/subscriptions/extend {days} — perpanjangan manual (goodwill). */
+export function useExtendSubscription(schoolId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (days: number) => api.post(`/admin/schools/${schoolId}/subscriptions/extend`, { days }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: schoolBillingQueryKey(schoolId) });
+    },
+  });
+}
+
+/**
+ * POST /api/admin/invoices/{id}/verify — verifikasi transfer manual.
+ * `schoolId` hanya dipakai untuk invalidasi cache halaman detail sekolah
+ * (endpoint sendiri tidak butuh school_id di path/body).
+ */
+export function useVerifyInvoice(schoolId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (invoiceId: string) => api.post(`/admin/invoices/${invoiceId}/verify`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: schoolBillingQueryKey(schoolId) });
+    },
+  });
+}
+
+/** POST /api/admin/invoices/{id}/void */
+export function useVoidInvoice(schoolId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (invoiceId: string) => api.post(`/admin/invoices/${invoiceId}/void`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: schoolBillingQueryKey(schoolId) });
     },
   });
 }

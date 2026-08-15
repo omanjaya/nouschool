@@ -38,6 +38,18 @@ export interface Me {
    * siswa belum). Opsional supaya aman kalau backend belum mengirimnya.
    */
   student_id?: string | null;
+  /**
+   * Fase 10 (docs/09-billing.md): ringkasan langganan sekolah host tenant,
+   * `null` untuk platform admin (tanpa `school`) atau kalau sekolah belum
+   * pernah punya langganan. Dipakai banner status global (App.tsx).
+   */
+  subscription: MeSubscription | null;
+  /**
+   * Fase 10: daftar kunci fitur aktif dari snapshot langganan berjalan —
+   * dipakai UX gating client-side (`lib/features.ts#hasFeature`), server
+   * tetap menegakkan lewat `requireFeature` (docs/09 "Feature gating").
+   */
+  features: string[];
 }
 
 export interface Branding {
@@ -761,4 +773,99 @@ export interface AttendanceSlotToday {
     is_now: boolean;
   };
   session: AttendanceSlotSession | null;
+}
+
+/* ---- Billing / Langganan tahunan (Fase 10, docs/09-billing.md) ---- */
+
+export type SubscriptionStatus = 'active' | 'grace' | 'readonly' | 'canceled';
+
+/** Ringkasan di `/api/me` — dipakai banner status global. */
+export interface MeSubscription {
+  status: SubscriptionStatus;
+  plan_code: string;
+  ends_on: string;
+  grace_until: string | null;
+}
+
+export type InvoiceStatus = 'unpaid' | 'awaiting_verification' | 'paid' | 'void' | 'expired';
+
+export interface InvoicePaymentInfo {
+  method: string;
+  verified_at?: string | null;
+}
+
+/** GET /api/billing — satu baris invoice. */
+export interface Invoice {
+  id: string;
+  number: string;
+  amount: number;
+  status: InvoiceStatus;
+  due_at: string;
+  paid_at: string | null;
+  pdf_url: string;
+  payment: InvoicePaymentInfo | null;
+}
+
+/**
+ * Invoice versi panel super admin (`GET /api/admin/schools/{id}/billing`) —
+ * shape sama + `proof_url` (bukti transfer yang diunggah sekolah, `null`
+ * kalau belum ada/bukan transfer manual).
+ */
+export interface AdminInvoice extends Invoice {
+  proof_url: string | null;
+}
+
+/** Bentuk `subscription` di `GET /api/billing` & `GET /api/admin/schools/{id}/billing`. */
+export interface BillingSubscription {
+  plan_code: string;
+  plan_name: string;
+  status: SubscriptionStatus;
+  starts_on: string;
+  ends_on: string;
+  grace_until: string | null;
+  max_students: number;
+  student_count: number;
+  price: number;
+  /** Snapshot kunci fitur aktif langganan ini — sama makna dengan `Me.features`. */
+  features: string[];
+}
+
+/** GET /api/billing (admin & kepsek, host tenant). */
+export interface BillingResult {
+  subscription: BillingSubscription | null;
+  invoices: Invoice[];
+}
+
+/** GET /api/admin/schools/{id}/billing (super admin). */
+export interface AdminSchoolBillingResult {
+  subscription: BillingSubscription | null;
+  invoices: AdminInvoice[];
+}
+
+/** POST /api/billing/invoices/{id}/pay → redirect ke checkout gateway. */
+export interface PayInvoiceResult {
+  redirect_url: string;
+}
+
+/* ---- Panel super admin: plans & harga (Fase 10) ---- */
+
+/** Bracket harga per jumlah siswa maksimal. */
+export interface PlanPrice {
+  max_students: number;
+  price_yearly: number;
+}
+
+/** GET /api/admin/plans — item tunggal. `features` adalah map kunci→aktif (beda dari `Me.features`/`BillingSubscription.features` yang array). */
+export interface Plan {
+  code: string;
+  name: string;
+  features: Record<string, boolean>;
+  prices: PlanPrice[];
+}
+
+/** PUT /api/admin/plans/{code} — body. */
+export interface PlanUpdateInput {
+  name: string;
+  features: Record<string, boolean>;
+  prices: PlanPrice[];
 }

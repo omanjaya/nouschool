@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { Megaphone, QrCode, MapPin } from 'lucide-react';
+import { Megaphone, MonitorPlay, QrCode, MapPin, ReceiptText } from 'lucide-react';
 import { formatTimeOfDay } from './lib/date';
+import { hasFeature } from './lib/features';
 import { useLogout, useMe } from './features/auth/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { RequireLogin } from './features/auth/RequireLogin';
@@ -49,14 +50,22 @@ import { KepsekHomePage } from './features/dashboard/KepsekHomePage';
 import { NotificationsPage } from './features/notifications/NotificationsPage';
 import { PushPromptBanner } from './features/notifications/PushPromptBanner';
 import { useUnreadNotificationCount } from './features/notifications/api';
+import { BillingPage } from './features/billing/BillingPage';
+import { SubscriptionBanner } from './features/billing/SubscriptionBanner';
+import { PlansPage } from './features/admin/PlansPage';
 import type { Me } from './lib/types';
 
-/** Kartu "Check-in Kehadiran" di Beranda siswa — muncul hanya kalau sekolah mengaktifkan metode self_checkin. */
-function SelfCheckinCard() {
+/**
+ * Kartu "Check-in Kehadiran" di Beranda siswa — muncul hanya kalau sekolah
+ * mengaktifkan metode self_checkin DAN fitur `self_checkin` aktif di
+ * langganan (Fase 10, docs/09-billing.md "Feature gating").
+ */
+function SelfCheckinCard({ me }: { me: Me }) {
   const navigate = useNavigate();
-  const { data } = useSelfCheckinStatus(true);
+  const featureOn = hasFeature(me, 'self_checkin');
+  const { data } = useSelfCheckinStatus(featureOn);
 
-  if (!data || !data.enabled) return null;
+  if (!featureOn || !data || !data.enabled) return null;
 
   return (
     <Card className="flex flex-col gap-3">
@@ -103,6 +112,9 @@ function BerandaPage({ me }: { me: Me }) {
   // Kartu check-in mandiri (Fase 8) — hanya siswa, dan hook di dalamnya
   // sendiri yang memutuskan tampil/tidak berdasar `self_checkin` aktif.
   const isSiswa = me.role === 'siswa';
+  // Kartu Tagihan & Langganan (Fase 10) — kepala_sekolah punya jalan pintas
+  // setara di KepsekHomePage (QUICK_LINKS), jadi kartu Beranda ini khusus admin.
+  const canManageBilling = me.role === 'admin_sekolah';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -115,7 +127,7 @@ function BerandaPage({ me }: { me: Me }) {
 
       <PushPromptBanner />
 
-      {isSiswa && <SelfCheckinCard />}
+      {isSiswa && <SelfCheckinCard me={me} />}
 
       {canScanQr && (
         <Card className="flex flex-col gap-3">
@@ -219,7 +231,22 @@ function BerandaPage({ me }: { me: Me }) {
         </Card>
       )}
 
-      {!canWriteAttendance && !canViewRecap && !isStaff && !canViewOwnSchedule && !canManageAnnouncements && (
+      {canManageBilling && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Tagihan & Langganan</p>
+            <p className="text-[12px] text-muted">Lihat status langganan, riwayat tagihan, & pembayaran.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/tagihan')}>
+              <ReceiptText size={16} strokeWidth={2} aria-hidden="true" />
+              Buka Tagihan
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {!canWriteAttendance && !canViewRecap && !isStaff && !canViewOwnSchedule && !canManageAnnouncements && !canManageBilling && (
         <Card>
           <p className="text-[14px] text-ink">Belum ada modul lain untuk ditampilkan di sini.</p>
         </Card>
@@ -263,6 +290,7 @@ function AuthenticatedShell() {
 
   return (
     <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout} badgeCounts={badgeCounts}>
+      <SubscriptionBanner me={me} />
       <Routes>
         <Route
           path="/"
@@ -278,6 +306,8 @@ function AuthenticatedShell() {
         />
         <Route path="/admin" element={<SchoolsListPage />} />
         <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
+        <Route path="/admin/plans" element={<PlansPage />} />
+        <Route path="/tagihan" element={<BillingPage />} />
         <Route path="/pengaturan" element={<SettingsPage />} />
         <Route path="/profil" element={<ProfilePage />} />
         <Route path="/notifikasi" element={<NotificationsPage />} />
@@ -326,6 +356,25 @@ function AuthenticatedShell() {
   );
 }
 
+/**
+ * Guard fitur `tv_dashboard` (Fase 10) di depan `/tv` — sekolah tanpa fitur
+ * ini (mis. plan Basic) melihat pesan alih-alih papan TV kosong/error backend.
+ * `me` sudah pasti ada di sini (dibungkus `RequireLogin`).
+ */
+function TvRouteGuard() {
+  const { data: me } = useMe();
+  if (!me) return null;
+  if (!hasFeature(me, 'tv_dashboard')) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-bg px-6 text-center">
+        <MonitorPlay size={24} strokeWidth={2} className="text-muted" aria-hidden="true" />
+        <p className="text-[14px] text-muted">Dashboard TV tidak aktif untuk sekolah ini.</p>
+      </div>
+    );
+  }
+  return <TvPage />;
+}
+
 function App() {
   return (
     <Routes>
@@ -337,7 +386,7 @@ function App() {
         path="/tv"
         element={
           <RequireLogin>
-            <TvPage />
+            <TvRouteGuard />
           </RequireLogin>
         }
       />

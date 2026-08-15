@@ -10,6 +10,8 @@ import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
+import { hasFeature } from '../../lib/features';
+import { useMe } from '../auth/api';
 import { useStudents } from '../students/api';
 import { useClasses, useGenerateInvitations, useRemoveClassStudent } from './api';
 import { ClassFormDialog } from './ClassFormDialog';
@@ -37,6 +39,7 @@ function downloadInvitationsCsv(className: string, rows: GeneratedInvitation[]) 
 export function ClassDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { data: me } = useMe();
   const { data: classes, isLoading, isError, refetch } = useClasses();
   const schoolClass = useMemo(() => classes?.find((c) => c.id === id), [classes, id]);
 
@@ -134,10 +137,12 @@ export function ClassDetailPage() {
           <KeyRound size={16} strokeWidth={2} aria-hidden="true" />
           Generate Kode Undangan
         </Button>
-        <Button variant="secondary" onClick={() => navigate(`/data/rombel/${id}/kartu-qr`)}>
-          <IdCard size={16} strokeWidth={2} aria-hidden="true" />
-          Kartu QR
-        </Button>
+        {hasFeature(me, 'qr_card') && (
+          <Button variant="secondary" onClick={() => navigate(`/data/rombel/${id}/kartu-qr`)}>
+            <IdCard size={16} strokeWidth={2} aria-hidden="true" />
+            Kartu QR
+          </Button>
+        )}
       </div>
 
       {generateInvitations.isError && (

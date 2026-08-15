@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import { ChevronLeft, IdCard, Printer, RotateCcw } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
+import { hasFeature } from '../../lib/features';
 import { useMe } from '../auth/api';
 import { qrCardImageUrl, useGenerateQrCards, useRevokeQrCard } from '../attendance/api';
 import { useClasses } from './api';
@@ -38,14 +39,17 @@ export function ClassQrCardsPage() {
   const [revokeTarget, setRevokeTarget] = useState<StudentQrCard | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    // Fase 10 (docs/09-billing.md): jangan panggil endpoint kalau fitur
+    // `qr_card` non-aktif — server tetap menolaknya, ini hanya menghindari
+    // panggilan yang pasti gagal.
+    if (!id || (me && !hasFeature(me, 'qr_card'))) return;
     setLoadError(false);
     generate.mutate(id, {
       onSuccess: (data) => setCards(data),
       onError: () => setLoadError(true),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, me]);
 
   function handleRevokeConfirm() {
     if (!revokeTarget) return;
@@ -63,6 +67,10 @@ export function ClassQrCardsPage() {
   }
 
   const schoolName = me?.school?.name ?? '';
+
+  if (me && !hasFeature(me, 'qr_card')) {
+    return <Navigate to={id ? `/data/rombel/${id}` : '/data/rombel'} replace />;
+  }
 
   return (
     <div className="mx-auto max-w-[1000px] px-5 py-6">

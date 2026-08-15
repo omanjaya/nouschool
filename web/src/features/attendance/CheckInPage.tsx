@@ -9,6 +9,7 @@ import { StatusChip } from '../../components/ui/StatusChip';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
 import { formatTimeOfDay } from '../../lib/date';
+import { hasFeature } from '../../lib/features';
 import { useMe } from '../auth/api';
 import { useSelfCheckin, useSelfCheckinStatus } from './api';
 import type { SelfCheckinResult } from '../../lib/types';
@@ -32,6 +33,13 @@ export function CheckInPage() {
   const [justCheckedIn, setJustCheckedIn] = useState<SelfCheckinResult | null>(null);
 
   if (me && me.role !== 'siswa') {
+    return <Navigate to="/" replace />;
+  }
+
+  // Fase 10 (docs/09-billing.md): fitur `self_checkin` non-aktif di
+  // langganan sekolah — server tetap menolak POST-nya, halaman ini hanya
+  // menghindari UI mati (tombol check-in yang pasti gagal).
+  if (me && !hasFeature(me, 'self_checkin')) {
     return <Navigate to="/" replace />;
   }
 

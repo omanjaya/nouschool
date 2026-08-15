@@ -12,6 +12,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
 import { formatDate } from '../../lib/date';
+import { hasFeature } from '../../lib/features';
 import { useQrScanner } from '../../lib/useQrScanner';
 import { useMe } from '../auth/api';
 import { useAttendanceScan, useAttendanceSession, useFinalizeAttendanceSession, useSaveAttendanceRecords } from './api';
@@ -271,7 +272,7 @@ export function AttendanceSessionPage() {
           subtitle={`Absensi harian · ${formatDate(data.session.date)}`}
           onBack={handleBack}
           action={
-            data.session.status === 'open' ? (
+            data.session.status === 'open' && hasFeature(me, 'qr_card') ? (
               <Button variant="secondary" onClick={() => setScanOpen(true)}>
                 <ScanLine size={16} strokeWidth={2} aria-hidden="true" />
                 Scan Kartu

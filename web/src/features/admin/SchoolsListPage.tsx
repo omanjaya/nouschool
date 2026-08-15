@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, ShieldAlert } from 'lucide-react';
+import { Building2, Plus, ShieldAlert, Tags } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -39,10 +39,16 @@ export function SchoolsListPage() {
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Platform</p>
           <h1 className="text-[21px] font-semibold text-ink">Sekolah</h1>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus size={16} strokeWidth={2} aria-hidden="true" />
-          Tambah Sekolah
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => navigate('/admin/plans')}>
+            <Tags size={16} strokeWidth={2} aria-hidden="true" />
+            Plan & Harga
+          </Button>
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus size={16} strokeWidth={2} aria-hidden="true" />
+            Tambah Sekolah
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
