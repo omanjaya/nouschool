@@ -44,4 +44,19 @@ type UserView struct {
 	// StudentID terisi hanya untuk role siswa: id baris students miliknya —
 	// dipakai UI untuk memanggil endpoint per-siswa (mis. riwayat kehadiran).
 	StudentID int64 `json:"student_id,omitempty"`
+	// Subscription & Features (fase 10, docs/09-billing.md "Frontend menerima
+	// daftar fitur aktif di payload /api/me") — hanya terisi di host tenant
+	// (School != nil) DAN bila BillingGateway di-inject (lihat service.go
+	// SetBillingGateway). Sekolah TANPA subscription -> Subscription nil.
+	Subscription *SubscriptionView `json:"subscription,omitempty"`
+	Features     []string          `json:"features,omitempty"`
+}
+
+// SubscriptionView adalah ringkasan status langganan sekolah pada payload
+// /api/me (fase 10, docs/09-billing.md).
+type SubscriptionView struct {
+	Status     string  `json:"status"`
+	PlanCode   string  `json:"plan_code"`
+	EndsOn     string  `json:"ends_on"`
+	GraceUntil *string `json:"grace_until,omitempty"`
 }

@@ -14,10 +14,25 @@ import (
 // Service berisi aturan bisnis modul notification: menulis inbox in-app +
 // outbox (Send/Notify), dan memproses outbox (ProcessDueOutbox, dipanggil
 // worker.go). Lihat docs/08-notification.md untuk arsitektur lengkap.
+// FeatureGate adalah kebutuhan modul notification dari modul billing (fase
+// 10, docs/09-billing.md "Channel whatsapp: notification service cek fitur
+// whatsapp sebelum membuat outbox row wa") — consumer-side interface kecil
+// dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). Dipenuhi *billing.Service
+// secara struktural lewat method HasFeature (signature primitif).
+type FeatureGate interface {
+	HasFeature(ctx context.Context, schoolID int64, key string) (bool, error)
+}
+
+// FeatureWhatsApp — NILAI HARUS SAMA PERSIS dengan billing.FeatureWhatsApp
+// (didefinisikan ulang di sini karena notification TIDAK boleh mengimpor
+// billing untuk konstanta apa pun — lihat CLAUDE.md).
+const FeatureWhatsApp = "whatsapp"
+
 type Service struct {
 	repo      notificationRepository
 	clock     clock.Clock
 	providers map[string]Provider // key: channel (web_push|whatsapp|email) — TIDAK termasuk in_app
+	features  FeatureGate         // opsional — nil = gerbang fitur dilewati (lihat SetFeatureGate)
 
 	vapidPublicKey string
 
@@ -45,6 +60,27 @@ func newServiceForTest(repo notificationRepository, clk clock.Clock) *Service {
 // (dipanggil main.go saat wiring — lihat cmd/server/main.go).
 func (s *Service) RegisterProvider(channel string, p Provider) {
 	s.providers[channel] = p
+}
+
+// SetFeatureGate menyuntikkan FeatureGate SETELAH konstruksi (opsional,
+// disuntik main.go — pola yang sama dengan internal/attendance.SetNotifier;
+// nil aman/no-op, channel whatsapp lolos tanpa gerbang fitur).
+func (s *Service) SetFeatureGate(g FeatureGate) { s.features = g }
+
+// whatsappAllowed melaporkan apakah channel whatsapp boleh dipakai sekolah
+// ini (fitur "whatsapp" aktif di langganannya, docs/09-billing.md "Channel
+// gating"). featureGate nil ATAU error dianggap boleh (fail-open) — modul
+// notification TIDAK menegakkan billing, hanya menghormatinya bila tersedia;
+// enforcement sesungguhnya ada di billing.SubscriptionGuard/RequireFeature.
+func (s *Service) whatsappAllowed(ctx context.Context, schoolID int64) bool {
+	if s.features == nil {
+		return true
+	}
+	ok, err := s.features.HasFeature(ctx, schoolID, FeatureWhatsApp)
+	if err != nil {
+		return true
+	}
+	return ok
 }
 
 func (s *Service) channelConfigured(channel string) bool {
@@ -109,6 +145,9 @@ func (s *Service) Send(ctx context.Context, n Notification) error {
 			}
 			if !s.channelConfigured(ch) {
 				s.logMissingConfigOnce(ch)
+				continue
+			}
+			if ch == ChannelWhatsApp && !s.whatsappAllowed(ctx, n.SchoolID) {
 				continue
 			}
 			if err := s.repo.InsertOutboxRow(ctx, n.SchoolID, userID, n.Event, ch, payload); err != nil {

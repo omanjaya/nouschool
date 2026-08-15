@@ -26,6 +26,12 @@ type Config struct {
 	SMTPUsername    string
 	SMTPPassword    string
 	SMTPFrom        string
+
+	// -- billing (fase 10, docs/09-billing.md) — payment gateway Midtrans,
+	// opsional: kosong = "Pembayaran online belum dikonfigurasi." (endpoint
+	// pay 422, lihat internal/billing/service.go errGatewayNotConfigured).
+	MidtransServerKey string
+	MidtransEnv       string // "sandbox" | "production", default "sandbox"
 }
 
 func Load() (Config, error) {
@@ -45,6 +51,9 @@ func Load() (Config, error) {
 		SMTPUsername:    os.Getenv("SMTP_USERNAME"),
 		SMTPPassword:    os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:        getenv("SMTP_FROM", "no-reply@"+getenv("BASE_DOMAIN", "localhost")),
+
+		MidtransServerKey: os.Getenv("MIDTRANS_SERVER_KEY"),
+		MidtransEnv:       getenv("MIDTRANS_ENV", "sandbox"),
 	}
 	if cfg.Env != "dev" && cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("config: DATABASE_URL wajib diisi di luar mode dev")

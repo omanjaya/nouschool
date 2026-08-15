@@ -117,6 +117,24 @@ func (s *Service) SchoolByID(ctx context.Context, id int64) (School, error) {
 	return s.repo.SchoolByID(ctx, id)
 }
 
+// SchoolNameAndSlug mengembalikan nama & slug sekolah (tipe primitif) —
+// dipakai modul billing (fase 10, docs/09-billing.md) lewat consumer-side
+// interface SchoolGateway (kop PDF invoice, panel super admin) TANPA billing
+// perlu mengimpor package tenant untuk tipe apa pun (lihat CLAUDE.md).
+// (id, "", nil) TIDAK PERNAH terjadi — not-found dikembalikan sebagai string
+// kosong + nil error (pola yang sama dengan identity.UserIDByEmail) supaya
+// pemanggil tidak perlu tahu tipe error tenant.
+func (s *Service) SchoolNameAndSlug(ctx context.Context, id int64) (name, slug string, err error) {
+	sch, err := s.repo.SchoolByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return "", "", nil
+		}
+		return "", "", err
+	}
+	return sch.Name, sch.Slug, nil
+}
+
 // CreateAcademicYear menambah tahun ajaran baru (tidak otomatis aktif —
 // aktivasi eksplisit lewat ActivateAcademicYear).
 func (s *Service) CreateAcademicYear(ctx context.Context, actorUserID, schoolID int64, name string, startsOn, endsOn time.Time) (AcademicYear, error) {

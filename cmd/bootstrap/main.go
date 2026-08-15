@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/omanjaya/nouschool/internal/attendance"
+	"github.com/omanjaya/nouschool/internal/billing"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
@@ -237,6 +238,55 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("settings absensi demo siap (methods: manual, qr_card, self_checkin)", "school_id", schoolID)
+
+	// --- fase 10 (billing): subscription Pro AKTIF 1 tahun utk sekolah demo,
+	// supaya seluruh fitur existing (tv_dashboard, whatsapp, qr_card,
+	// self_checkin) tetap jalan tanpa perlu super admin klik apa pun
+	// (docs/09-billing.md). Invoice manual_transfer, verified langsung.
+	billingRepo := billing.NewRepository(pool)
+	billingSvc := billing.NewService(billingRepo, identitySvc, tenantSvc, nil, clock.System{})
+	if err := ensureDemoSubscription(ctx, billingRepo, billingSvc, demoAdminID, schoolID); err != nil {
+		slog.Error("gagal menyiapkan langganan demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("langganan demo siap (plan pro, status active, invoice paid)", "school_id", schoolID)
+}
+
+// ensureDemoSubscription memberi sekolah demo langganan Pro AKTIF 1 tahun
+// (invoice manual_transfer, langsung diverifikasi) — idempoten: bila
+// sekolah demo SUDAH punya subscription berstatus active, tidak melakukan
+// apa pun (aman dijalankan ulang tanpa menumpuk invoice).
+func ensureDemoSubscription(ctx context.Context, repo *billing.Repository, svc *billing.Service, actorUserID, schoolID int64) error {
+	existing, found, err := repo.GetSubscription(ctx, schoolID)
+	if err != nil {
+		return err
+	}
+	if found && existing.Status == billing.StatusActive {
+		return nil
+	}
+
+	invView, err := svc.CreateSubscriptionInvoice(ctx, actorUserID, schoolID, "pro")
+	if err != nil {
+		return fmt.Errorf("buat invoice langganan demo: %w", err)
+	}
+	proofView, err := svc.UploadProof(ctx, actorUserID, schoolID, invView.ID, "bukti-demo.png", demoProofPNG)
+	if err != nil {
+		return fmt.Errorf("unggah bukti transfer demo: %w", err)
+	}
+	if _, err := svc.VerifyManualPayment(ctx, actorUserID, proofView.ID); err != nil {
+		return fmt.Errorf("verifikasi pembayaran demo: %w", err)
+	}
+	return nil
+}
+
+// demoProofPNG — PNG 1x1 valid minimal (magic bytes lolos http.DetectContentType
+// "image/png") dipakai sebagai bukti transfer placeholder bootstrap demo.
+var demoProofPNG = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+	0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+	0x42, 0x60, 0x82,
 }
 
 // ensureDemoAttendanceSettings mengaktifkan qr_card & self_checkin utk

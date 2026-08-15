@@ -81,3 +81,12 @@ sql:
         out: "internal/notification/notificationdb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/billing/queries.sql"
+    gen:
+      go:
+        package: "billingdb"
+        out: "internal/billing/billingdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

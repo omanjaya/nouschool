@@ -27,16 +27,34 @@ var (
 	}
 )
 
+// BillingGateway adalah kebutuhan modul identity dari modul billing (fase 10,
+// docs/09-billing.md "Frontend menerima daftar fitur aktif di payload
+// /api/me") — consumer-side interface kecil dideklarasikan di sisi PEMAKAI
+// (lihat CLAUDE.md). Dipenuhi *billing.Service secara struktural lewat
+// method SubscriptionForMe (signature primitif) — identity TIDAK mengimpor
+// billing untuk tipe apa pun. found=false berarti sekolah belum pernah
+// punya subscription sama sekali.
+type BillingGateway interface {
+	SubscriptionForMe(ctx context.Context, schoolID int64) (status, planCode, endsOn, graceUntil string, features []string, found bool, err error)
+}
+
 // Service berisi aturan bisnis modul identity: login/logout, sesi, RBAC.
 type Service struct {
 	repo         *Repository
 	rateLimiter  *RateLimiter
 	cookieSecure bool
+	billing      BillingGateway // opsional — nil = subscription/features dilewati di /api/me (lihat SetBillingGateway)
 }
 
 func NewService(repo *Repository, rateLimiter *RateLimiter, cookieSecure bool) *Service {
 	return &Service{repo: repo, rateLimiter: rateLimiter, cookieSecure: cookieSecure}
 }
+
+// SetBillingGateway menyuntikkan BillingGateway SETELAH konstruksi (opsional,
+// disuntik main.go — billing dikonstruksi SETELAH identity karena butuh
+// identitySvc untuk audit log, pola yang sama dengan
+// internal/attendance.SetNotifier; nil aman/no-op).
+func (s *Service) SetBillingGateway(b BillingGateway) { s.billing = b }
 
 // LoginInput adalah parameter POST /api/auth/login.
 type LoginInput struct {
@@ -193,6 +211,17 @@ func (s *Service) Me(ctx context.Context) (UserView, error) {
 		if view.Role == RoleSiswa {
 			if sid, serr := s.repo.StudentIDByUser(ctx, userID, sch.ID); serr == nil {
 				view.StudentID = sid
+			}
+		}
+		if s.billing != nil {
+			if status, planCode, endsOn, graceUntil, features, found, berr := s.billing.SubscriptionForMe(ctx, sch.ID); berr == nil && found {
+				sv := &SubscriptionView{Status: status, PlanCode: planCode, EndsOn: endsOn}
+				if status == "grace" || status == "readonly" {
+					g := graceUntil
+					sv.GraceUntil = &g
+				}
+				view.Subscription = sv
+				view.Features = features
 			}
 		}
 	}

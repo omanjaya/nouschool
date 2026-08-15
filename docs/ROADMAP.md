@@ -363,13 +363,82 @@ pengaju + approver berikutnya bila ada).
 - ⬜ Service worker frontend utk registrasi Web Push (`web/` — di luar scope
   backend sesi ini, sesuai batasan tugas)
 
-## Fase 10 — Billing ⬜
-- ⬜ Plans + plan_prices + seeding Basic/Pro & bracket
-- ⬜ Subscriptions (snapshot), lifecycle job (grace → readonly), enforcement middleware
-- ⬜ Feature gating `requireFeature` + daftar fitur di `/api/me`
-- ⬜ Invoice + PDF, transfer manual (upload bukti + verifikasi super admin)
-- ⬜ Payment gateway (satu provider dulu) + webhook idempotent
-- ⬜ Panel billing super admin
+## Fase 10 — Billing ✅ (backend)
+- ✅ Plans + plan_prices + seeding Basic/Pro & bracket (`migrations/00011_billing.sql`) —
+  basic {tv_dashboard:false, whatsapp:false, dapodik_import:false, qr_card:true,
+  self_checkin:true}, pro semua true; bracket ≤300/≤600/≤99999 (basic
+  2jt/3.5jt/5jt, pro 4jt/7jt/10jt per tahun — placeholder, diedit via
+  `PUT /api/admin/plans/{code}`)
+- ✅ Subscriptions (satu baris per sekolah, UNIQUE school_id — snapshot
+  plan_code/features/max_students saat aktivasi), lifecycle job
+  (`billing.StartLifecycleWorker`, ticker 1 jam + `TickOnce` saat startup,
+  idempoten), `SubscriptionGuard` (`billing.Service.Middleware`) dipasang di
+  chain setelah ResolveTenant — mutasi non-GET ditolak 402
+  `subscription_readonly` kecuali `/api/auth/`, `/api/billing/`,
+  `/api/webhooks/` (exemption terakhir keputusan implementasi, lihat catatan
+  di `internal/billing/guard.go`)
+- ✅ Feature gating `RequireFeature` (per-route: `/api/tv/board`→tv_dashboard,
+  qr-cards→qr_card, self-checkin→self_checkin) + `HasFeature` (whatsapp,
+  dicek `notification.Service` sebelum insert outbox) + `features`/`subscription`
+  di `/api/me` (identity.BillingGateway consumer interface)
+- ✅ Invoice (nomor `INV/YYYY/NNNN` global per tahun, counter atomik) + PDF
+  (`github.com/go-pdf/fpdf`), transfer manual (upload bukti multipart ≤5MB
+  pdf/jpg/png + verifikasi super admin — verify juga bisa langsung dari
+  status `unpaid` tanpa bukti, mis. konfirmasi manual dari mutasi rekening)
+- ✅ Payment gateway Midtrans Snap (`PaymentProvider` interface, provider kedua
+  murah ditambahkan) + webhook `/api/webhooks/midtrans` idempotent by
+  order_id, verifikasi signature sha512
+- ✅ Panel billing super admin: `/api/admin/plans`, `/api/admin/schools/{id}/billing`,
+  `/api/admin/schools/{id}/subscriptions[/extend]`, `/api/admin/invoices/{id}/verify|void|pdf|proof`
+- ✅ Bootstrap: sekolah demo dapat subscription Pro aktif 1 tahun (invoice
+  manual_transfer, verified) — idempoten, dijalankan
+- ✅ Test: lifecycle transitions, ActivateSubscription (renewal + snapshot
+  tak berubah saat plan diedit), bracket, guard readonly, RequireFeature,
+  webhook signature (valid/invalid/idempotent), nomor invoice berurutan —
+  `internal/billing/service_test.go`
+- ✅ Verifikasi end-to-end via curl (server dev `localhost:8210`): bootstrap →
+  login admin/kepsek demo → `/api/billing` (pro, invoice paid) → `/api/me`
+  (subscription+features) → `/api/tv/board` 200 → RBAC billing:view (guru
+  403) → super admin: sekolah baru "SMA Uji Billing" (`ujibilling`, tanpa
+  subscription → `GET .../billing` = null, tenant `/api/health` tetap 200)
+  → subscribe basic → invoice unpaid → PDF (`application/pdf`) → verify →
+  active basic → extend goodwill (+30 hari) → void invoice. Readonly
+  lifecycle: `UPDATE subscriptions SET ends_on = ends_on - 400 hari` (psql
+  container) + restart container (`TickOnce` saat startup) → status
+  `readonly` di `GET /api/admin/schools/{id}/billing`. Webhook signature
+  end-to-end HANYA lewat unit test (`MIDTRANS_SERVER_KEY` tidak di-set di
+  container dev, tidak boleh sentuh docker-compose) — endpoint live dicek
+  mengembalikan `gateway_not_configured` sesuai kontrak.
+- ✅ **Kontrak API disilangcek terhadap `web/` yang sudah dibangun sesi
+  sebelumnya** (`web/src/lib/types.ts`, `features/billing/`, `features/admin/`)
+  — ditemukan & diperbaiki 3 bug nyata sebelum dianggap selesai:
+  `PriceBracket` tanpa json tag (field PascalCase bocor ke API, akan merusak
+  editor harga plan total), `SubscriptionView.features` semula `map[string]bool`
+  (kontrak minta `string[]`, sama seperti `Me.features`), dan
+  `VerifyManualPayment` semula menolak invoice berstatus `unpaid` (kontrak
+  admin UI mengizinkan verifikasi tanpa bukti transfer diunggah dulu).
+- ✅ UI frontend (`web/`, dibangun terhadap kontrak API pasti di deskripsi tugas —
+  DISILANGCEK & backend disesuaikan terhadap kontrak `web/` pada sesi backend
+  ini (lihat poin di atas), belum dijalankan `npm run dev` langsung end-to-end
+  di browser sesi ini (batasan tugas: jangan sentuh `web/`), fokus
+  sesi ini frontend saja sesuai batasan tugas `hanya web/src/`): banner status
+  langganan global (`features/billing/SubscriptionBanner.tsx`, kuning saat
+  `grace`/merah saat `readonly`, tautan `/tagihan` untuk admin & kepsek,
+  tersembunyi otomatis di rute `/tv` karena dirender di dalam
+  `AuthenticatedShell`); halaman `/tagihan` (admin & kepsek — kartu langganan
+  dgn Tag status/periode/harga `formatRupiah`/pemakaian siswa/daftar fitur,
+  daftar invoice dgn aksi Bayar Online (redirect gateway, 422 → Toast pesan
+  server)/Upload Bukti Transfer (Dialog, validasi pdf/jpg/png ≤5MB)/Unduh PDF,
+  EmptyState saat subscription `null`); kartu "Tagihan & Langganan" di
+  Beranda admin & KepsekHomePage; helper `lib/features.ts#hasFeature` +
+  penerapan gating client (kartu Check-in Kehadiran & rute `/checkin` →
+  `self_checkin`, rute `/tv` → `tv_dashboard` via `TvRouteGuard`, tombol
+  Kartu QR di `ClassDetailPage` + rute cetak kartu + tombol Scan Kartu di
+  sesi absensi → `qr_card`); panel super admin: seksi "Langganan & Tagihan"
+  di `SchoolDetailPage` (buat/perpanjang langganan dgn estimasi bracket dari
+  `student_count`, verifikasi/void per invoice, perpanjang manual goodwill)
+  + halaman baru `/admin/plans` (editor fitur & 3 bracket harga per plan,
+  link dari header daftar sekolah). `npm run build` & `npm run lint` hijau.
 
 ## Fase 11 — Branding & polish SaaS ⬜
 - ⬜ Branding per sekolah (logo, warna, nama) + PWA manifest dinamis + CSS variables

@@ -12,6 +12,7 @@ import (
 
 	"github.com/omanjaya/nouschool/internal/announcement"
 	"github.com/omanjaya/nouschool/internal/attendance"
+	"github.com/omanjaya/nouschool/internal/billing"
 	"github.com/omanjaya/nouschool/internal/dashboard"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/leave"
@@ -42,6 +43,7 @@ func main() {
 	})
 
 	var tenantResolverMW middleware.Middleware = func(next http.Handler) http.Handler { return next }
+	var billingGuardMW middleware.Middleware = func(next http.Handler) http.Handler { return next }
 
 	// DB opsional saat dev supaya server bisa hidup sebelum Postgres siap.
 	if cfg.DatabaseURL != "" {
@@ -187,35 +189,83 @@ func main() {
 		attendanceSvc.SetNotifier(notificationSvc)
 		leaveSvc.SetNotifier(notificationSvc)
 
+		// --- modul billing (langganan tahunan, tier x bracket siswa, invoice,
+		// transfer manual + gateway Midtrans, lifecycle grace/readonly, fase
+		// 10, docs/09-billing.md) ---
+		// identitySvc memenuhi billing.AuditLogger, tenantSvc memenuhi
+		// billing.SchoolGateway (nama/slug sekolah utk kop PDF & panel admin)
+		// secara STRUKTURAL — billing TIDAK mengimpor identity/tenant untuk
+		// tipe apa pun. Dikonstruksi SETELAH identity/tenant (butuh keduanya)
+		// tapi SEBELUM route wiring (attendance/dashboard butuh
+		// billingSvc.RequireFeature saat registrasi route di bawah).
+		billingRepo := billing.NewRepository(pool)
+		billingSvc := billing.NewService(billingRepo, identitySvc, tenantSvc, storage.FromEnv(), clock.System{})
+		if cfg.MidtransServerKey != "" {
+			billingSvc.SetProvider(billing.NewMidtransProvider(cfg.MidtransServerKey, cfg.MidtransEnv))
+		} else {
+			slog.Warn("MIDTRANS_SERVER_KEY kosong — pembayaran gateway dinonaktifkan (transfer manual tetap jalan)")
+		}
+		billingHandler := billing.NewHandler(billingSvc)
+
+		// identitySvc.Me() & notificationSvc.Send() memenuhi consumer-side
+		// interface masing-masing (identity.BillingGateway / notification.FeatureGate)
+		// secara struktural lewat *billing.Service, disuntik lewat setter
+		// (pola yang sama dengan SetNotifier di atas).
+		identitySvc.SetBillingGateway(billingSvc)
+		notificationSvc.SetFeatureGate(billingSvc)
+
+		// TickOnce sekali saat startup (docs/09-billing.md "job harian ...
+		// idempoten") — supaya transisi grace/readonly yang seharusnya sudah
+		// terjadi sebelum server restart langsung tercermin, tanpa menunggu
+		// ticker jam pertama.
+		if err := billingSvc.TickOnce(ctx); err != nil {
+			slog.Error("billing: tick lifecycle awal gagal", "err", err)
+		}
+
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		student.RegisterRoutes(mux, studentHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
-		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm,
+			billingSvc.RequireFeature(billing.FeatureQRCard), billingSvc.RequireFeature(billing.FeatureSelfCheckin))
 		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
-		dashboard.RegisterRoutes(mux, dashboardHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		dashboard.RegisterRoutes(mux, dashboardHandler, identitySvc.RequireAuth, identitySvc.RequirePerm,
+			billingSvc.RequireFeature(billing.FeatureTVDashboard))
 		notification.RegisterRoutes(mux, notificationHandler, identitySvc.RequireAuth)
+		billing.RegisterRoutes(mux, billingHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 
 		// Worker outbox — poll tiap 10 detik, batch 50 (docs/08-notification.md).
 		// Berhenti dengan rapi saat ctx dibatalkan (graceful shutdown, sama
 		// seperti http.Server di bawah).
 		go notification.StartWorker(ctx, notificationSvc, 10*time.Second, 50)
 
+		// Worker lifecycle billing — ticker 1 jam (docs/09-billing.md "job
+		// harian ... cukup goroutine ticker"). Berhenti dengan rapi saat ctx
+		// dibatalkan.
+		go billing.StartLifecycleWorker(ctx, billingSvc, time.Hour)
+
 		tenantResolverMW = hostResolver.Middleware
+		billingGuardMW = billingSvc.Middleware
 	} else {
 		slog.Warn("DATABASE_URL kosong — jalan tanpa database (mode dev, hanya /api/health aktif)")
 	}
 
-	// Urutan wajib: Recover -> Logger -> SecurityHeaders -> ResolveTenant -> routing
-	// (per-route RequireAuth/RequirePerm dipasang saat registrasi route di atas).
+	// Urutan wajib: Recover -> Logger -> SecurityHeaders -> ResolveTenant ->
+	// SubscriptionGuard -> routing (per-route RequireAuth/RequirePerm/
+	// RequireFeature dipasang saat registrasi route di atas). SubscriptionGuard
+	// (billing, fase 10, docs/09-billing.md & docs/01-tenant.md "Kaitan
+	// subscription") HARUS setelah ResolveTenant (butuh school_id di
+	// context) dan SEBELUM routing (menggerbang di level HTTP, sebelum
+	// RequireAuth — GET/exempt path tetap lolos tanpa login, mis. webhook).
 	handler := middleware.Chain(mux,
 		middleware.Recover,
 		middleware.Logger,
 		middleware.SecurityHeaders,
 		tenantResolverMW,
+		billingGuardMW,
 	)
 
 	srv := &http.Server{

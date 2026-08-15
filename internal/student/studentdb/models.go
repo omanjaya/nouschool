@@ -104,6 +104,26 @@ type Invitation struct {
 	UsedAt    pgtype.Timestamptz `json:"used_at"`
 }
 
+type Invoice struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	Number         string             `json:"number"`
+	SubscriptionID pgtype.Int8        `json:"subscription_id"`
+	Amount         int64              `json:"amount"`
+	Status         string             `json:"status"`
+	DueAt          pgtype.Timestamptz `json:"due_at"`
+	PaidAt         pgtype.Timestamptz `json:"paid_at"`
+	PlanCode       string             `json:"plan_code"`
+	MaxStudents    int32              `json:"max_students"`
+	CreatedBy      pgtype.Int8        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type InvoiceNumberCounter struct {
+	Year string `json:"year"`
+	Seq  int32  `json:"seq"`
+}
+
 type LeaveApprovalStep struct {
 	ID             int64              `json:"id"`
 	SchoolID       int64              `json:"school_id"`
@@ -166,6 +186,20 @@ type NotificationOutbox struct {
 	SentAt      pgtype.Timestamptz `json:"sent_at"`
 }
 
+type Payment struct {
+	ID          int64              `json:"id"`
+	InvoiceID   int64              `json:"invoice_id"`
+	Method      string             `json:"method"`
+	Amount      int64              `json:"amount"`
+	ProofUrl    pgtype.Text        `json:"proof_url"`
+	VerifiedBy  pgtype.Int8        `json:"verified_by"`
+	VerifiedAt  pgtype.Timestamptz `json:"verified_at"`
+	Provider    pgtype.Text        `json:"provider"`
+	ProviderRef pgtype.Text        `json:"provider_ref"`
+	RawWebhook  []byte             `json:"raw_webhook"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type Period struct {
 	ID       int64       `json:"id"`
 	SchoolID int64       `json:"school_id"`
@@ -173,6 +207,21 @@ type Period struct {
 	StartsAt pgtype.Time `json:"starts_at"`
 	EndsAt   pgtype.Time `json:"ends_at"`
 	Label    pgtype.Text `json:"label"`
+}
+
+type Plan struct {
+	ID       int64  `json:"id"`
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+	Features []byte `json:"features"`
+	Active   bool   `json:"active"`
+}
+
+type PlanPrice struct {
+	ID          int64 `json:"id"`
+	PlanID      int64 `json:"plan_id"`
+	MaxStudents int32 `json:"max_students"`
+	PriceYearly int64 `json:"price_yearly"`
 }
 
 type PlatformConfig struct {
@@ -267,6 +316,18 @@ type Subject struct {
 	SchoolID int64  `json:"school_id"`
 	Code     string `json:"code"`
 	Name     string `json:"name"`
+}
+
+type Subscription struct {
+	ID          int64       `json:"id"`
+	SchoolID    int64       `json:"school_id"`
+	PlanCode    string      `json:"plan_code"`
+	Features    []byte      `json:"features"`
+	MaxStudents int32       `json:"max_students"`
+	Price       int64       `json:"price"`
+	StartsOn    pgtype.Date `json:"starts_on"`
+	EndsOn      pgtype.Date `json:"ends_on"`
+	Status      string      `json:"status"`
 }
 
 type Teacher struct {

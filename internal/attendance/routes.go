@@ -9,19 +9,32 @@ import (
 // RegisterRoutes memasang route modul attendance. Middleware auth/permission
 // disuntik dari main.go (diimplementasikan modul identity) — attendance TIDAK
 // mengimpor identity secara langsung (lihat aturan wiring di CLAUDE.md).
+// requireQRCardFeature/requireSelfCheckinFeature (fase 10, docs/09-billing.md
+// "Feature gate ... terapkan sekarang ke ... self-checkin endpoints
+// (self_checkin), qr-cards endpoints (qr_card)") — dibangun main.go lewat
+// billingSvc.RequireFeature(billing.FeatureQRCard/FeatureSelfCheckin) dan
+// disuntik di sini sebagai middleware.Middleware SIAP PAKAI supaya
+// attendance TIDAK perlu mengimpor billing untuk konstanta kunci fitur.
 func RegisterRoutes(
 	mux *http.ServeMux,
 	h *Handler,
 	requireAuth middleware.Middleware,
 	requirePerm func(perm string) middleware.Middleware,
+	requireQRCardFeature middleware.Middleware,
+	requireSelfCheckinFeature middleware.Middleware,
 ) {
 	auth := func(hf http.HandlerFunc) http.Handler { return requireAuth(hf) }
 	write := func(hf http.HandlerFunc) http.Handler { return requireAuth(requirePerm(PermAttendanceWrite)(hf)) }
 	report := func(hf http.HandlerFunc) http.Handler { return requireAuth(requirePerm(PermAttendanceReport)(hf)) }
 	// manage — QR kartu siswa (Fase 8) digerbang student:manage (mengelola
-	// kartu = mengelola data siswa, docs/05-attendance.md).
-	manage := func(hf http.HandlerFunc) http.Handler { return requireAuth(requirePerm(PermStudentManage)(hf)) }
-	selfCheckin := func(hf http.HandlerFunc) http.Handler { return requireAuth(requirePerm(PermAttendanceSelfCheck)(hf)) }
+	// kartu = mengelola data siswa, docs/05-attendance.md) + fitur qr_card
+	// (Fase 10, docs/09-billing.md).
+	manage := func(hf http.HandlerFunc) http.Handler {
+		return requireAuth(requirePerm(PermStudentManage)(requireQRCardFeature(hf)))
+	}
+	selfCheckin := func(hf http.HandlerFunc) http.Handler {
+		return requireAuth(requirePerm(PermAttendanceSelfCheck)(requireSelfCheckinFeature(hf)))
+	}
 
 	mux.Handle("GET /api/attendance/classes", write(h.ListClasses))
 	mux.Handle("GET /api/attendance/slots-today", write(h.SlotsToday))
