@@ -7,6 +7,9 @@
 /server.exe
 /server
 
+# Air (hot reload dev di Docker) — dibuat via bind mount container, bukan kode
+/tmp/
+
 # Node / frontend
 node_modules/
 web/dist/

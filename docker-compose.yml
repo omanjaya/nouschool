@@ -1,0 +1,60 @@
+# NouSchool — lingkungan dev Docker.
+# Default `docker compose up` hanya menjalankan db + api.
+# Frontend (web) biasanya dijalankan langsung di host (`cd web && npm run dev`);
+# service `web` di sini hanya opsional lewat profile "full" bila ingin semuanya dalam container.
+#
+# Catatan port host: 7929-8171 direserve Hyper-V. Port 5432 & 5433 dipakai project
+# Docker lain di mesin ini, jadi db dipublish ke 5434.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: nouschool
+      POSTGRES_PASSWORD: nouschool
+      POSTGRES_DB: nouschool
+    ports:
+      - "5434:5432"
+    volumes:
+      - nouschool_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nouschool -d nouschool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/app
+      - nouschool_gocache:/go
+    environment:
+      DATABASE_URL: postgres://nouschool:nouschool@db:5432/nouschool?sslmode=disable
+      PORT: "8080"
+      APP_ENV: dev
+      BASE_DOMAIN: localhost
+    ports:
+      - "8210:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    profiles: ["full"]
+    image: node:24-alpine
+    working_dir: /app
+    volumes:
+      - ./web:/app
+    command: sh -c "npm install && npm run dev -- --host"
+    environment:
+      VITE_API_PROXY: http://api:8080
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  nouschool_pgdata:
+  nouschool_gocache:

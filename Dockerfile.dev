@@ -1,0 +1,15 @@
+# Image dev untuk backend Go — hot reload via Air.
+# Bukan untuk produksi (lihat Dockerfile terpisah bila dibutuhkan nanti untuk build final).
+FROM golang:1.26-alpine
+
+# git dibutuhkan `go install`, gcc/musl-dev untuk dependency yang butuh cgo.
+RUN apk add --no-cache git gcc musl-dev
+
+RUN go install github.com/air-verse/air@latest
+
+# Cache module & build cache Go disimpan di volume terpisah (lihat docker-compose.yml).
+ENV GOCACHE=/go/build-cache
+
+WORKDIR /app
+
+CMD ["air", "-c", ".air.toml"]
