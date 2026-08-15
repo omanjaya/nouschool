@@ -176,6 +176,12 @@ func (r *Repository) CreateMembership(ctx context.Context, userID, schoolID int6
 	return membershipFromDB(row), nil
 }
 
+// UserIDsByRole mengembalikan user_id semua membership AKTIF dengan role
+// tsb di sekolah ini (fase 9, dipakai Service.UsersWithRole).
+func (r *Repository) UserIDsByRole(ctx context.Context, schoolID int64, role string) ([]int64, error) {
+	return r.q.ListUserIDsByRole(ctx, identitydb.ListUserIDsByRoleParams{SchoolID: schoolID, Role: role})
+}
+
 // -- sessions --
 
 func parseIP(s string) *netip.Addr {

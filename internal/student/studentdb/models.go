@@ -140,6 +140,32 @@ type Membership struct {
 	Status   string `json:"status"`
 }
 
+type Notification struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	UserID    int64              `json:"user_id"`
+	Event     string             `json:"event"`
+	Title     string             `json:"title"`
+	Body      string             `json:"body"`
+	Link      pgtype.Text        `json:"link"`
+	ReadAt    pgtype.Timestamptz `json:"read_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type NotificationOutbox struct {
+	ID          int64              `json:"id"`
+	SchoolID    int64              `json:"school_id"`
+	Event       string             `json:"event"`
+	UserID      int64              `json:"user_id"`
+	Channel     string             `json:"channel"`
+	Payload     []byte             `json:"payload"`
+	Status      string             `json:"status"`
+	Attempts    int32              `json:"attempts"`
+	NextRetryAt pgtype.Timestamptz `json:"next_retry_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	SentAt      pgtype.Timestamptz `json:"sent_at"`
+}
+
 type Period struct {
 	ID       int64       `json:"id"`
 	SchoolID int64       `json:"school_id"`
@@ -147,6 +173,21 @@ type Period struct {
 	StartsAt pgtype.Time `json:"starts_at"`
 	EndsAt   pgtype.Time `json:"ends_at"`
 	Label    pgtype.Text `json:"label"`
+}
+
+type PlatformConfig struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type PushSubscription struct {
+	ID        int64              `json:"id"`
+	SchoolID  int64              `json:"school_id"`
+	UserID    int64              `json:"user_id"`
+	Endpoint  string             `json:"endpoint"`
+	P256dh    string             `json:"p256dh"`
+	Auth      string             `json:"auth"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type Room struct {

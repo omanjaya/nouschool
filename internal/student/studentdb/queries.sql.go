@@ -715,6 +715,40 @@ func (q *Queries) ListClasses(ctx context.Context, arg ListClassesParams) ([]Lis
 	return items, nil
 }
 
+const listGuardianUserIDsForStudent = `-- name: ListGuardianUserIDsForStudent :many
+SELECT g.user_id
+FROM guardians g
+JOIN students s ON s.id = g.student_id
+WHERE g.student_id = $1::bigint AND s.school_id = $2::bigint
+`
+
+type ListGuardianUserIDsForStudentParams struct {
+	StudentID int64 `json:"student_id"`
+	SchoolID  int64 `json:"school_id"`
+}
+
+// Dipakai interface publik Service.GuardianUserIDs (konsumsi modul
+// notification/attendance fase 9 — resolve penerima notifikasi absensi).
+func (q *Queries) ListGuardianUserIDsForStudent(ctx context.Context, arg ListGuardianUserIDsForStudentParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listGuardianUserIDsForStudent, arg.StudentID, arg.SchoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStudents = `-- name: ListStudents :many
 
 SELECT s.id, s.nis, s.nisn, s.name, s.gender, s.birth_date, s.status,

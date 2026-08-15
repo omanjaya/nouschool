@@ -273,12 +273,95 @@ starts_at berikutnya, bukan seluruh sisa hari).
 - ✅ QR kartu siswa (backend): token per siswa (`student_qr_tokens`), generate/list/revoke, scan guru (`POST /api/attendance/sessions/{id}/scan`), PNG QR — generator kartu PDF grid utk dicetak (frontend/print) BELUM dikerjakan (di luar scope backend)
 - ✅ Self check-in GPS (backend): rule settings (sudah ada sejak fase sebelumnya), jendela waktu, validasi radius (haversine), status hadir/terlambat via `late_after_min`, deteksi anomali (`GET /api/attendance/anomalies`) untuk wali kelas
 
-## Fase 9 — Notification ⬜
-- ⬜ Outbox + worker + retry; in-app inbox (baseline)
-- ⬜ Web Push (VAPID + service worker)
-- ⬜ WhatsApp gateway (implementasi pertama: HTTP gateway sederhana)
-- ⬜ Email SMTP (+ reset password)
-- ⬜ Konfigurasi channel per sekolah di panel super admin; event awal terpasang (absent → ortu, leave → guru)
+## Fase 9 — Notification ✅ (backend)
+Backend terverifikasi end-to-end di Docker dev (`demo.localhost` + host
+platform): admin PUT record siswa (Budi Santoso, NIS 22103, XII RPL 1 —
+guardian ter-aktivasi ada di DB dari sesi sebelumnya, BUKAN NIS 22101/XI RPL
+2 seperti perkiraan awal tugas; password ortu di-reset via script sekali
+pakai karena tidak terdokumentasi) status `sakit` → login ortu → GET
+`/api/notifications` (item "sakit" muncul, `unread_count:1`) → POST read
+`{all:true}` (unread 0) → PUT record sama `sakit` lagi (TIDAK ada notif baru
+— dedup terverifikasi) → `alpa` (notif baru muncul) → guru submit izin →
+kepsek GET notifications (`leave.submitted` muncul) → kepsek approve → guru
+GET notifications (`leave.decided` muncul) → GET `/api/push/public-key` (200,
+key non-kosong, stabil antar-restart container — diverifikasi lewat
+`docker compose restart`) → POST subscribe endpoint dummy (200) → cek outbox
+DB: baris `web_push` utk tiap notifikasi ADA (`status=failed`, `attempts`
+naik, `next_retry_at` terjadwal — gateway dummy gagal itu WAJAR, backoff
+jalan; TIDAK ADA baris `whatsapp`/`email` karena `WA_GATEWAY_URL`/`SMTP_HOST`
+kosong di env dev) → super admin (host platform) PUT
+`/api/admin/schools/{id}/settings/notification` `{channels:["in_app"]}` →
+ulangi 1 notifikasi (`terlambat`) → outbox TIDAK bertambah baris `web_push`
+(in-app tetap tertulis) → admin sekolah PUT `/api/settings/notification`
+biasa → 403 (module superadmin-only) → restore channels
+`["in_app","web_push"]`. `go build/vet/test ./...` hijau; test: render
+template (substitusi data), resolusi channel (settings sekolah × config
+platform kosong), jadwal backoff (1m/5m/30m/2h lalu dead), worker menandai
+sent/failed/dead (fake provider, termasuk kasus `ErrNoContact` → dead
+langsung attempts=0), dedup notifikasi absensi (status sama tidak kirim
+ulang, status hadir tidak pernah kirim), subscription push 410 dihapus (fake
+pushSender), notify wiring leave (submit → approver step aktif, decide →
+pengaju + approver berikutnya bila ada).
+- ✅ Migrasi `00010_notification.sql`: `notification_outbox`, `notifications`
+  (inbox in-app), `push_subscriptions` (persis docs/08) + `platform_config`
+  (key/value kecil, tambahan scope tugas — dipakai simpan kunci VAPID supaya
+  stabil antar-restart)
+- ✅ `internal/notification/`: `Service.Send`/`Notify` (API internal —
+  Notify adalah wrapper primitif-friendly utk consumer-side interface
+  `Notifier` di modul pemakai) menulis inbox in-app SELALU + baris outbox per
+  (user × channel default event YANG aktif di settings sekolah DAN
+  dikonfigurasi platform); title/body dirender SEKALI saat Send lewat
+  `text/template`, disimpan di payload outbox (worker tidak pernah merender
+  ulang); registry event: `attendance.student_absent` (→ ortu, wa+push),
+  `leave.submitted` (→ approver, push), `leave.decided` (→ pengaju,
+  push+email) — `announcement.published` SENGAJA TIDAK didaftarkan (scope
+  tugas: SKIP, modul announcement belum diubah memanggil Notify)
+- ✅ Worker outbox (`notification.StartWorker`, goroutine di main.go): poll
+  tiap 10 detik batch 50, backoff 1m/5m/30m/2h lalu `dead`; graceful shutdown
+  lewat ctx (log "worker outbox berhenti" saat context dibatalkan)
+- ✅ Provider: `web_push` (lib `github.com/SherClockHolmes/webpush-go`, VAPID
+  dari env atau di-generate saat startup & disimpan `platform_config`, log
+  public key; subscription 404/410 dihapus dari `push_subscriptions`; SELALU
+  dianggap configured); `whatsapp` (HTTP gateway gaya Fonnte, env
+  `WA_GATEWAY_URL`/`WA_GATEWAY_TOKEN`, form POST target+message); `email`
+  (net/smtp plain text, env `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM`) —
+  keduanya `Configured()` mengecek env platform kosong (outbox row TIDAK
+  dibuat + log debug sekali per channel bila kosong)
+- ✅ **Keputusan desain (didokumentasikan di kode)**: whatsapp/email tanpa
+  kontak tersimpan (users.phone/email kosong) → `ErrNoContact` → worker
+  menandai outbox `dead` LANGSUNG dengan `attempts` TETAP 0 (bukan backoff —
+  data profil kosong bukan kegagalan sementara); web_push TANPA subscription
+  sama sekali → kegagalan biasa (backoff normal, BEDA dari wa/email —
+  subscription bisa muncul kapan saja lewat aksi user sendiri, install
+  PWA/izinkan notifikasi)
+- ✅ Settings module `notification` (`{channels:[...]}`, default
+  `[in_app, web_push]`) — **superadmin-only**: `tenant.IsSuperAdminOnlyModule`
+  (mekanisme flag baru di settings service tenant) menolak
+  `PUT /api/settings/notification` di endpoint tenant umum (403) apa pun
+  role-nya; mutasi HANYA lewat
+  `GET/PUT /api/admin/schools/{id}/settings/{module}` (baru, host platform,
+  `requireSuperAdmin` — generik utk module mana pun, bukan cuma
+  "notification")
+- ✅ Endpoint tenant (auth semua role, tanpa `requirePerm` — inbox & push
+  subscription selalu milik diri sendiri): `GET /api/notifications?page=`,
+  `POST /api/notifications/read` (`{ids:[]}` atau `{all:true}`),
+  `GET /api/push/public-key`, `POST /api/push/subscribe` (upsert by
+  endpoint), `POST /api/push/unsubscribe`
+- ✅ Wiring event: `attendance.Notifier`/`leave.Notifier` (consumer-side
+  interface, disuntik lewat `SetNotifier` SETELAH konstruksi — setter, bukan
+  parameter constructor, supaya call site test attendance/leave yang sudah
+  ada tidak berubah) — attendance notify ortu dari `UpdateRecords` (bulk PUT
+  manual)/`SelfCheckin`/`ScanQRCard` (ketiganya di-hook sesuai scope tugas;
+  scan QR & self-checkin `hadir`/pertama kali tidak pernah memicu notifikasi
+  karena statusnya, kecuali self-checkin `terlambat`) — SEKALI per siswa per
+  sesi per status (status baru ≠ status lama DAN bukan hadir); leave notify
+  approver step aktif saat submit, pengaju + approver berikutnya (bila ada)
+  saat decide
+- ✅ Interface publik baru: `student.Service.GuardianUserIDs` (dipakai
+  `attendance.StudentAccess`), `identity.Service.UsersWithRole` (dipakai
+  `leave.IdentityGateway`, resolusi step approval role-only)
+- ⬜ Service worker frontend utk registrasi Web Push (`web/` — di luar scope
+  backend sesi ini, sesuai batasan tugas)
 
 ## Fase 10 — Billing ⬜
 - ⬜ Plans + plan_prices + seeding Basic/Pro & bracket

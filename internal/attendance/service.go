@@ -47,7 +47,25 @@ type AcademicYearLookup interface {
 type StudentAccess interface {
 	CanViewStudent(ctx context.Context, userID int64, role string, schoolID, studentID int64) error
 	MyStudentID(ctx context.Context, schoolID, userID int64) (studentID, classID int64, ok bool, err error)
+	// GuardianUserIDs (fase 9, docs/08-notification.md) — resolve penerima
+	// notifikasi "attendance.student_absent". Dipenuhi *student.Service
+	// secara struktural (method GuardianUserIDs, lihat internal/student/service.go).
+	GuardianUserIDs(ctx context.Context, schoolID, studentID int64) ([]int64, error)
 }
+
+// Notifier adalah kebutuhan modul attendance dari modul notification (fase 9,
+// docs/08-notification.md) — consumer-side interface kecil dideklarasikan di
+// sisi PEMAKAI (lihat CLAUDE.md). Dipenuhi *notification.Service secara
+// struktural lewat method Notify (signature primitif, lihat
+// internal/notification/service.go).
+type Notifier interface {
+	Notify(ctx context.Context, schoolID int64, event string, userIDs []int64, data map[string]any) error
+}
+
+// EventStudentAbsent — nilai HARUS sama persis dengan
+// notification.EventAttendanceStudentAbsent (didefinisikan ulang di sini
+// karena attendance TIDAK boleh mengimpor notification, lihat CLAUDE.md).
+const EventStudentAbsent = "attendance.student_absent"
 
 // SlotToday adalah potongan data slot jadwal yang dibutuhkan attendance dari
 // modul schedule (fase 6, docs/06-teaching.md "Absensi per-mapel untuk guru")
@@ -109,7 +127,15 @@ type Service struct {
 	scheduleSlots ScheduleSlotLookup
 	teacherLookup TeacherLookup
 	clock         clock.Clock
+	notifier      Notifier // opsional — nil = notifikasi dilewati (lihat SetNotifier)
 }
+
+// SetNotifier menyuntikkan Notifier SETELAH konstruksi (opsional, disuntik
+// main.go — lihat cmd/server/main.go). Dipakai setter, bukan parameter
+// constructor, supaya call site test yang sudah ada (fake repo/students
+// tanpa notifikasi) tidak perlu diubah — nil aman (notifyAbsentIfNeeded
+// no-op bila notifier belum diset).
+func (s *Service) SetNotifier(n Notifier) { s.notifier = n }
 
 func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup, students StudentAccess, scheduleSlots ScheduleSlotLookup, teacherLookup TeacherLookup, clk clock.Clock) *Service {
 	if clk == nil {
@@ -449,6 +475,31 @@ func (s *Service) GetSession(ctx context.Context, schoolID, sessionID int64) (Se
 	return s.buildSessionDetail(ctx, schoolID, sessionID)
 }
 
+// notifyAbsentIfNeeded mengirim notifikasi "attendance.student_absent" ke
+// wali siswa (fase 9, docs/08-notification.md) — dipanggil dari UpdateRecords
+// (bulk manual), SelfCheckin, dan ScanQRCard (docs tugas fase 9: "setelah
+// bulk PUT records / scan / self-checkin"). Aturan dedup (docs tugas):
+// kirim HANYA bila status baru != status lama (record baru dihitung sebagai
+// "status lama" kosong) DAN status baru BUKAN hadir — supaya guru yang
+// mengoreksi bolak-balik tidak memicu notifikasi berulang, dan status hadir
+// (termasuk downgrade balik ke hadir) tidak pernah memicu notifikasi sama
+// sekali.
+func (s *Service) notifyAbsentIfNeeded(ctx context.Context, schoolID, studentID int64, studentName string, date time.Time, oldStatus string, oldExisted bool, newStatus string) {
+	if s.notifier == nil || newStatus == StatusHadir {
+		return
+	}
+	if oldExisted && oldStatus == newStatus {
+		return
+	}
+	guardianIDs, err := s.students.GuardianUserIDs(ctx, schoolID, studentID)
+	if err != nil || len(guardianIDs) == 0 {
+		return
+	}
+	_ = s.notifier.Notify(ctx, schoolID, EventStudentAbsent, guardianIDs, map[string]any{
+		"student": studentName, "date": date.Format("2006-01-02"), "status": newStatus,
+	})
+}
+
 // -- PUT /api/attendance/sessions/{id}/records --
 
 // RecordInputRequest adalah satu baris body PUT .../records.
@@ -499,8 +550,10 @@ func (s *Service) UpdateRecords(ctx context.Context, actorUserID, schoolID, sess
 		return SessionDetail{}, err
 	}
 	rosterSet := make(map[int64]bool, len(roster))
+	rosterName := make(map[int64]string, len(roster))
 	for _, st := range roster {
 		rosterSet[st.ID] = true
+		rosterName[st.ID] = st.Name
 	}
 
 	seen := make(map[int64]bool, len(records))
@@ -539,6 +592,7 @@ func (s *Service) UpdateRecords(ctx context.Context, actorUserID, schoolID, sess
 			changedOld = append(changedOld, map[string]any{"student_id": item.StudentID, "status": old.Status, "note": old.Note})
 			changedNew = append(changedNew, map[string]any{"student_id": item.StudentID, "status": item.Status, "note": item.Note})
 		}
+		s.notifyAbsentIfNeeded(ctx, schoolID, item.StudentID, rosterName[item.StudentID], sess.Date, old.Status, existed, item.Status)
 	}
 	if len(changedOld) > 0 {
 		s.audit(ctx, schoolID, actorUserID, "attendance.update", "attendance_session", sessionID, changedOld, changedNew)
@@ -896,6 +950,13 @@ func (s *Service) ScanQRCard(ctx context.Context, actorUserID, schoolID, session
 		return ScanResult{}, err
 	}
 
+	// Scan QR selalu menghasilkan status hadir (baik baris baru maupun yang
+	// sudah ada) -> notifyAbsentIfNeeded TIDAK PERNAH mengirim dari jalur ini
+	// (status hadir dikecualikan) — dipanggil di sini untuk konsistensi
+	// dengan UpdateRecords/SelfCheckin (docs tugas fase 9 menyebut ketiganya
+	// sebagai titik hook), bukan karena efeknya berbeda.
+	s.notifyAbsentIfNeeded(ctx, schoolID, studentID, st.Name, sess.Date, rec.Status, alreadyMarked, rec.Status)
+
 	return ScanResult{StudentID: studentID, Name: st.Name, NIS: st.NIS, Status: rec.Status, AlreadyMarked: alreadyMarked}, nil
 }
 
@@ -1106,6 +1167,16 @@ func (s *Service) SelfCheckin(ctx context.Context, schoolID int64, in SelfChecki
 		}
 		return SelfCheckinResult{}, err
 	}
+
+	// Record baru (sudah dipastikan belum ada sebelumnya, lihat GetRecordForStudent
+	// di atas) -> oldExisted=false. Status hanya hadir/terlambat (lihat
+	// perhitungan status di atas) — notifyAbsentIfNeeded hanya mengirim bila
+	// terlambat.
+	studentName := ""
+	if basic, errBasic := s.repo.GetStudentBasic(ctx, schoolID, studentID); errBasic == nil {
+		studentName = basic.Name
+	}
+	s.notifyAbsentIfNeeded(ctx, schoolID, studentID, studentName, sess.Date, "", false, rec.Status)
 
 	return SelfCheckinResult{Status: rec.Status, CheckedAt: rec.MarkedAt}, nil
 }

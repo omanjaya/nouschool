@@ -73,6 +73,15 @@ func (s *Service) UserIDByUsername(ctx context.Context, username string) (int64,
 	return u.ID, true, nil
 }
 
+// UsersWithRole mengembalikan user_id seluruh user dengan membership AKTIF
+// role tsb di sekolah ini — dipakai modul leave (fase 9,
+// docs/08-notification.md) lewat consumer-side interface untuk resolve
+// penerima notifikasi step approval role-only (approver_user_id NULL:
+// "siapa pun yang sedang memegang role ini").
+func (s *Service) UsersWithRole(ctx context.Context, schoolID int64, role string) ([]int64, error) {
+	return s.repo.UserIDsByRole(ctx, schoolID, role)
+}
+
 // CreateMembership membuat/mengaktifkan membership (upsert, idempoten).
 func (s *Service) CreateMembership(ctx context.Context, userID, schoolID int64, role string) error {
 	_, err := s.repo.CreateMembership(ctx, userID, schoolID, role)

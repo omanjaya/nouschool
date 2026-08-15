@@ -206,9 +206,17 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // PutSettings — PUT /api/settings/{module}. Butuh role admin_sekolah
-// (dijaga middleware requirePerm("settings:manage") di routes.go).
+// (dijaga middleware requirePerm("settings:manage") di routes.go). Module
+// yang ditandai IsSuperAdminOnlyModule (mis. "notification") DITOLAK di sini
+// apa pun rolenya — mutasi module itu HANYA lewat
+// GET/PUT /api/admin/schools/{id}/settings/{module} (lihat AdminPutSettings
+// di bawah), sesuai docs/08-notification.md.
 func (h *Handler) PutSettings(w http.ResponseWriter, r *http.Request) {
 	module := r.PathValue("module")
+	if IsSuperAdminOnlyModule(module) {
+		httpx.WriteError(w, httpx.ErrForbidden)
+		return
+	}
 	dst, ok := NewModuleSettings(module)
 	if !ok {
 		httpx.WriteError(w, httpx.Validation("Module settings tidak dikenal: "+module))
@@ -220,6 +228,55 @@ func (h *Handler) PutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if err := h.settings.Put(ctx, reqctx.SchoolID(ctx), reqctx.UserID(ctx), module, dst); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, dst)
+}
+
+// AdminGetSettings — GET /api/admin/schools/{id}/settings/{module}. Host
+// PLATFORM, super admin saja (dijaga middleware requireSuperAdmin di
+// routes.go) — dipakai super admin mengelola settings sekolah MANAPUN, mis.
+// module "notification" yang tidak bisa diubah admin sekolah sendiri
+// (docs/08-notification.md).
+func (h *Handler) AdminGetSettings(w http.ResponseWriter, r *http.Request) {
+	schoolID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sekolah tidak valid."))
+		return
+	}
+	module := r.PathValue("module")
+	dst, ok := NewModuleSettings(module)
+	if !ok {
+		httpx.WriteError(w, httpx.Validation("Module settings tidak dikenal: "+module))
+		return
+	}
+	if err := h.settings.Get(r.Context(), schoolID, module, dst); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, dst)
+}
+
+// AdminPutSettings — PUT /api/admin/schools/{id}/settings/{module}. Lihat AdminGetSettings.
+func (h *Handler) AdminPutSettings(w http.ResponseWriter, r *http.Request) {
+	schoolID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sekolah tidak valid."))
+		return
+	}
+	module := r.PathValue("module")
+	dst, ok := NewModuleSettings(module)
+	if !ok {
+		httpx.WriteError(w, httpx.Validation("Module settings tidak dikenal: "+module))
+		return
+	}
+	if err := httpx.Decode(r, dst); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	if err := h.settings.Put(ctx, schoolID, reqctx.UserID(ctx), module, dst); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}

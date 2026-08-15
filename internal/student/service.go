@@ -755,6 +755,15 @@ func (s *Service) ListMyChildren(ctx context.Context, schoolID, userID int64) ([
 	return s.repo.ListChildrenForGuardian(ctx, schoolID, userID, yearID)
 }
 
+// GuardianUserIDs mengembalikan user_id seluruh wali terdaftar siswa
+// (studentID) di sekolah ini — dipakai modul attendance (fase 9,
+// docs/08-notification.md) lewat consumer-side interface untuk resolve
+// penerima notifikasi "attendance.student_absent". Signature primitif
+// (slice int64) supaya modul pemakai TIDAK perlu mengimpor package ini.
+func (s *Service) GuardianUserIDs(ctx context.Context, schoolID, studentID int64) ([]int64, error) {
+	return s.repo.ListGuardianUserIDsForStudent(ctx, schoolID, studentID)
+}
+
 // -- undangan --
 
 // GenerateInvitations membuat kode undangan untuk tiap siswa di suatu rombel

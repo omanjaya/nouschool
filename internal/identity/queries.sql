@@ -32,6 +32,13 @@ VALUES ($1, $2, $3, 'active')
 ON CONFLICT (user_id, school_id, role) DO UPDATE SET status = 'active'
 RETURNING *;
 
+-- name: ListUserIDsByRole :many
+-- Dipakai interface publik Service.UsersWithRole (fase 9, docs/08-notification.md)
+-- — resolusi penerima notifikasi utk step approval leave dengan role-only
+-- (approver_user_id NULL: "siapa pun yang sedang memegang role ini").
+SELECT DISTINCT user_id FROM memberships
+WHERE school_id = sqlc.arg(school_id)::bigint AND role = sqlc.arg(role)::text AND status = 'active';
+
 -- name: CreateSession :one
 INSERT INTO sessions (user_id, school_id, token_hash, role, expires_at, ip, user_agent)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

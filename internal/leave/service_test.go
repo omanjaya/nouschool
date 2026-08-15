@@ -256,8 +256,9 @@ type auditEntry struct {
 }
 
 type fakeIdentity struct {
-	perms map[string]map[string]bool
-	logs  []auditEntry
+	perms       map[string]map[string]bool
+	logs        []auditEntry
+	usersByRole map[string][]int64 // role -> user_id (fase 9, UsersWithRole)
 }
 
 func newFakeIdentity() *fakeIdentity {
@@ -272,6 +273,12 @@ func (f *fakeIdentity) HasPermission(role, perm string) bool { return f.perms[ro
 func (f *fakeIdentity) Log(ctx context.Context, schoolID, userID *int64, action, entity string, entityID *int64, oldValue, newValue any) error {
 	f.logs = append(f.logs, auditEntry{action: action, oldValue: oldValue, newValue: newValue})
 	return nil
+}
+
+// UsersWithRole (fase 9) — fakeIdentity mengembalikan daftar kosong secara
+// default (test yang butuh resolusi role-only mengisi f.usersByRole).
+func (f *fakeIdentity) UsersWithRole(ctx context.Context, schoolID int64, role string) ([]int64, error) {
+	return f.usersByRole[role], nil
 }
 
 func ctxAs(role string, userID int64) context.Context {
@@ -473,6 +480,74 @@ func TestDecideStep_Sequential(t *testing.T) {
 	}
 	if result.Status != StatusApproved {
 		t.Fatalf("semua step approved -> request approved, got %s", result.Status)
+	}
+}
+
+// -- Notify wiring (fase 9, docs/08-notification.md) --
+
+// fakeLeaveNotifier mencatat setiap panggilan Notify.
+type fakeLeaveNotifier struct {
+	calls []leaveNotifyCall
+}
+
+type leaveNotifyCall struct {
+	schoolID int64
+	event    string
+	userIDs  []int64
+}
+
+func (f *fakeLeaveNotifier) Notify(ctx context.Context, schoolID int64, event string, userIDs []int64, data map[string]any) error {
+	f.calls = append(f.calls, leaveNotifyCall{schoolID: schoolID, event: event, userIDs: userIDs})
+	return nil
+}
+
+// TestSubmitAndDecideNotify — submit menotifikasi approver step aktif
+// (role-only, resolusi via IdentityGateway.UsersWithRole); decide step 1
+// (approved, chain belum selesai) menotifikasi pengaju (leave.decided) DAN
+// approver step berikutnya (leave.submitted); decide step terakhir
+// (approved) menotifikasi pengaju SAJA (tidak ada step berikutnya).
+func TestSubmitAndDecideNotify(t *testing.T) {
+	repo := newFakeRepo()
+	repo.users[200] = "Guru Pengaju"
+	repo.settings.Chain = []ChainStep{{Role: RoleKepalaSekolah}, {Role: RoleAdminSekolah}}
+	identity := newFakeIdentity()
+	identity.usersByRole = map[string][]int64{RoleKepalaSekolah: {5}, RoleAdminSekolah: {6}}
+	svc := newTestService(t, repo, identity)
+	notifier := &fakeLeaveNotifier{}
+	svc.SetNotifier(notifier)
+
+	req := mustSubmit(t, svc, ctxAs(RoleGuru, 200), 200, SubmitInput{Type: "izin", DateStart: "2026-08-17", DateEnd: "2026-08-17", Reason: "x"})
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected 1 notifikasi setelah submit, got %d", len(notifier.calls))
+	}
+	if notifier.calls[0].event != EventLeaveSubmitted || len(notifier.calls[0].userIDs) != 1 || notifier.calls[0].userIDs[0] != 5 {
+		t.Fatalf("expected leave.submitted ke kepala_sekolah (user 5), got: %+v", notifier.calls[0])
+	}
+	step1ID, step2ID := req.Steps[0].ID, req.Steps[1].ID
+
+	// Step 1 approved -> chain belum selesai -> notify pengaju (decided) + approver berikutnya (submitted).
+	if _, err := svc.DecideStep(ctxAs(RoleKepalaSekolah, 5), 5, 1, step1ID, DecisionApproved, ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.calls) != 3 {
+		t.Fatalf("expected 3 notifikasi setelah step 1 approved (1 submit + 2 decide), got %d: %+v", len(notifier.calls), notifier.calls)
+	}
+	if notifier.calls[1].event != EventLeaveDecided || notifier.calls[1].userIDs[0] != 200 {
+		t.Fatalf("expected leave.decided ke pengaju (user 200), got: %+v", notifier.calls[1])
+	}
+	if notifier.calls[2].event != EventLeaveSubmitted || notifier.calls[2].userIDs[0] != 6 {
+		t.Fatalf("expected leave.submitted ke admin_sekolah (user 6), got: %+v", notifier.calls[2])
+	}
+
+	// Step 2 approved -> chain SELESAI -> hanya notify pengaju (decided), TIDAK ada approver berikutnya.
+	if _, err := svc.DecideStep(ctxAs(RoleAdminSekolah, 6), 6, 1, step2ID, DecisionApproved, ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.calls) != 4 {
+		t.Fatalf("expected 4 notifikasi setelah step 2 approved (tidak ada approver berikutnya), got %d: %+v", len(notifier.calls), notifier.calls)
+	}
+	if notifier.calls[3].event != EventLeaveDecided || notifier.calls[3].userIDs[0] != 200 {
+		t.Fatalf("expected leave.decided ke pengaju (user 200), got: %+v", notifier.calls[3])
 	}
 }
 

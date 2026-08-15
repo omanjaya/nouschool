@@ -41,6 +41,7 @@ type studentRepository interface {
 	IsGuardianOf(ctx context.Context, userID, studentID int64) (bool, error)
 	HasGuardian(ctx context.Context, studentID int64) (bool, error)
 	ListChildrenForGuardian(ctx context.Context, schoolID, userID, academicYearID int64) ([]ChildRef, error)
+	ListGuardianUserIDsForStudent(ctx context.Context, schoolID, studentID int64) ([]int64, error)
 
 	CreateTeacher(ctx context.Context, schoolID, userID int64, nip string) (Teacher, error)
 	UpdateTeacher(ctx context.Context, schoolID, id int64, nip string) (Teacher, error)
@@ -444,6 +445,14 @@ func (r *Repository) HasGuardian(ctx context.Context, studentID int64) (bool, er
 		return false, err
 	}
 	return n > 0, nil
+}
+
+// ListGuardianUserIDsForStudent — dipakai interface publik
+// Service.GuardianUserIDs (fase 9, resolusi penerima notifikasi absensi).
+func (r *Repository) ListGuardianUserIDsForStudent(ctx context.Context, schoolID, studentID int64) ([]int64, error) {
+	return r.q.ListGuardianUserIDsForStudent(ctx, studentdb.ListGuardianUserIDsForStudentParams{
+		StudentID: studentID, SchoolID: schoolID,
+	})
 }
 
 // ListChildrenForGuardian — dipakai GET /api/me/children (role orang_tua).

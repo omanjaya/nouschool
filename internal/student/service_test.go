@@ -103,6 +103,14 @@ func (f *fakeRepo) ListChildrenForGuardian(ctx context.Context, schoolID, userID
 	return nil, nil
 }
 
+func (f *fakeRepo) ListGuardianUserIDsForStudent(ctx context.Context, schoolID, studentID int64) ([]int64, error) {
+	out := make([]int64, 0, len(f.guardians[studentID]))
+	for userID := range f.guardians[studentID] {
+		out = append(out, userID)
+	}
+	return out, nil
+}
+
 func (f *fakeRepo) CreateTeacher(ctx context.Context, schoolID, userID int64, nip string) (Teacher, error) {
 	return Teacher{}, nil
 }

@@ -419,6 +419,39 @@ func (q *Queries) ListActiveMembershipsByUserSchool(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listUserIDsByRole = `-- name: ListUserIDsByRole :many
+SELECT DISTINCT user_id FROM memberships
+WHERE school_id = $1::bigint AND role = $2::text AND status = 'active'
+`
+
+type ListUserIDsByRoleParams struct {
+	SchoolID int64  `json:"school_id"`
+	Role     string `json:"role"`
+}
+
+// Dipakai interface publik Service.UsersWithRole (fase 9, docs/08-notification.md)
+// — resolusi penerima notifikasi utk step approval leave dengan role-only
+// (approver_user_id NULL: "siapa pun yang sedang memegang role ini").
+func (q *Queries) ListUserIDsByRole(ctx context.Context, arg ListUserIDsByRoleParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listUserIDsByRole, arg.SchoolID, arg.Role)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markInvitationUsed = `-- name: MarkInvitationUsed :exec
 UPDATE invitations SET used_at = $2 WHERE code = $1
 `

@@ -15,6 +15,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/dashboard"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/leave"
+	"github.com/omanjaya/nouschool/internal/notification"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
 	"github.com/omanjaya/nouschool/internal/platform/database"
@@ -152,6 +153,40 @@ func main() {
 		)
 		dashboardHandler := dashboard.NewHandler(dashboardSvc)
 
+		// --- modul notification (notifikasi pluggable: in-app, web push,
+		// whatsapp, email — outbox + channel provider, fase 9,
+		// docs/08-notification.md) ---
+		// notification TIDAK mengimpor modul lain (bahkan identity): kontak
+		// (phone/email) diresolusi lewat join read-only ke `users` di
+		// queries.sql SENDIRI (pola yang sama dengan leave/attendance
+		// menjoin `users` utk nama) — TIDAK butuh consumer-side interface ke
+		// identity. attendanceSvc & leaveSvc memenuhi notification-side
+		// (mereka mendeklarasikan Notifier sendiri) — *notification.Service
+		// memenuhi attendance.Notifier / leave.Notifier secara STRUKTURAL
+		// lewat method Notify, disuntik lewat SetNotifier di bawah (setter,
+		// BUKAN parameter constructor, supaya call site test attendance/leave
+		// yang sudah ada tidak berubah — lihat catatan di
+		// internal/attendance/service.go SetNotifier).
+		notificationRepo := notification.NewRepository(pool)
+		notificationSvc := notification.NewService(notificationRepo, clock.System{})
+
+		vapidPublic, vapidPrivate, err := notification.LoadOrGenerateVAPIDKeys(ctx, notificationRepo, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey)
+		if err != nil {
+			slog.Error("gagal memuat/generate kunci VAPID", "err", err)
+			os.Exit(1)
+		}
+		notificationSvc.SetVAPIDPublicKey(vapidPublic)
+		notificationSvc.RegisterProvider(notification.ChannelWebPush, notification.NewWebPushProvider(notificationRepo, vapidPublic, vapidPrivate, cfg.VAPIDSubscriber))
+		notificationSvc.RegisterProvider(notification.ChannelWhatsApp, notification.NewWhatsAppProvider(notificationRepo, cfg.WAGatewayURL, cfg.WAGatewayToken))
+		notificationSvc.RegisterProvider(notification.ChannelEmail, notification.NewEmailProvider(notificationRepo, cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom))
+		notificationHandler := notification.NewHandler(notificationSvc)
+
+		// attendanceSvc & leaveSvc memenuhi consumer-side interface Notifier
+		// masing-masing (attendance.Notifier / leave.Notifier) secara
+		// struktural lewat *notification.Service.Notify.
+		attendanceSvc.SetNotifier(notificationSvc)
+		leaveSvc.SetNotifier(notificationSvc)
+
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
@@ -162,6 +197,12 @@ func main() {
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		dashboard.RegisterRoutes(mux, dashboardHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		notification.RegisterRoutes(mux, notificationHandler, identitySvc.RequireAuth)
+
+		// Worker outbox — poll tiap 10 detik, batch 50 (docs/08-notification.md).
+		// Berhenti dengan rapi saat ctx dibatalkan (graceful shutdown, sama
+		// seperti http.Server di bawah).
+		go notification.StartWorker(ctx, notificationSvc, 10*time.Second, 50)
 
 		tenantResolverMW = hostResolver.Middleware
 	} else {

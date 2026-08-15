@@ -27,7 +27,28 @@ import (
 type IdentityGateway interface {
 	HasPermission(role, perm string) bool
 	Log(ctx context.Context, schoolID, userID *int64, action, entity string, entityID *int64, oldValue, newValue any) error
+	// UsersWithRole (fase 9, docs/08-notification.md) — resolve penerima
+	// notifikasi step approval role-only (approver_user_id NULL: "siapa pun
+	// yang sedang memegang role ini"). Dipenuhi *identity.Service secara
+	// struktural.
+	UsersWithRole(ctx context.Context, schoolID int64, role string) ([]int64, error)
 }
+
+// Notifier adalah kebutuhan modul leave dari modul notification (fase 9,
+// docs/08-notification.md) — consumer-side interface kecil dideklarasikan di
+// sisi PEMAKAI (lihat CLAUDE.md). Dipenuhi *notification.Service secara
+// struktural lewat method Notify (signature primitif).
+type Notifier interface {
+	Notify(ctx context.Context, schoolID int64, event string, userIDs []int64, data map[string]any) error
+}
+
+// Event kanonik — nilai HARUS sama persis dengan notification.EventLeaveSubmitted
+// / notification.EventLeaveDecided (didefinisikan ulang di sini karena leave
+// TIDAK boleh mengimpor notification, lihat CLAUDE.md).
+const (
+	EventLeaveSubmitted = "leave.submitted"
+	EventLeaveDecided   = "leave.decided"
+)
 
 // maxAttachmentSize — batas ukuran lampiran (docs/07-leave.md scope Fase 4: pdf/jpg/png max 5MB).
 const maxAttachmentSize = 5 << 20
@@ -56,6 +77,7 @@ type Service struct {
 	identity IdentityGateway
 	files    *storage.Store
 	clock    clock.Clock
+	notifier Notifier // opsional — nil = notifikasi dilewati (lihat SetNotifier)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, files *storage.Store, clk clock.Clock) *Service {
@@ -66,6 +88,41 @@ func NewService(repo *Repository, identity IdentityGateway, files *storage.Store
 		files = storage.FromEnv()
 	}
 	return &Service{repo: repo, identity: identity, files: files, clock: clk}
+}
+
+// SetNotifier menyuntikkan Notifier SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan internal/attendance.SetNotifier, supaya
+// call site test yang sudah ada tidak perlu diubah; nil aman/no-op).
+func (s *Service) SetNotifier(n Notifier) { s.notifier = n }
+
+// notifyStep mengirim notifikasi ke approver satu step: user spesifik
+// (ApproverUserID != 0) atau SEMUA user yang sedang memegang ApproverRole di
+// sekolah ini (role-only step, lihat docs/07-leave.md). Fire-and-forget
+// (error diabaikan) — pola yang sama dengan s.audit.
+func (s *Service) notifyStep(ctx context.Context, schoolID int64, approverRole string, approverUserID int64, event string, data map[string]any) {
+	if s.notifier == nil {
+		return
+	}
+	var recipients []int64
+	if approverUserID != 0 {
+		recipients = []int64{approverUserID}
+	} else {
+		ids, err := s.identity.UsersWithRole(ctx, schoolID, approverRole)
+		if err != nil || len(ids) == 0 {
+			return
+		}
+		recipients = ids
+	}
+	_ = s.notifier.Notify(ctx, schoolID, event, recipients, data)
+}
+
+// notifyUser mengirim notifikasi ke SATU user (dipakai leave.decided ke
+// pengaju). Fire-and-forget.
+func (s *Service) notifyUser(ctx context.Context, schoolID, userID int64, event string, data map[string]any) {
+	if s.notifier == nil || userID == 0 {
+		return
+	}
+	_ = s.notifier.Notify(ctx, schoolID, event, []int64{userID}, data)
 }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
@@ -252,7 +309,23 @@ func (s *Service) SubmitRequest(ctx context.Context, actorUserID, schoolID int64
 
 	// rec.TeacherName kosong (tidak di-join saat insert) — buildRequestView
 	// memuat ulang lewat GetRequestByID untuk melengkapi nama pengaju.
-	return s.buildRequestView(ctx, schoolID, rec, stepRecs, settings)
+	view, err := s.buildRequestView(ctx, schoolID, rec, stepRecs, settings)
+	if err != nil {
+		return Request{}, err
+	}
+
+	// Notify approver step AKTIF (step_order 1 di antara step yang tersisa
+	// setelah filter self-approval) — fase 9, docs/08-notification.md
+	// "leave.submitted -> approver step aktif". Request auto-approved (steps
+	// kosong) TIDAK punya approver aktif -> tidak ada yang dinotifikasi.
+	if len(steps) > 0 {
+		s.notifyStep(ctx, schoolID, steps[0].ApproverRole, steps[0].ApproverUserID, EventLeaveSubmitted, map[string]any{
+			"teacher": view.Teacher.Name, "type": view.TypeLabel,
+			"date_start": view.DateStart.Format("2006-01-02"), "date_end": view.DateEnd.Format("2006-01-02"),
+		})
+	}
+
+	return view, nil
 }
 
 // -- shape building --
@@ -529,7 +602,37 @@ func (s *Service) DecideStep(ctx context.Context, actorUserID, schoolID, stepID 
 	if err != nil {
 		return Request{}, err
 	}
-	return s.buildRequestView(ctx, schoolID, updatedReq, steps, settings)
+	view, err := s.buildRequestView(ctx, schoolID, updatedReq, steps, settings)
+	if err != nil {
+		return Request{}, err
+	}
+
+	// Notify pengaju SELALU (fase 9, docs/08-notification.md "leave.decided
+	// -> pengaju"), lalu approver step berikutnya BILA masih ada (chain
+	// belum selesai — updatedReq masih pending berarti step approved TAPI
+	// bukan step_order terakhir).
+	decisionLabel := "disetujui"
+	if decision == DecisionRejected {
+		decisionLabel = "ditolak"
+	}
+	notifyData := map[string]any{
+		"type": view.TypeLabel, "date_start": view.DateStart.Format("2006-01-02"), "date_end": view.DateEnd.Format("2006-01-02"),
+	}
+	s.notifyUser(ctx, schoolID, req.TeacherID, EventLeaveDecided, map[string]any{
+		"type": notifyData["type"], "date_start": notifyData["date_start"], "date_end": notifyData["date_end"], "decision": decisionLabel,
+	})
+	if updatedReq.Status == StatusPending {
+		for _, st := range steps {
+			if st.Decision == "" {
+				s.notifyStep(ctx, schoolID, st.ApproverRole, st.ApproverUserID, EventLeaveSubmitted, map[string]any{
+					"teacher": view.Teacher.Name, "type": notifyData["type"], "date_start": notifyData["date_start"], "date_end": notifyData["date_end"],
+				})
+				break
+			}
+		}
+	}
+
+	return view, nil
 }
 
 // -- GET /api/leave/summary --

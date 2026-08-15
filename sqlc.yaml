@@ -72,3 +72,12 @@ sql:
         out: "internal/announcement/announcementdb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/notification/queries.sql"
+    gen:
+      go:
+        package: "notificationdb"
+        out: "internal/notification/notificationdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

@@ -6,6 +6,7 @@ import (
 
 	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/leave"
+	"github.com/omanjaya/nouschool/internal/notification"
 	"github.com/omanjaya/nouschool/internal/teaching"
 )
 
@@ -76,7 +77,26 @@ func NewModuleSettings(module string) (Settings, bool) {
 	case "teaching":
 		t := teaching.DefaultSettings()
 		return &t, true
+	case "notification":
+		n := notification.DefaultSettings()
+		return &n, true
 	default:
 		return nil, false
 	}
+}
+
+// superAdminOnlyModules — module school_settings yang HANYA boleh diubah
+// super admin (host platform), BUKAN admin sekolah lewat endpoint tenant
+// umum PUT /api/settings/{module} (docs/08-notification.md "notification:
+// DIKELOLA SUPER ADMIN" — WhatsApp/email memakai kredensial & biaya
+// platform). Mutasi module ini HANYA lewat
+// GET/PUT /api/admin/schools/{id}/settings/{module} (lihat handler.go/routes.go).
+var superAdminOnlyModules = map[string]bool{
+	"notification": true,
+}
+
+// IsSuperAdminOnlyModule melaporkan apakah module settings tsb hanya boleh
+// diubah super admin.
+func IsSuperAdminOnlyModule(module string) bool {
+	return superAdminOnlyModules[module]
 }

@@ -29,6 +29,12 @@ func RegisterRoutes(
 	mux.Handle("GET /api/admin/schools/{id}/academic-years", adminOnly(h.ListAcademicYears))
 	mux.Handle("POST /api/admin/schools/{id}/academic-years", adminOnly(h.CreateAcademicYear))
 	mux.Handle("POST /api/admin/schools/{id}/academic-years/{ayID}/activate", adminOnly(h.ActivateAcademicYear))
+	// Settings sekolah lintas-tenant, super admin saja — dipakai module
+	// "superadmin-only" (mis. "notification", lihat IsSuperAdminOnlyModule di
+	// settings.go) yang TIDAK bisa diubah admin sekolah lewat
+	// PUT /api/settings/{module} biasa (docs/08-notification.md).
+	mux.Handle("GET /api/admin/schools/{id}/settings/{module}", adminOnly(h.AdminGetSettings))
+	mux.Handle("PUT /api/admin/schools/{id}/settings/{module}", adminOnly(h.AdminPutSettings))
 
 	// Daftar tahun ajaran sekolah sendiri (host tenant, siapa saja yang login) — untuk filter UI.
 	mux.Handle("GET /api/academic-years", requireAuth(http.HandlerFunc(h.ListAcademicYearsForSchool)))

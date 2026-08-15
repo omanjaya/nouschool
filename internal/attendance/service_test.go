@@ -314,6 +314,8 @@ type fakeStudents struct {
 	// self: userID -> [studentID, classID] (profil siswa milik user login,
 	// dipakai self check-in — fase 8).
 	self map[int64][2]int64
+	// guardians: studentID -> user_id wali (fase 9, notifikasi absensi).
+	guardians map[int64][]int64
 }
 
 func (f fakeStudents) CanViewStudent(ctx context.Context, userID int64, role string, schoolID, studentID int64) error {
@@ -329,6 +331,29 @@ func (f fakeStudents) MyStudentID(ctx context.Context, schoolID, userID int64) (
 		return 0, 0, false, nil
 	}
 	return v[0], v[1], true, nil
+}
+
+func (f fakeStudents) GuardianUserIDs(ctx context.Context, schoolID, studentID int64) ([]int64, error) {
+	return f.guardians[studentID], nil
+}
+
+// fakeNotifier implementasi Notifier untuk test (fase 9) — mencatat setiap
+// panggilan Notify supaya test bisa memverifikasi dedup (tidak terkirim
+// ulang utk status yang sama).
+type fakeNotifier struct {
+	calls []notifyCall
+}
+
+type notifyCall struct {
+	schoolID int64
+	event    string
+	userIDs  []int64
+	data     map[string]any
+}
+
+func (f *fakeNotifier) Notify(ctx context.Context, schoolID int64, event string, userIDs []int64, data map[string]any) error {
+	f.calls = append(f.calls, notifyCall{schoolID: schoolID, event: event, userIDs: userIDs, data: data})
+	return nil
 }
 
 // fakeSchedule implementasi ScheduleSlotLookup untuk test (fase 6).
@@ -569,6 +594,72 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 			t.Fatal("expected audit_log attendance.update pada perubahan record")
 		}
 	})
+}
+
+// -- notifyAbsentIfNeeded: dedup notifikasi "attendance.student_absent" (fase 9) --
+
+func TestUpdateRecordsNotifiesGuardianOnce(t *testing.T) {
+	created := time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)
+	repo := newFakeRepo()
+	sessionID := setupSessionWithOneStudent(repo, created, SessionOpen)
+	fixed := clock.Fixed{T: created.Add(time.Hour)}
+	students := fakeStudents{guardians: map[int64][]int64{10: {77}}}
+	notifier := &fakeNotifier{}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, students, fakeSchedule{}, fakeTeachers{}, fixed)
+	svc.SetNotifier(notifier)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	// Isian pertama: sakit (record baru, status != hadir) -> HARUS notify sekali.
+	if _, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusSakit}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected 1 notifikasi setelah isian pertama (sakit), got %d", len(notifier.calls))
+	}
+	if notifier.calls[0].event != EventStudentAbsent || notifier.calls[0].userIDs[0] != 77 {
+		t.Fatalf("unexpected notify call: %+v", notifier.calls[0])
+	}
+	if notifier.calls[0].data["status"] != StatusSakit {
+		t.Fatalf("expected status sakit di data notifikasi, got %v", notifier.calls[0].data["status"])
+	}
+
+	// Simpan ulang status YANG SAMA (sakit lagi) -> guru koreksi bolak-balik,
+	// TIDAK boleh mengirim notifikasi baru (dedup).
+	if _, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusSakit}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected TETAP 1 notifikasi setelah status sama (dedup), got %d", len(notifier.calls))
+	}
+
+	// Ubah ke status non-hadir LAIN (alpa) -> status baru != status lama -> notify lagi.
+	if _, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusAlpa}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.calls) != 2 {
+		t.Fatalf("expected 2 notifikasi setelah status berubah ke alpa, got %d", len(notifier.calls))
+	}
+
+	// Ubah ke hadir -> TIDAK PERNAH notify (status hadir dikecualikan).
+	if _, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusHadir}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.calls) != 2 {
+		t.Fatalf("expected TETAP 2 notifikasi setelah berubah ke hadir, got %d", len(notifier.calls))
+	}
+}
+
+func TestUpdateRecordsNoNotifierIsNoop(t *testing.T) {
+	created := time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)
+	repo := newFakeRepo()
+	sessionID := setupSessionWithOneStudent(repo, created, SessionOpen)
+	fixed := clock.Fixed{T: created.Add(time.Hour)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	// SetNotifier TIDAK dipanggil (nil) — harus tetap jalan tanpa panic.
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+	if _, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusSakit}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 // -- Finalize --

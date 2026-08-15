@@ -134,6 +134,14 @@ SELECT * FROM guardians WHERE user_id = $1 AND student_id = $2;
 -- name: CountGuardiansForStudent :one
 SELECT COUNT(*) FROM guardians WHERE student_id = $1;
 
+-- name: ListGuardianUserIDsForStudent :many
+-- Dipakai interface publik Service.GuardianUserIDs (konsumsi modul
+-- notification/attendance fase 9 — resolve penerima notifikasi absensi).
+SELECT g.user_id
+FROM guardians g
+JOIN students s ON s.id = g.student_id
+WHERE g.student_id = sqlc.arg(student_id)::bigint AND s.school_id = sqlc.arg(school_id)::bigint;
+
 -- name: ListChildrenForGuardian :many
 SELECT s.id, s.name, c.name AS class_name
 FROM guardians g
