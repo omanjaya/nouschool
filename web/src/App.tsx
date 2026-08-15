@@ -1,10 +1,11 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { QrCode } from 'lucide-react';
+import { Megaphone, QrCode } from 'lucide-react';
 import { useLogout, useMe } from './features/auth/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { RequireLogin } from './features/auth/RequireLogin';
 import { AppShell } from './components/ui/AppShell';
 import { getNavItems } from './lib/nav';
+import { getGreeting } from './lib/greeting';
 import { Card } from './components/ui/Card';
 import { SchoolsListPage } from './features/admin/SchoolsListPage';
 import { SchoolDetailPage } from './features/admin/SchoolDetailPage';
@@ -37,14 +38,11 @@ import { SchedulePage } from './features/schedule/SchedulePage';
 import { ScanPage } from './features/teaching/ScanPage';
 import { JournalsPage } from './features/teaching/JournalsPage';
 import { MonitoringPage } from './features/teaching/MonitoringPage';
+import { ComplianceRecapPage } from './features/teaching/ComplianceRecapPage';
+import { AnnouncementsPage } from './features/announcements/AnnouncementsPage';
+import { TvPage } from './features/tv/TvPage';
+import { KepsekHomePage } from './features/dashboard/KepsekHomePage';
 import type { Me } from './lib/types';
-
-function getGreeting(hour: number) {
-  if (hour < 11) return 'Selamat pagi';
-  if (hour < 15) return 'Selamat siang';
-  if (hour < 18) return 'Selamat sore';
-  return 'Selamat malam';
-}
 
 function BerandaPage({ me }: { me: Me }) {
   const greeting = getGreeting(new Date().getHours());
@@ -65,6 +63,9 @@ function BerandaPage({ me }: { me: Me }) {
   // Kartu monitoring status mengajar guru — untuk peran yang mengawasi jalannya
   // KBM, bukan guru sendiri.
   const canViewMonitoring = me.role === 'kepala_sekolah' || me.role === 'admin_sekolah';
+  // Kartu kelola pengumuman TV/beranda — kepsek sudah punya jalan pintas ini di
+  // KepsekHomePage (lihat AuthenticatedShell), jadi kartu Beranda ini khusus admin.
+  const canManageAnnouncements = me.role === 'admin_sekolah';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -162,7 +163,22 @@ function BerandaPage({ me }: { me: Me }) {
         </Card>
       )}
 
-      {!canWriteAttendance && !canViewRecap && !isStaff && !canViewOwnSchedule && (
+      {canManageAnnouncements && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Pengumuman</p>
+            <p className="text-[12px] text-muted">Kelola pengumuman yang tampil di dashboard TV & beranda.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/pengumuman')}>
+              <Megaphone size={16} strokeWidth={2} aria-hidden="true" />
+              Kelola Pengumuman
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {!canWriteAttendance && !canViewRecap && !isStaff && !canViewOwnSchedule && !canManageAnnouncements && (
         <Card>
           <p className="text-[14px] text-ink">Belum ada modul lain untuk ditampilkan di sini.</p>
         </Card>
@@ -180,6 +196,13 @@ function AuthenticatedShell() {
   // RequireLogin sudah menjamin me ada & sukses saat komponen ini dirender.
   if (!me) return null;
 
+  // Akun display (role TV, docs/06 "Dashboard TV") hanya boleh melihat `/tv`
+  // (rute terpisah TANPA AppShell, lihat `App()`) — route lain apa pun di
+  // bawah shell ini dialihkan ke sana.
+  if (me.role === 'display') {
+    return <Navigate to="/tv" replace />;
+  }
+
   const isPlatformAdmin = me.is_super_admin && !me.school;
   const navItems = getNavItems(me);
 
@@ -191,7 +214,18 @@ function AuthenticatedShell() {
   return (
     <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout}>
       <Routes>
-        <Route path="/" element={isPlatformAdmin ? <Navigate to="/admin" replace /> : <BerandaPage me={me} />} />
+        <Route
+          path="/"
+          element={
+            isPlatformAdmin ? (
+              <Navigate to="/admin" replace />
+            ) : me.role === 'kepala_sekolah' ? (
+              <KepsekHomePage me={me} />
+            ) : (
+              <BerandaPage me={me} />
+            )
+          }
+        />
         <Route path="/admin" element={<SchoolsListPage />} />
         <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
         <Route path="/pengaturan" element={<SettingsPage />} />
@@ -205,6 +239,8 @@ function AuthenticatedShell() {
         <Route path="/scan" element={<ScanPage />} />
         <Route path="/jurnal" element={<JournalsPage />} />
         <Route path="/monitoring" element={<MonitoringPage />} />
+        <Route path="/monitoring/rekap" element={<ComplianceRecapPage />} />
+        <Route path="/pengumuman" element={<AnnouncementsPage />} />
 
         <Route path="/izin" element={<LeavePage />} />
         <Route path="/izin/rekap" element={<LeaveRecapPage />} />
@@ -242,6 +278,16 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/aktivasi" element={<ActivationPage />} />
+      {/* Fullscreen, TANPA AppShell (docs/10-design-system.md #5: "layout terpisah /tv") — sibling
+          rute, bukan lewat AuthenticatedShell, supaya sidebar/bottom-nav tidak pernah ikut render. */}
+      <Route
+        path="/tv"
+        element={
+          <RequireLogin>
+            <TvPage />
+          </RequireLogin>
+        }
+      />
       <Route
         path="/*"
         element={

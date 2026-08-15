@@ -4,6 +4,7 @@ import { ATTENDANCE_SLOTS_TODAY_KEY } from '../attendance/api';
 import type {
   Journal,
   JournalListResult,
+  TeachingComplianceRow,
   TeachingJournalCreateInput,
   TeachingJournalUpdateInput,
   TeachingScanResult,
@@ -12,6 +13,7 @@ import type {
 
 export const JOURNALS_QUERY_KEY = 'teaching-journals' as const;
 export const TEACHING_STATUS_QUERY_KEY = 'teaching-status' as const;
+export const TEACHING_COMPLIANCE_QUERY_KEY = 'teaching-compliance' as const;
 
 /**
  * POST /api/teaching/scan — "satu scan tiga hasil" (docs/06 #1): kirim
@@ -89,5 +91,18 @@ export function useTeachingStatus(date: string, enabled = true) {
     queryFn: () => api.get<TeachingStatusResult>(`/teaching/status?date=${date}`),
     enabled,
     refetchInterval: 30_000,
+  });
+}
+
+/**
+ * GET /api/teaching/compliance?from=&to= (kepsek/admin) — "ketertiban mengajar":
+ * % slot jadwal yang benar-benar terlaksana (journal vs jadwal) per guru,
+ * dipakai `/monitoring/rekap` (docs/06 dashboard kepsek).
+ */
+export function useTeachingCompliance(from: string, to: string, enabled = true) {
+  return useQuery({
+    queryKey: [TEACHING_COMPLIANCE_QUERY_KEY, from, to],
+    queryFn: () => api.get<TeachingComplianceRow[]>(`/teaching/compliance?from=${from}&to=${to}`),
+    enabled,
   });
 }

@@ -15,10 +15,11 @@ export function LoginPage() {
   const navigate = useNavigate();
   const login = useLogin();
 
-  // Sudah login — jangan tampilkan form login lagi.
+  // Sudah login — jangan tampilkan form login lagi. Akun display (docs/06
+  // "Dashboard TV") langsung ke `/tv` fullscreen, bukan Beranda ber-AppShell.
   if (!meLoading && me) {
     const isPlatformAdmin = me.is_super_admin && !me.school;
-    return <Navigate to={isPlatformAdmin ? '/admin' : '/'} replace />;
+    return <Navigate to={me.role === 'display' ? '/tv' : isPlatformAdmin ? '/admin' : '/'} replace />;
   }
 
   function handleSubmit(e: FormEvent) {
@@ -28,7 +29,8 @@ export function LoginPage() {
       {
         onSuccess: (loggedInMe) => {
           const isPlatformAdmin = loggedInMe.is_super_admin && !loggedInMe.school;
-          navigate(isPlatformAdmin ? '/admin' : '/', { replace: true });
+          const target = loggedInMe.role === 'display' ? '/tv' : isPlatformAdmin ? '/admin' : '/';
+          navigate(target, { replace: true });
         },
       },
     );

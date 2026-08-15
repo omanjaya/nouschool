@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { Users } from 'lucide-react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { FileBarChart, Users } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { StatTile } from '../../components/ui/StatTile';
 import { Tag } from '../../components/ui/Tag';
+import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Field';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -46,6 +47,7 @@ function roomLine(item: TeachingStatusItem): string {
 /** /monitoring — status mengajar guru derivasi dari jadwal + jurnal (kepsek/admin), docs/06 #2. */
 export function MonitoringPage() {
   const { data: me } = useMe();
+  const navigate = useNavigate();
   const [date, setDate] = useState(todayISODate());
   const canView = me?.role === 'kepala_sekolah' || me?.role === 'admin_sekolah';
   const { data, isLoading, isError, refetch } = useTeachingStatus(date, canView);
@@ -103,8 +105,14 @@ export function MonitoringPage() {
             </p>
           )}
         </div>
-        <div className="max-w-[200px]">
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Pilih tanggal" />
+        <div className="flex flex-wrap items-start gap-2">
+          <div className="max-w-[200px]">
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Pilih tanggal" />
+          </div>
+          <Button variant="secondary" onClick={() => navigate('/monitoring/rekap')}>
+            <FileBarChart size={16} strokeWidth={2} aria-hidden="true" />
+            Rekap Ketertiban
+          </Button>
         </div>
       </div>
 

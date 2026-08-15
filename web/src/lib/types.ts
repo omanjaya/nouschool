@@ -523,6 +523,86 @@ export interface TeachingStatusResult {
   summary: TeachingStatusSummary;
 }
 
+/* ---- Pengumuman / TV / dashboard kepsek (Fase 7, docs/06-teaching.md) ---- */
+
+/** GET /api/announcements(?active=1), POST/PATCH/DELETE (admin & kepsek). */
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface AnnouncementInput {
+  title: string;
+  body: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+/** Bentuk ringkas pengumuman dalam payload `/api/tv/board` — tanpa rentang tanggal. */
+export interface TvAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+}
+
+/** `now` di `/api/tv/board` — waktu dinding sekolah saat payload dibuat. */
+export interface TvBoardNow {
+  date: string;
+  day_label: string;
+  /** Jam dinding "HH:MM" (bukan timestamp) — dipakai menyinkronkan jam TV yang tick per detik di client. */
+  time: string;
+  current_period: CurrentPeriodInfo | null;
+  next_starts_at: string | null;
+}
+
+/**
+ * Item status mengajar di papan TV — shape FLAT (bukan nested TeachingStatusItem):
+ * payload TV sengaja ramping, satu fetch (docs/06). `room_name` = ruang AKTUAL
+ * hasil scan bila ada, selain itu ruang terjadwal; kosong = tanpa ruangan.
+ */
+export interface TvTeachingItem {
+  class_id: string;
+  class_name: string;
+  subject_code: string;
+  subject_name: string;
+  teacher_id: string;
+  teacher_name: string;
+  room_name?: string;
+  status: TeachingStatus;
+  period_starts_at: string;
+  period_ends_at: string;
+}
+
+export interface TvBoardTeaching {
+  summary: TeachingStatusSummary;
+  current: TvTeachingItem[];
+  upcoming: TvTeachingItem[];
+}
+
+/** GET /api/tv/board (display/kepsek/admin) — payload gabungan satu fetch untuk dashboard TV. */
+export interface TvBoard {
+  school: { name: string };
+  now: TvBoardNow;
+  teaching: TvBoardTeaching;
+  attendance: AttendanceClassSummary[];
+  announcements: TvAnnouncement[];
+  generated_at: string;
+}
+
+/** GET /api/teaching/compliance?from=&to= (kepsek/admin) — "ketertiban mengajar" (docs/06 #dashboard kepsek). */
+export interface TeachingComplianceRow {
+  teacher: TeacherRef;
+  scheduled: number;
+  taught: number;
+  pct: number;
+  unscheduled: number;
+  material_filled: number;
+  material_pct: number;
+}
+
 /* ---- Absensi mode per-mapel dari jadwal (guru, Fase 6) ---- */
 
 /**
