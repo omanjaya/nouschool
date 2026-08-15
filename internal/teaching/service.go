@@ -83,6 +83,15 @@ type StudentGateway interface {
 	MyTeacherID(ctx context.Context, schoolID, userID int64) (teacherID int64, ok bool, err error)
 }
 
+// Realtime adalah kebutuhan modul teaching dari modul realtime (Fase 12, bus
+// event WebSocket read-only server->client) — consumer-side interface kecil
+// dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go).
+type Realtime interface {
+	PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64)
+}
+
 // Service berisi aturan bisnis modul teaching.
 type Service struct {
 	repo       teachingRepository
@@ -92,6 +101,7 @@ type Service struct {
 	attendance AttendanceGateway
 	students   StudentGateway
 	clock      clock.Clock
+	realtime   Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, schedule ScheduleGateway, leave LeaveGateway, attendance AttendanceGateway, students StudentGateway, clk clock.Clock) *Service {
@@ -99,6 +109,23 @@ func NewService(repo *Repository, identity IdentityGateway, schedule ScheduleGat
 		clk = clock.System{}
 	}
 	return &Service{repo: repo, identity: identity, schedule: schedule, leave: leave, attendance: attendance, students: students, clock: clk}
+}
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan internal/attendance.SetNotifier; nil
+// aman/no-op — lihat emitStatus).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// emitStatus memancarkan "teaching.status" {date} ke roles
+// admin_sekolah/kepala_sekolah/display (docs tugas Fase 12: "scan / create
+// journal / end / patch") — dipanggil SETELAH operasi sukses, best-effort
+// (nil-safe, tidak pernah mengembalikan error).
+func (s *Service) emitStatus(schoolID int64, date time.Time) {
+	if s.realtime == nil {
+		return
+	}
+	s.realtime.PublishTo(schoolID, "teaching.status", map[string]any{"date": date.Format("2006-01-02")},
+		[]string{RoleAdminSekolah, RoleKepalaSekolah, RoleDisplay}, nil)
 }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
@@ -280,6 +307,7 @@ func (s *Service) Scan(ctx context.Context, actorUserID, schoolID int64, in Scan
 		if err != nil {
 			return ScanResult{}, err
 		}
+		s.emitStatus(schoolID, date)
 		return ScanResult{Journal: &view, AttendanceSessionID: &sessionID, NeedsManual: false}, nil
 	} else if !errors.Is(err, ErrNotFound) {
 		return ScanResult{}, err
@@ -315,6 +343,7 @@ func (s *Service) Scan(ctx context.Context, actorUserID, schoolID int64, in Scan
 	if err != nil {
 		return ScanResult{}, err
 	}
+	s.emitStatus(schoolID, date)
 	return ScanResult{Journal: &view, AttendanceSessionID: &sessionID, NeedsManual: false}, nil
 }
 
@@ -375,6 +404,7 @@ func (s *Service) CreateUnscheduled(ctx context.Context, actorUserID, schoolID i
 	if err != nil {
 		return JournalView{}, err
 	}
+	s.emitStatus(schoolID, date)
 	return s.journalView(ctx, now, detail)
 }
 
@@ -436,6 +466,7 @@ func (s *Service) UpdateJournal(ctx context.Context, actorUserID, schoolID, id i
 	if err != nil {
 		return JournalView{}, err
 	}
+	s.emitStatus(schoolID, rec.Date)
 	return s.journalView(ctx, now, detail)
 }
 
@@ -475,6 +506,7 @@ func (s *Service) EndJournal(ctx context.Context, actorUserID, schoolID, id int6
 	if err != nil {
 		return JournalView{}, err
 	}
+	s.emitStatus(schoolID, rec.Date)
 	return s.journalView(ctx, now, detail)
 }
 

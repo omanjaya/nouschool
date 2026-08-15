@@ -28,11 +28,21 @@ type FeatureGate interface {
 // billing untuk konstanta apa pun — lihat CLAUDE.md).
 const FeatureWhatsApp = "whatsapp"
 
+// Realtime adalah kebutuhan modul notification dari modul realtime (Fase 12,
+// bus event WebSocket read-only server->client) — consumer-side interface
+// kecil dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go).
+type Realtime interface {
+	PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64)
+}
+
 type Service struct {
 	repo      notificationRepository
 	clock     clock.Clock
 	providers map[string]Provider // key: channel (web_push|whatsapp|email) — TIDAK termasuk in_app
 	features  FeatureGate         // opsional — nil = gerbang fitur dilewati (lihat SetFeatureGate)
+	realtime  Realtime            // opsional — nil = event realtime dilewati (lihat SetRealtime)
 
 	vapidPublicKey string
 
@@ -66,6 +76,10 @@ func (s *Service) RegisterProvider(channel string, p Provider) {
 // disuntik main.go — pola yang sama dengan internal/attendance.SetNotifier;
 // nil aman/no-op, channel whatsapp lolos tanpa gerbang fitur).
 func (s *Service) SetFeatureGate(g FeatureGate) { s.features = g }
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan SetFeatureGate; nil aman/no-op).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
 
 // whatsappAllowed melaporkan apakah channel whatsapp boleh dipakai sekolah
 // ini (fitur "whatsapp" aktif di langganannya, docs/09-billing.md "Channel
@@ -138,6 +152,14 @@ func (s *Service) Send(ctx context.Context, n Notification) error {
 		}
 		if _, err := s.repo.InsertNotification(ctx, n.SchoolID, userID, n.Event, title, body, tmpl.Link); err != nil {
 			return err
+		}
+		// Realtime (Fase 12): inbox in-app baru saja ditulis -> beri tahu
+		// klien penerima supaya badge & list notifikasi refetch instan
+		// (docs tugas: "setelah menulis inbox in-app -> notification {} ke
+		// user_ids penerima"). Data SENGAJA kosong — klien selalu refetch
+		// GET /api/notifications (bus read-only, lihat internal/realtime).
+		if s.realtime != nil {
+			s.realtime.PublishTo(n.SchoolID, "notification", map[string]any{}, nil, []int64{userID})
 		}
 		for _, ch := range tmpl.Channels {
 			if !enabled[ch] {

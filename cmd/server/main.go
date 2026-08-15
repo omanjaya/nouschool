@@ -23,6 +23,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
 	"github.com/omanjaya/nouschool/internal/platform/middleware"
 	"github.com/omanjaya/nouschool/internal/platform/storage"
+	"github.com/omanjaya/nouschool/internal/realtime"
 	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/teaching"
@@ -81,6 +82,20 @@ func main() {
 		interestSvc := tenant.NewInterestService(tenantRepo, clock.System{})
 		tenantHandler := tenant.NewHandler(tenantSvc, settingsSvc, hostResolver, domainSvc, interestSvc, storage.FromEnv())
 
+		// --- modul realtime (bus event WebSocket read-only server->client,
+		// Fase 12, docs/ROADMAP.md) — dikonstruksi SEBELUM modul lain karena
+		// hampir semua modul (student/leave/schedule/attendance/teaching/
+		// announcement/notification/billing) butuh realtimeAdapter lewat
+		// SetRealtime di bawah (setter, pola sama SetNotifier). realtimeAdapter
+		// (realtimeadapter.go) menjembatani Hub.Publish(schoolID, Event) ke
+		// consumer-side interface primitif Publish/PublishTo yang dideklarasikan
+		// tiap modul pemakai — SATU instance stateless dipakai bersama semua
+		// modul (method set identik). GET /api/ws didaftarkan di seksi routing
+		// di bawah, di belakang requireAuth SAJA (role display BOLEH).
+		realtimeHub := realtime.NewHub()
+		realtimeHandler := realtime.NewHandler(realtimeHub)
+		realtimeAdapter := realtimeForModules{hub: realtimeHub}
+
 		// --- modul student (siswa, rombel, enrollment, wali, guru, mapel, import, undangan) ---
 		// identitySvc & tenantSvc memenuhi student.IdentityGateway /
 		// student.AcademicYearLookup secara STRUKTURAL (consumer-side interface
@@ -88,6 +103,7 @@ func main() {
 		// mengimpor identity maupun tenant untuk tipe apa pun.
 		studentRepo := student.NewRepository(pool)
 		studentSvc := student.NewService(studentRepo, identitySvc, tenantSvc)
+		studentSvc.SetRealtime(realtimeAdapter)
 		studentHandler := student.NewHandler(studentSvc)
 
 		// --- modul leave (izin guru dengan approval engine konfigurable) ---
@@ -97,6 +113,7 @@ func main() {
 		// platform/storage diimpor LANGSUNG (infrastruktur bersama, seperti clock).
 		leaveRepo := leave.NewRepository(pool)
 		leaveSvc := leave.NewService(leaveRepo, identitySvc, storage.FromEnv(), clock.System{})
+		leaveSvc.SetRealtime(realtimeAdapter)
 		leaveHandler := leave.NewHandler(leaveSvc)
 
 		// --- modul schedule (jadwal pelajaran: periods, rooms+QR, slots,
@@ -109,6 +126,7 @@ func main() {
 		// attendance & teaching karena keduanya butuh scheduleSvc (fase 6).
 		scheduleRepo := schedule.NewRepository(pool)
 		scheduleSvc := schedule.NewService(scheduleRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
+		scheduleSvc.SetRealtime(realtimeAdapter)
 		scheduleHandler := schedule.NewHandler(scheduleSvc)
 
 		// --- modul attendance (absensi siswa mode daily & per-mapel) ---
@@ -122,6 +140,7 @@ func main() {
 		// scheduleForAttendance (lihat scheduleadapter.go, fase 6).
 		attendanceRepo := attendance.NewRepository(pool)
 		attendanceSvc := attendance.NewService(attendanceRepo, identitySvc, tenantSvc, studentSvc, scheduleForAttendance{svc: scheduleSvc}, studentSvc, clock.System{})
+		attendanceSvc.SetRealtime(realtimeAdapter)
 		attendanceHandler := attendance.NewHandler(attendanceSvc)
 
 		// --- modul teaching (jurnal mengajar via scan QR ruangan + monitoring
@@ -136,6 +155,7 @@ func main() {
 		// (lihat scheduleadapter.go).
 		teachingRepo := teaching.NewRepository(pool)
 		teachingSvc := teaching.NewService(teachingRepo, identitySvc, scheduleForTeaching{svc: scheduleSvc}, leaveSvc, attendanceSvc, studentSvc, clock.System{})
+		teachingSvc.SetRealtime(realtimeAdapter)
 		teachingHandler := teaching.NewHandler(teachingSvc)
 
 		// --- modul announcement (pengumuman dashboard TV/kepsek, fase 7 —
@@ -146,6 +166,7 @@ func main() {
 		// apa pun.
 		announcementRepo := announcement.NewRepository(pool)
 		announcementSvc := announcement.NewService(announcementRepo, identitySvc, clock.System{})
+		announcementSvc.SetRealtime(realtimeAdapter)
 		announcementHandler := announcement.NewHandler(announcementSvc)
 
 		// --- modul dashboard (payload gabungan TV ruang guru + kepsek, fase 7
@@ -190,6 +211,7 @@ func main() {
 		notificationSvc.RegisterProvider(notification.ChannelWebPush, notification.NewWebPushProvider(notificationRepo, vapidPublic, vapidPrivate, cfg.VAPIDSubscriber))
 		notificationSvc.RegisterProvider(notification.ChannelWhatsApp, notification.NewWhatsAppProvider(notificationRepo, cfg.WAGatewayURL, cfg.WAGatewayToken))
 		notificationSvc.RegisterProvider(notification.ChannelEmail, notification.NewEmailProvider(notificationRepo, cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom))
+		notificationSvc.SetRealtime(realtimeAdapter)
 		notificationHandler := notification.NewHandler(notificationSvc)
 
 		// attendanceSvc & leaveSvc memenuhi consumer-side interface Notifier
@@ -209,6 +231,7 @@ func main() {
 		// billingSvc.RequireFeature saat registrasi route di bawah).
 		billingRepo := billing.NewRepository(pool)
 		billingSvc := billing.NewService(billingRepo, identitySvc, tenantSvc, storage.FromEnv(), clock.System{})
+		billingSvc.SetRealtime(realtimeAdapter)
 		if cfg.MidtransServerKey != "" {
 			billingSvc.SetProvider(billing.NewMidtransProvider(cfg.MidtransServerKey, cfg.MidtransEnv))
 		} else {
@@ -245,6 +268,7 @@ func main() {
 			billingSvc.RequireFeature(billing.FeatureTVDashboard))
 		notification.RegisterRoutes(mux, notificationHandler, identitySvc.RequireAuth)
 		billing.RegisterRoutes(mux, billingHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
+		realtime.RegisterRoutes(mux, realtimeHandler, identitySvc.RequireAuth)
 
 		// Worker outbox — poll tiap 10 detik, batch 50 (docs/08-notification.md).
 		// Berhenti dengan rapi saat ctx dibatalkan (graceful shutdown, sama

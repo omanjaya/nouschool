@@ -23,11 +23,21 @@ type IdentityGateway interface {
 	Log(ctx context.Context, schoolID, userID *int64, action, entity string, entityID *int64, oldValue, newValue any) error
 }
 
+// Realtime adalah kebutuhan modul announcement dari modul realtime (Fase 12,
+// bus event WebSocket read-only server->client) — consumer-side interface
+// kecil dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go).
+type Realtime interface {
+	Publish(schoolID int64, eventType string, data map[string]any)
+}
+
 // Service berisi aturan bisnis modul announcement.
 type Service struct {
 	repo     announcementRepository
 	identity IdentityGateway
 	clock    clock.Clock
+	realtime Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, clk clock.Clock) *Service {
@@ -35,6 +45,21 @@ func NewService(repo *Repository, identity IdentityGateway, clk clock.Clock) *Se
 		clk = clock.System{}
 	}
 	return &Service{repo: repo, identity: identity, clock: clk}
+}
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan modul lain; nil aman/no-op).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// emitAnnouncement memancarkan "announcement" {} broadcast satu sekolah
+// (docs tugas Fase 12: create/update/delete) — dipanggil SETELAH operasi
+// sukses, best-effort (nil-safe). Data SENGAJA kosong — klien selalu
+// refetch GET /api/announcements (bus read-only).
+func (s *Service) emitAnnouncement(schoolID int64) {
+	if s.realtime == nil {
+		return
+	}
+	s.realtime.Publish(schoolID, "announcement", map[string]any{})
 }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
@@ -171,6 +196,7 @@ func (s *Service) Create(ctx context.Context, actorUserID, schoolID int64, in Cr
 	s.audit(ctx, schoolID, actorUserID, "announcement.create", "announcement", rec.ID, nil, map[string]any{
 		"title": title, "starts_at": start.Format("2006-01-02"), "ends_at": end.Format("2006-01-02"),
 	})
+	s.emitAnnouncement(schoolID)
 	return viewFromRecord(rec), nil
 }
 
@@ -211,6 +237,7 @@ func (s *Service) Update(ctx context.Context, actorUserID, schoolID, id int64, i
 	s.audit(ctx, schoolID, actorUserID, "announcement.update", "announcement", id, nil, map[string]any{
 		"title": title, "starts_at": start.Format("2006-01-02"), "ends_at": end.Format("2006-01-02"),
 	})
+	s.emitAnnouncement(schoolID)
 	return viewFromRecord(rec), nil
 }
 
@@ -233,5 +260,6 @@ func (s *Service) Delete(ctx context.Context, actorUserID, schoolID, id int64) e
 		return err
 	}
 	s.audit(ctx, schoolID, actorUserID, "announcement.delete", "announcement", id, nil, nil)
+	s.emitAnnouncement(schoolID)
 	return nil
 }

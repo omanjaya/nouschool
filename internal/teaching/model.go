@@ -14,8 +14,10 @@ import (
 // internal/identity — didefinisikan ulang di sini karena teaching TIDAK
 // boleh mengimpor identity, lihat CLAUDE.md).
 const (
-	RoleAdminSekolah = "admin_sekolah"
-	RoleGuru         = "guru"
+	RoleAdminSekolah  = "admin_sekolah"
+	RoleGuru          = "guru"
+	RoleKepalaSekolah = "kepala_sekolah"
+	RoleDisplay       = "display"
 )
 
 // Permission kanonik dipakai modul teaching (lihat docs/02-identity.md).

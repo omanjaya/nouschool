@@ -571,20 +571,38 @@ func (q *Queries) SetPaymentRawWebhook(ctx context.Context, arg SetPaymentRawWeb
 	return err
 }
 
-const transitionActiveToGrace = `-- name: TransitionActiveToGrace :execrows
+const transitionActiveToGrace = `-- name: TransitionActiveToGrace :many
 UPDATE subscriptions SET status = 'grace' WHERE status = 'active' AND ends_on < $1::date
+RETURNING school_id
 `
 
-func (q *Queries) TransitionActiveToGrace(ctx context.Context, today pgtype.Date) (int64, error) {
-	result, err := q.db.Exec(ctx, transitionActiveToGrace, today)
+// RETURNING school_id (bukan :execrows) — Fase 12 (realtime): TickOnce perlu
+// tahu SEKOLAH MANA yang baru transisi supaya event "billing" bisa
+// ditargetkan per sekolah (Hub per sekolah, lihat internal/realtime), bukan
+// disiarkan ke semua sekolah sekaligus.
+func (q *Queries) TransitionActiveToGrace(ctx context.Context, today pgtype.Date) ([]int64, error) {
+	rows, err := q.db.Query(ctx, transitionActiveToGrace, today)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var school_id int64
+		if err := rows.Scan(&school_id); err != nil {
+			return nil, err
+		}
+		items = append(items, school_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-const transitionGraceToReadonly = `-- name: TransitionGraceToReadonly :execrows
+const transitionGraceToReadonly = `-- name: TransitionGraceToReadonly :many
 UPDATE subscriptions SET status = 'readonly' WHERE status = 'grace' AND (ends_on + make_interval(days => $1::int)) < $2::date
+RETURNING school_id
 `
 
 type TransitionGraceToReadonlyParams struct {
@@ -592,12 +610,25 @@ type TransitionGraceToReadonlyParams struct {
 	Today     pgtype.Date `json:"today"`
 }
 
-func (q *Queries) TransitionGraceToReadonly(ctx context.Context, arg TransitionGraceToReadonlyParams) (int64, error) {
-	result, err := q.db.Exec(ctx, transitionGraceToReadonly, arg.GraceDays, arg.Today)
+// RETURNING school_id — lihat catatan TransitionActiveToGrace di atas.
+func (q *Queries) TransitionGraceToReadonly(ctx context.Context, arg TransitionGraceToReadonlyParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, transitionGraceToReadonly, arg.GraceDays, arg.Today)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var school_id int64
+		if err := rows.Scan(&school_id); err != nil {
+			return nil, err
+		}
+		items = append(items, school_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updatePlanFeatures = `-- name: UpdatePlanFeatures :exec

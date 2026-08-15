@@ -68,3 +68,11 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap expose ResponseWriter di bawahnya lewat konvensi net/http standar
+// (http.ResponseController, Go 1.20+) — WAJIB supaya http.Hijacker (dipakai
+// upgrade WebSocket, internal/realtime/ws.go) tetap terdeteksi walau
+// dibungkus statusWriter oleh Logger. Tanpa ini, GET /api/ws akan selalu
+// gagal "http.ResponseWriter does not implement http.Hijacker" karena Logger
+// dipasang lebih dulu di middleware.Chain sebelum routing (lihat cmd/server/main.go).
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

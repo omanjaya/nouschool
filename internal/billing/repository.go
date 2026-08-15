@@ -30,8 +30,12 @@ type billingRepository interface {
 	GetSubscription(ctx context.Context, schoolID int64) (SubscriptionRecord, bool, error)
 	UpsertSubscription(ctx context.Context, rec SubscriptionRecord) (SubscriptionRecord, error)
 	ExtendSubscription(ctx context.Context, schoolID int64, days int) error
-	TransitionActiveToGrace(ctx context.Context, today time.Time) (int64, error)
-	TransitionGraceToReadonly(ctx context.Context, today time.Time) (int64, error)
+	// TransitionActiveToGrace/TransitionGraceToReadonly mengembalikan
+	// school_id sekolah yang BARU transisi (bukan sekadar jumlah baris) —
+	// dipakai TickOnce memancarkan event realtime "billing" per sekolah
+	// (Fase 12).
+	TransitionActiveToGrace(ctx context.Context, today time.Time) ([]int64, error)
+	TransitionGraceToReadonly(ctx context.Context, today time.Time) ([]int64, error)
 	ListSubscriptionsForAdmin(ctx context.Context) ([]AdminSubscriptionRow, error)
 
 	NextInvoiceNumber(ctx context.Context, year string) (int, error)
@@ -261,11 +265,11 @@ func (r *Repository) ExtendSubscription(ctx context.Context, schoolID int64, day
 	return r.q.ExtendSubscription(ctx, billingdb.ExtendSubscriptionParams{Days: int32(days), SchoolID: schoolID})
 }
 
-func (r *Repository) TransitionActiveToGrace(ctx context.Context, today time.Time) (int64, error) {
+func (r *Repository) TransitionActiveToGrace(ctx context.Context, today time.Time) ([]int64, error) {
 	return r.q.TransitionActiveToGrace(ctx, dateOf(today))
 }
 
-func (r *Repository) TransitionGraceToReadonly(ctx context.Context, today time.Time) (int64, error) {
+func (r *Repository) TransitionGraceToReadonly(ctx context.Context, today time.Time) ([]int64, error) {
 	return r.q.TransitionGraceToReadonly(ctx, billingdb.TransitionGraceToReadonlyParams{
 		GraceDays: GracePeriodDays, Today: dateOf(today),
 	})

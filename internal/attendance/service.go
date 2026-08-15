@@ -67,6 +67,17 @@ type Notifier interface {
 // karena attendance TIDAK boleh mengimpor notification, lihat CLAUDE.md).
 const EventStudentAbsent = "attendance.student_absent"
 
+// Realtime adalah kebutuhan modul attendance dari modul realtime (Fase 12,
+// bus event WebSocket read-only server->client) — consumer-side interface
+// kecil dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung (signature Hub.Publish beda, pakai
+// realtime.Event) — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go, pola sama scheduleadapter.go).
+type Realtime interface {
+	Publish(schoolID int64, eventType string, data map[string]any)
+	PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64)
+}
+
 // SlotToday adalah potongan data slot jadwal yang dibutuhkan attendance dari
 // modul schedule (fase 6, docs/06-teaching.md "Absensi per-mapel untuk guru")
 // — primitif saja (lihat catatan interface teaching.ScheduleGateway,
@@ -128,6 +139,7 @@ type Service struct {
 	teacherLookup TeacherLookup
 	clock         clock.Clock
 	notifier      Notifier // opsional — nil = notifikasi dilewati (lihat SetNotifier)
+	realtime      Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
 }
 
 // SetNotifier menyuntikkan Notifier SETELAH konstruksi (opsional, disuntik
@@ -136,6 +148,28 @@ type Service struct {
 // tanpa notifikasi) tidak perlu diubah — nil aman (notifyAbsentIfNeeded
 // no-op bila notifier belum diset).
 func (s *Service) SetNotifier(n Notifier) { s.notifier = n }
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan SetNotifier, supaya call site test yang
+// sudah ada tidak perlu diubah; nil aman/no-op — lihat emitSession/emitSummary).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// emitSession memancarkan "attendance.session" {session_id, class_id, date}
+// broadcast satu sekolah, DAN "attendance.summary" {date} ke roles
+// admin_sekolah/kepala_sekolah/display (docs tugas Fase 12) — dipanggil
+// SETELAH operasi sukses (create session/PUT records/scan/self-checkin/
+// finalize), best-effort (nil-safe, tidak pernah mengembalikan error).
+func (s *Service) emitSession(schoolID, sessionID, classID int64, date time.Time) {
+	if s.realtime == nil {
+		return
+	}
+	dateStr := date.Format("2006-01-02")
+	s.realtime.Publish(schoolID, "attendance.session", map[string]any{
+		"session_id": sessionID, "class_id": classID, "date": dateStr,
+	})
+	s.realtime.PublishTo(schoolID, "attendance.summary", map[string]any{"date": dateStr},
+		[]string{RoleAdminSekolah, RoleKepalaSekolah, RoleDisplay}, nil)
+}
 
 func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup, students StudentAccess, scheduleSlots ScheduleSlotLookup, teacherLookup TeacherLookup, clk clock.Clock) *Service {
 	if clk == nil {
@@ -318,6 +352,7 @@ func (s *Service) CreateSession(ctx context.Context, actorUserID, schoolID int64
 		return SessionDetail{}, err
 	}
 
+	s.emitSession(schoolID, sess.ID, cls.ID, date)
 	return s.buildSessionDetail(ctx, schoolID, sess.ID)
 }
 
@@ -359,6 +394,7 @@ func (s *Service) createSubjectSessionFromSlot(ctx context.Context, actorUserID,
 		return SessionDetail{}, err
 	}
 
+	s.emitSession(schoolID, sess.ID, classID, date)
 	return s.buildSessionDetail(ctx, schoolID, sess.ID)
 }
 
@@ -598,6 +634,7 @@ func (s *Service) UpdateRecords(ctx context.Context, actorUserID, schoolID, sess
 		s.audit(ctx, schoolID, actorUserID, "attendance.update", "attendance_session", sessionID, changedOld, changedNew)
 	}
 
+	s.emitSession(schoolID, sessionID, sess.ClassID, sess.Date)
 	return s.buildSessionDetail(ctx, schoolID, sessionID)
 }
 
@@ -654,6 +691,7 @@ func (s *Service) Finalize(ctx context.Context, actorUserID, schoolID, sessionID
 	if err != nil {
 		return FinalizeResult{}, err
 	}
+	s.emitSession(schoolID, sessionID, sess.ClassID, sess.Date)
 	return FinalizeResult{
 		Session: SessionView{
 			ID: detail.ID, ClassID: detail.ClassID, ClassName: detail.ClassName,
@@ -956,6 +994,7 @@ func (s *Service) ScanQRCard(ctx context.Context, actorUserID, schoolID, session
 	// dengan UpdateRecords/SelfCheckin (docs tugas fase 9 menyebut ketiganya
 	// sebagai titik hook), bukan karena efeknya berbeda.
 	s.notifyAbsentIfNeeded(ctx, schoolID, studentID, st.Name, sess.Date, rec.Status, alreadyMarked, rec.Status)
+	s.emitSession(schoolID, sessionID, sess.ClassID, sess.Date)
 
 	return ScanResult{StudentID: studentID, Name: st.Name, NIS: st.NIS, Status: rec.Status, AlreadyMarked: alreadyMarked}, nil
 }
@@ -1177,6 +1216,7 @@ func (s *Service) SelfCheckin(ctx context.Context, schoolID int64, in SelfChecki
 		studentName = basic.Name
 	}
 	s.notifyAbsentIfNeeded(ctx, schoolID, studentID, studentName, sess.Date, "", false, rec.Status)
+	s.emitSession(schoolID, sess.ID, classID, sess.Date)
 
 	return SelfCheckinResult{Status: rec.Status, CheckedAt: rec.MarkedAt}, nil
 }

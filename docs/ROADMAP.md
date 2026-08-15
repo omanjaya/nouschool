@@ -588,5 +588,135 @@ dijalankan (sesuai batasan tugas — hanya dibuat & didokumentasikan).
   (`web/` — di luar scope backend sesi ini, sesuai batasan tugas "jangan
   sentuh web/")
 
+## Fase 12 — Realtime WebSocket 🚧 (diminta user 16 Agu 2026, backend ✅)
+Backend terverifikasi end-to-end di Docker dev (`demo.localhost`) lewat
+probe WebSocket sungguhan (`github.com/coder/websocket`, script sementara
+di scratchpad — lihat catatan di bawah, BUKAN bagian repo): login REST
+(kepsek & ortu.budi) → cookie `ns_session` → connect `ws://localhost:8210/api/ws`
+Host `demo.localhost` → keduanya terima `{"type":"hello","data":{"user_id":...}}`
+→ kirim `{"type":"ping"}` → balas `{"type":"pong"}` (probe kepsek: user_id 11
+dalam ~4ms; probe ortu: user_id 6) → admin PUT
+`/api/attendance/sessions/1/records` (Budi Santoso NIS 22103, terlambat→sakit)
+→ probe kepsek terima `attendance.session {class_id:1,date:"2026-08-16",session_id:1}`
+DAN `attendance.summary {date:"2026-08-16"}`; probe ortu (wali Budi) terima
+`notification {}` DAN `attendance.session` (broadcast sekolah, ortu ikut
+kebagian) TAPI TIDAK `attendance.summary` (role-only admin/kepsek/display,
+ortu bukan salah satunya — targeting role terbukti benar) → admin POST
+`/api/announcements` → KEDUA probe terima `announcement {}` (broadcast) →
+admin POST `/api/students` (siswa baru) → probe kepsek terima `students {}`,
+probe ortu TIDAK (role admin/kepsek/guru saja, orang_tua dikecualikan —
+sesuai kontrak) → guru submit `POST /api/leave/requests` (multipart) →
+probe kepsek (approver step aktif) terima `notification` DAN
+`leave {request_id:5}` → kepsek `POST /api/leave/approvals/5/decide` approved
+→ probe kepsek terima `leave {request_id:5}` lagi (dirinya sendiri masuk
+roles admin_sekolah/kepala_sekolah target). Semua event dicetak probe TANPA
+error, tanpa disconnect prematur; `docker logs` menunjukkan `GET /api/ws
+status=101` bersih (upgrade sukses, tanpa panic). `go build/vet/test ./...`
+hijau TERMASUK `go test -race ./...` (dijalankan di dalam kontainer
+`sekolah-api-1` yang punya gcc/CGO — host Windows dev tidak punya gcc).
+schedule/teaching/billing memakai pola SetRealtime IDENTIK (compile +
+service test hijau) tapi tidak dipicu live di sesi ini (di luar 3 jalur WAJIB
+di deskripsi tugas: absensi/pengumuman/notifikasi) — leave & students dites
+live sebagai bonus di atas cakupan minimum.
+- ✅ `internal/realtime/` (modul baru, TANPA tabel DB): dependency
+  `github.com/coder/websocket` v1.8.15 (+ subpackage `wsjson`) — `Hub`
+  (`hub.go`) menyimpan koneksi per `school_id` (`map[int64]map[*Client]struct{}`,
+  `RWMutex`), `Register(schoolID,userID,role,closer)`/`Unregister(*Client)`,
+  `Publish(schoolID int64, ev Event)` dengan
+  `Event{Type string, Data map[string]any, Roles []string, UserIDs []int64}`
+  (`Roles`/`UserIDs` kosong dua-duanya = broadcast sekolah; salah satu/keduanya
+  terisi = union — `matchesTarget`); kirim NON-BLOCKING per koneksi (channel
+  buffer 32, `sendBuffer`), buffer penuh → `Client.Drop()` (panggil `closer`
+  sekali via `sync.Once`, klien reconnect sendiri) — TIDAK PERNAH Publish
+  blocking/deadlock walau ada klien macet
+- ✅ `GET /api/ws` (`ws.go`, `RegisterRoutes` di belakang `requireAuth` SAJA —
+  TANPA `requirePerm`, role `display` BOLEH sesuai scope): upgrade via
+  `websocket.Accept` → `Hub.Register` → kirim `{"type":"hello","data":{"user_id":...}}`
+  → `readPump` (baca pesan klien, HANYA `{"type":"ping"}` dibalas
+  `{"type":"pong"}`, batas baca per pesan 90 dtk via context timeout) →
+  `writePump` (goroutine terpisah: kirim event dari `Client.Send()` + ping
+  level-WebSocket server→klien tiap 30 dtk) — keduanya berhenti bersih lewat
+  channel `stop` + `conn.CloseNow()` (idempoten via `sync.Once`), TANPA
+  goroutine leak (dibuktikan `<-done` di akhir handler)
+- ✅ **Fix bug laten wajib untuk WS**: `internal/platform/middleware/middleware.go`
+  `statusWriter` (dipakai `Logger`, dipasang di `middleware.Chain` SEBELUM
+  routing) tidak mengekspos `Unwrap() http.ResponseWriter` — tanpa ini
+  `websocket.Accept` SELALU gagal "does not implement http.Hijacker" karena
+  `http.Hijacker` milik `ResponseWriter` ASLI tersembunyi di balik
+  `statusWriter`. Ditambahkan method `Unwrap()` satu baris (konvensi
+  `net/http` standar Go 1.20+, `http.ResponseController`) — TIDAK mengubah
+  perilaku middleware lain
+- ✅ Interface konsumsi per modul (pola SetNotifier, dideklarasikan DI SISI
+  PEMAKAI per CLAUDE.md): `attendance.Realtime`/`teaching.Realtime`/
+  `notification.Realtime`/`leave.Realtime`/`announcement.Realtime`/
+  `schedule.Realtime`/`billing.Realtime`/`student.Realtime` — semua primitif
+  (`Publish(schoolID int64, eventType string, data map[string]any)` dan/atau
+  `PublishTo(..., roles []string, userIDs []int64)`), disuntik lewat
+  `SetRealtime(...)` SETELAH konstruksi (setter, bukan constructor param,
+  supaya call site test lama tidak berubah — nil aman/no-op, dibuktikan
+  seluruh test service lama tetap hijau TANPA `SetRealtime` dipanggil).
+  `*realtime.Hub` TIDAK memenuhi interface ini secara langsung (signature
+  `Publish(schoolID,Event)` beda bentuk) — dijembatani adapter tipis
+  `cmd/server/realtimeadapter.go` (`realtimeForModules`, SATU instance
+  dipakai bersama semua modul karena method set identik), pola sama
+  `scheduleadapter.go`/`dashboardadapter.go`; wiring `SetRealtime` di
+  `cmd/server/main.go` segera setelah tiap service dikonstruksi
+- ✅ **Event catalog final** (tipe → data → target; Data SENGAJA minimal,
+  klien SELALU refetch REST ber-authz saat menerima event apa pun):
+  - `attendance.session` `{session_id,class_id,date}` — broadcast sekolah;
+    dipicu `CreateSession`/`createSubjectSessionFromSlot` (buka sesi, incl.
+    dari `schedule_slot_id`)/`UpdateRecords` (PUT bulk)/`Finalize`/
+    `ScanQRCard`/`SelfCheckin`
+  - `attendance.summary` `{date}` — roles `admin_sekolah`,`kepala_sekolah`,`display`;
+    dipicu titik yang SAMA dengan `attendance.session` (satu helper
+    `emitSession`)
+  - `teaching.status` `{date}` — roles `admin_sekolah`,`kepala_sekolah`,`display`;
+    dipicu `Scan` (jalur slot ketemu MAUPUN idempoten re-scan)/
+    `CreateUnscheduled`/`UpdateJournal`/`EndJournal`
+  - `notification` `{}` — user_ids [penerima]; dipicu `Service.Send` SETIAP
+    baris inbox in-app berhasil ditulis (per penerima, di dalam loop
+    `n.UserIDs`) — badge & list notifikasi refetch instan
+  - `leave` `{request_id}` — user_ids [pengaju, approver step aktif bila ada]
+    + roles `admin_sekolah`,`kepala_sekolah`; dipicu `SubmitRequest`/
+    `DecideStep` (approver BERIKUTNYA bila chain belum selesai)/`CancelRequest`
+  - `announcement` `{}` — broadcast sekolah; dipicu `Create`/`Update`/`Delete`
+  - `schedule` `{}` — broadcast sekolah; dipicu `CreateSlot`/`UpdateSlot`/
+    `DeleteSlot`/`CopySchedule`/`CommitScheduleImport`/`ReplacePeriods`
+  - `billing` `{}` — roles `admin_sekolah`,`kepala_sekolah`; dipicu
+    `ActivateSubscription`/`VoidInvoice`/`ExtendSubscriptionGoodwill`, DAN
+    `TickOnce` (worker lifecycle 1 jam) HANYA ke sekolah yang BENAR-BENAR
+    baru transisi active→grace/grace→readonly (lihat perubahan query di
+    bawah) — `VerifyManualPayment` tidak emit terpisah (memanggil
+    `ActivateSubscription` yang sudah emit)
+  - `students` `{}` — roles `admin_sekolah`,`kepala_sekolah`,`guru`; dipicu
+    `CreateStudent`/`UpdateStudent`/`CreateClass`/`UpdateClass`/
+    `EnrollStudents`/`UnenrollStudent`/`CommitStudentImport` (termasuk jalur
+    Dapodik, memanggil fungsi yang sama)
+- ✅ **Perubahan pendukung billing (Fase 12)**: `TransitionActiveToGrace`/
+  `TransitionGraceToReadonly` (`internal/billing/queries.sql`) diubah dari
+  `:execrows` (jumlah baris) jadi `:many RETURNING school_id` — `TickOnce`
+  butuh tahu SEKOLAH MANA yang transisi supaya event ditargetkan per sekolah
+  (Hub ter-partisi per sekolah), bukan disiarkan buta. Kode generated
+  (`billingdb/queries.sql.go`) ditulis TANGAN mengikuti idiom PERSIS sqlc
+  utk query `:many` kolom tunggal (dibandingkan
+  `internal/identity/identitydb/queries.sql.go#ListUserIDsByRole`) — sqlc
+  CLI tidak tersedia di lingkungan build ini; `repository.go`/fake repo test
+  disesuaikan (`[]int64` bukan `int64`)
+- ✅ Test `go test -race ./internal/realtime/`: register/publish broadcast,
+  targeting by role, by user_id, union role+user_id, buffer penuh → drop
+  klien TANPA deadlock (dibuktikan goroutine publisher selesai < timeout),
+  unregister bersih (peta sekolah terhapus saat koneksi terakhir lepas, no-op
+  dipanggil dua kali), publisher nil-safe (`closer=nil` tidak panic),
+  konkurensi register/publish/unregister 50 goroutine sekaligus (murni utk
+  `-race`) — SEMUA lolos `-race` (dijalankan di kontainer, gcc tersedia)
+- ✅ `go build/vet/test ./...` hijau (host Windows, tanpa `-race`) DAN
+  `go build/vet/test -race ./...` hijau di dalam kontainer `sekolah-api-1`
+  (host dev Windows tidak punya gcc/CGO_ENABLED — didokumentasikan sebagai
+  keterbatasan lingkungan, BUKAN diagnosis kode)
+- ✅ Klien WS frontend (backoff+jitter, watchdog 60s, online-event) sebagai bus invalidasi query; TV instan (polling fallback 120s saat connected), badge notif instan, guard dirty-state layar sesi absen, banner "Menyambung ulang"
+- ✅ Vite proxy ws:true; e2e Docker via probe WS nyata: role targeting terverifikasi (kepsek dapat summary, ortu tidak; ortu dapat notification), upgrade 101 bersih (browser asli — probe
+  Fase 12 backend di atas connect LANGSUNG ke `localhost:8210`, bukan lewat
+  Vite, sesuai batasan tugas "jangan sentuh web/")
+
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
-- Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; WebSocket realtime TV; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.
+- Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.

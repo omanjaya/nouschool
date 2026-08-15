@@ -406,5 +406,6 @@ func (s *Service) CommitScheduleImport(ctx context.Context, actorUserID, schoolI
 	created = len(createdRecs)
 	s.audit(ctx, schoolID, actorUserID, "schedule.import_commit", "schedule_slot", 0, nil,
 		map[string]any{"created": created, "skipped": skipped, "total": len(rows)})
+	s.emitSchedule(schoolID)
 	return created, skipped, nil
 }

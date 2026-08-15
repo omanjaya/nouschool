@@ -45,6 +45,14 @@ const (
 // karena attendance TIDAK boleh mengimpor identity, lihat CLAUDE.md).
 const RoleAdminSekolah = "admin_sekolah"
 
+// RoleKepalaSekolah / RoleDisplay — nilai kanonik (harus sama persis dengan
+// internal/identity) dipakai targeting event realtime "attendance.summary"
+// (Fase 12, lihat SetRealtime di service.go).
+const (
+	RoleKepalaSekolah = "kepala_sekolah"
+	RoleDisplay       = "display"
+)
+
 // Date adalah tanggal murni (tanpa jam), dikodekan JSON sebagai "YYYY-MM-DD".
 // Sama seperti internal/student.Date / internal/tenant.Date — didefinisikan
 // ulang di sini supaya attendance TIDAK mengimpor package lain untuk tipe ini.

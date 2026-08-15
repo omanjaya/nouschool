@@ -453,6 +453,7 @@ func (s *Service) CommitStudentImport(ctx context.Context, actorUserID, schoolID
 	}
 	s.audit(ctx, schoolID, actorUserID, "student.import_commit", "student", 0, nil,
 		map[string]any{"created": created, "updated": updated, "skipped": skipped, "total": len(rows)})
+	s.emitStudents(schoolID)
 	return created, updated, skipped, nil
 }
 

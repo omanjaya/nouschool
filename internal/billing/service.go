@@ -35,6 +35,24 @@ type SchoolGateway interface {
 	SchoolNameAndSlug(ctx context.Context, id int64) (name, slug string, err error)
 }
 
+// Realtime adalah kebutuhan modul billing dari modul realtime (Fase 12, bus
+// event WebSocket read-only server->client) — consumer-side interface kecil
+// dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go).
+type Realtime interface {
+	PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64)
+}
+
+// Role kanonik dipakai modul billing (nilai HARUS sama persis dengan
+// internal/identity — didefinisikan ulang di sini karena billing TIDAK
+// boleh mengimpor identity, lihat CLAUDE.md) — dipakai targeting event
+// realtime "billing" (Fase 12).
+const (
+	RoleAdminSekolah  = "admin_sekolah"
+	RoleKepalaSekolah = "kepala_sekolah"
+)
+
 // maxProofUploadSize — bukti transfer pdf/jpg/png maks 5MB (docs/09-billing.md scope Fase 10).
 const maxProofUploadSize = 5 << 20
 
@@ -87,6 +105,7 @@ type Service struct {
 	files    *storage.Store
 	clock    clock.Clock
 	provider PaymentProvider // opsional — nil = pembayaran online belum dikonfigurasi
+	realtime Realtime        // opsional — nil = event realtime dilewati (lihat SetRealtime)
 
 	cacheTTL time.Duration
 	mu       sync.RWMutex
@@ -118,6 +137,21 @@ func newServiceForTest(repo billingRepository, audit AuditLogger, clk clock.Cloc
 // SetProvider menyuntikkan PaymentProvider SETELAH konstruksi (opsional,
 // disuntik main.go bila MIDTRANS_SERVER_KEY tersedia — lihat provider.go).
 func (s *Service) SetProvider(p PaymentProvider) { s.provider = p }
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan SetProvider; nil aman/no-op).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// emitBilling memancarkan "billing" {} ke roles admin_sekolah/kepala_sekolah
+// satu sekolah (docs tugas Fase 12: "activate/verify/void/extend & transisi
+// lifecycle") — dipanggil SETELAH operasi sukses, best-effort (nil-safe).
+// Data SENGAJA kosong — klien selalu refetch GET /api/billing (bus read-only).
+func (s *Service) emitBilling(schoolID int64) {
+	if s.realtime == nil {
+		return
+	}
+	s.realtime.PublishTo(schoolID, "billing", map[string]any{}, []string{RoleAdminSekolah, RoleKepalaSekolah}, nil)
+}
 
 func (s *Service) logAudit(ctx context.Context, schoolID, actorUserID int64, action, entity string, entityID int64, oldValue, newValue any) {
 	if s.audit == nil {
@@ -228,13 +262,25 @@ func (s *Service) SubscriptionForMe(ctx context.Context, schoolID int64) (status
 // (mis. verifikasi e2e / admin "cek status sekarang").
 func (s *Service) TickOnce(ctx context.Context) error {
 	today := s.today()
-	if _, err := s.repo.TransitionActiveToGrace(ctx, today); err != nil {
+	toGrace, err := s.repo.TransitionActiveToGrace(ctx, today)
+	if err != nil {
 		return fmt.Errorf("billing: transisi active->grace: %w", err)
 	}
-	if _, err := s.repo.TransitionGraceToReadonly(ctx, today); err != nil {
+	toReadonly, err := s.repo.TransitionGraceToReadonly(ctx, today)
+	if err != nil {
 		return fmt.Errorf("billing: transisi grace->readonly: %w", err)
 	}
 	s.invalidateAllCache()
+	// Realtime (Fase 12): beri tahu SEKOLAH YANG TRANSISI SAJA (bukan
+	// broadcast lintas sekolah — Hub ter-partisi per sekolah, lihat
+	// internal/realtime) supaya banner status langganan di klien refetch
+	// instan tanpa menunggu polling.
+	for _, schoolID := range toGrace {
+		s.emitBilling(schoolID)
+	}
+	for _, schoolID := range toReadonly {
+		s.emitBilling(schoolID)
+	}
 	return nil
 }
 
@@ -299,6 +345,7 @@ func (s *Service) ActivateSubscription(ctx context.Context, invoiceID int64) err
 
 	s.logAudit(ctx, inv.SchoolID, 0, "billing.subscription_activate", "subscription", saved.ID,
 		nil, map[string]any{"plan_code": saved.PlanCode, "ends_on": saved.EndsOn.Format(dateLayout), "invoice_id": inv.ID})
+	s.emitBilling(inv.SchoolID)
 	return nil
 }
 
@@ -808,6 +855,7 @@ func (s *Service) VoidInvoice(ctx context.Context, actorUserID, invoiceID int64)
 	}
 	s.logAudit(ctx, inv.SchoolID, actorUserID, "billing.invoice_void", "invoice", inv.ID,
 		map[string]any{"status": inv.Status}, map[string]any{"status": InvoiceVoid})
+	s.emitBilling(inv.SchoolID)
 
 	updated, err := s.repo.GetInvoice(ctx, inv.ID)
 	if err != nil {
@@ -833,6 +881,7 @@ func (s *Service) ExtendSubscriptionGoodwill(ctx context.Context, actorUserID, s
 	}
 	s.invalidateCache(schoolID)
 	s.logAudit(ctx, schoolID, actorUserID, "billing.extend_goodwill", "subscription", schoolID, nil, map[string]any{"days": days})
+	s.emitBilling(schoolID)
 	return nil
 }
 

@@ -65,16 +65,43 @@ var ErrInvitationInvalid = &httpx.Error{Status: http.StatusNotFound, Code: "invi
 // ErrInvitationInvalid supaya status code sesuai spesifikasi: 410 Gone).
 var ErrInvitationUsed = &httpx.Error{Status: http.StatusGone, Code: "invitation_used", Message: "Kode undangan sudah dipakai atau kedaluwarsa."}
 
+// Realtime adalah kebutuhan modul student dari modul realtime (Fase 12, bus
+// event WebSocket read-only server->client) — consumer-side interface kecil
+// dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go).
+type Realtime interface {
+	PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64)
+}
+
 // Service berisi aturan bisnis modul student.
 type Service struct {
 	repo        studentRepository
 	identity    IdentityGateway
 	years       AcademicYearLookup
 	importStore *ImportStore
+	realtime    Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup) *Service {
 	return &Service{repo: repo, identity: identity, years: years, importStore: NewImportStore()}
+}
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan modul lain; nil aman/no-op).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// emitStudents memancarkan "students" {} ke roles
+// admin_sekolah/kepala_sekolah/guru (docs tugas Fase 12: "import commit /
+// CRUD siswa/rombel") — dipanggil SETELAH operasi sukses, best-effort
+// (nil-safe). Data SENGAJA kosong — klien selalu refetch endpoint student
+// yang relevan (bus read-only).
+func (s *Service) emitStudents(schoolID int64) {
+	if s.realtime == nil {
+		return
+	}
+	s.realtime.PublishTo(schoolID, "students", map[string]any{},
+		[]string{RoleAdminSekolah, RoleKepalaSekolah, RoleGuru}, nil)
 }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
@@ -368,6 +395,7 @@ func (s *Service) CreateStudent(ctx context.Context, actorUserID, schoolID int64
 	}
 
 	s.audit(ctx, schoolID, actorUserID, "student.create", "student", rec.ID, nil, rec)
+	s.emitStudents(schoolID)
 
 	yearID, _ := s.currentYearID(ctx, schoolID)
 	full, err := s.repo.GetStudent(ctx, schoolID, yearID, rec.ID)
@@ -412,6 +440,7 @@ func (s *Service) UpdateStudent(ctx context.Context, actorUserID, schoolID, id i
 		return Student{}, err
 	}
 	s.audit(ctx, schoolID, actorUserID, "student.update", "student", id, nil, rec)
+	s.emitStudents(schoolID)
 
 	yearID, _ := s.currentYearID(ctx, schoolID)
 	full, err := s.repo.GetStudent(ctx, schoolID, yearID, id)
@@ -500,6 +529,7 @@ func (s *Service) CreateClass(ctx context.Context, actorUserID, schoolID int64, 
 		return Class{}, err
 	}
 	s.audit(ctx, schoolID, actorUserID, "class.create", "class", rec.ID, nil, rec)
+	s.emitStudents(schoolID)
 	return s.classView(ctx, schoolID, rec), nil
 }
 
@@ -524,6 +554,7 @@ func (s *Service) UpdateClass(ctx context.Context, actorUserID, schoolID, id int
 		return Class{}, err
 	}
 	s.audit(ctx, schoolID, actorUserID, "class.update", "class", id, nil, rec)
+	s.emitStudents(schoolID)
 	return s.classView(ctx, schoolID, rec), nil
 }
 
@@ -561,6 +592,7 @@ func (s *Service) EnrollStudents(ctx context.Context, actorUserID, schoolID, cla
 	}
 	s.audit(ctx, schoolID, actorUserID, "enrollment.batch_enroll", "class", classID, nil,
 		map[string]any{"student_ids": ids})
+	s.emitStudents(schoolID)
 	return nil
 }
 
@@ -577,6 +609,7 @@ func (s *Service) UnenrollStudent(ctx context.Context, actorUserID, schoolID, cl
 	}
 	s.audit(ctx, schoolID, actorUserID, "enrollment.remove", "enrollment", studentID, nil,
 		map[string]any{"class_id": cls.ID})
+	s.emitStudents(schoolID)
 	return nil
 }
 

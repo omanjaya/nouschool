@@ -71,6 +71,15 @@ type AttachmentUpload struct {
 	Content  []byte
 }
 
+// Realtime adalah kebutuhan modul leave dari modul realtime (Fase 12, bus
+// event WebSocket read-only server->client) — consumer-side interface kecil
+// dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go).
+type Realtime interface {
+	PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64)
+}
+
 // Service berisi aturan bisnis modul leave.
 type Service struct {
 	repo     leaveRepository
@@ -78,6 +87,7 @@ type Service struct {
 	files    *storage.Store
 	clock    clock.Clock
 	notifier Notifier // opsional — nil = notifikasi dilewati (lihat SetNotifier)
+	realtime Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, files *storage.Store, clk clock.Clock) *Service {
@@ -94,6 +104,28 @@ func NewService(repo *Repository, identity IdentityGateway, files *storage.Store
 // main.go — pola yang sama dengan internal/attendance.SetNotifier, supaya
 // call site test yang sudah ada tidak perlu diubah; nil aman/no-op).
 func (s *Service) SetNotifier(n Notifier) { s.notifier = n }
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan SetNotifier; nil aman/no-op — lihat
+// emitRequest).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// emitRequest memancarkan "leave" {request_id} ke user_ids [pengaju] + roles
+// [admin_sekolah, kepala_sekolah] (docs tugas Fase 12), DAN ke
+// approverUserID step aktif bila ada (approver spesifik, mis. step dengan
+// approver_user_id != 0) — dipanggil SETELAH submit/decide/cancel sukses,
+// best-effort (nil-safe).
+func (s *Service) emitRequest(schoolID, requestID, teacherID, approverUserID int64) {
+	if s.realtime == nil {
+		return
+	}
+	userIDs := []int64{teacherID}
+	if approverUserID != 0 {
+		userIDs = append(userIDs, approverUserID)
+	}
+	s.realtime.PublishTo(schoolID, "leave", map[string]any{"request_id": requestID},
+		[]string{RoleAdminSekolah, RoleKepalaSekolah}, userIDs)
+}
 
 // notifyStep mengirim notifikasi ke approver satu step: user spesifik
 // (ApproverUserID != 0) atau SEMUA user yang sedang memegang ApproverRole di
@@ -324,6 +356,11 @@ func (s *Service) SubmitRequest(ctx context.Context, actorUserID, schoolID int64
 			"date_start": view.DateStart.Format("2006-01-02"), "date_end": view.DateEnd.Format("2006-01-02"),
 		})
 	}
+	var activeApprover int64
+	if len(steps) > 0 {
+		activeApprover = steps[0].ApproverUserID
+	}
+	s.emitRequest(schoolID, rec.ID, actorUserID, activeApprover)
 
 	return view, nil
 }
@@ -472,6 +509,7 @@ func (s *Service) CancelRequest(ctx context.Context, actorUserID, schoolID, requ
 	}
 	s.audit(ctx, schoolID, actorUserID, "leave.cancel", "leave_request", requestID, map[string]any{"status": StatusPending},
 		map[string]any{"status": StatusCanceled})
+	s.emitRequest(schoolID, requestID, actorUserID, 0)
 	return nil
 }
 
@@ -621,16 +659,19 @@ func (s *Service) DecideStep(ctx context.Context, actorUserID, schoolID, stepID 
 	s.notifyUser(ctx, schoolID, req.TeacherID, EventLeaveDecided, map[string]any{
 		"type": notifyData["type"], "date_start": notifyData["date_start"], "date_end": notifyData["date_end"], "decision": decisionLabel,
 	})
+	var nextApprover int64
 	if updatedReq.Status == StatusPending {
 		for _, st := range steps {
 			if st.Decision == "" {
 				s.notifyStep(ctx, schoolID, st.ApproverRole, st.ApproverUserID, EventLeaveSubmitted, map[string]any{
 					"teacher": view.Teacher.Name, "type": notifyData["type"], "date_start": notifyData["date_start"], "date_end": notifyData["date_end"],
 				})
+				nextApprover = st.ApproverUserID
 				break
 			}
 		}
 	}
+	s.emitRequest(schoolID, step.LeaveRequestID, req.TeacherID, nextApprover)
 
 	return view, nil
 }

@@ -126,28 +126,28 @@ func (f *fakeRepo) ExtendSubscription(ctx context.Context, schoolID int64, days 
 	return nil
 }
 
-func (f *fakeRepo) TransitionActiveToGrace(ctx context.Context, today time.Time) (int64, error) {
-	var n int64
+func (f *fakeRepo) TransitionActiveToGrace(ctx context.Context, today time.Time) ([]int64, error) {
+	var ids []int64
 	for id, rec := range f.subscriptions {
 		if rec.Status == StatusActive && rec.EndsOn.Before(today) {
 			rec.Status = StatusGrace
 			f.subscriptions[id] = rec
-			n++
+			ids = append(ids, id)
 		}
 	}
-	return n, nil
+	return ids, nil
 }
 
-func (f *fakeRepo) TransitionGraceToReadonly(ctx context.Context, today time.Time) (int64, error) {
-	var n int64
+func (f *fakeRepo) TransitionGraceToReadonly(ctx context.Context, today time.Time) ([]int64, error) {
+	var ids []int64
 	for id, rec := range f.subscriptions {
 		if rec.Status == StatusGrace && rec.EndsOn.AddDate(0, 0, GracePeriodDays).Before(today) {
 			rec.Status = StatusReadonly
 			f.subscriptions[id] = rec
-			n++
+			ids = append(ids, id)
 		}
 	}
-	return n, nil
+	return ids, nil
 }
 
 func (f *fakeRepo) ListSubscriptionsForAdmin(ctx context.Context) ([]AdminSubscriptionRow, error) {

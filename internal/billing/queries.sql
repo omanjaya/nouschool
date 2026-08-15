@@ -47,11 +47,18 @@ RETURNING *;
 UPDATE subscriptions SET ends_on = ends_on + make_interval(days => sqlc.arg(days)::int), status = 'active'
 WHERE school_id = sqlc.arg(school_id)::bigint;
 
--- name: TransitionActiveToGrace :execrows
-UPDATE subscriptions SET status = 'grace' WHERE status = 'active' AND ends_on < sqlc.arg(today)::date;
+-- name: TransitionActiveToGrace :many
+-- RETURNING school_id (bukan :execrows) — Fase 12 (realtime): TickOnce perlu
+-- tahu SEKOLAH MANA yang baru transisi supaya event "billing" bisa
+-- ditargetkan per sekolah (Hub per sekolah, lihat internal/realtime), bukan
+-- disiarkan ke semua sekolah sekaligus.
+UPDATE subscriptions SET status = 'grace' WHERE status = 'active' AND ends_on < sqlc.arg(today)::date
+RETURNING school_id;
 
--- name: TransitionGraceToReadonly :execrows
-UPDATE subscriptions SET status = 'readonly' WHERE status = 'grace' AND (ends_on + make_interval(days => sqlc.arg(grace_days)::int)) < sqlc.arg(today)::date;
+-- name: TransitionGraceToReadonly :many
+-- RETURNING school_id — lihat catatan TransitionActiveToGrace di atas.
+UPDATE subscriptions SET status = 'readonly' WHERE status = 'grace' AND (ends_on + make_interval(days => sqlc.arg(grace_days)::int)) < sqlc.arg(today)::date
+RETURNING school_id;
 
 -- name: ListSubscriptionsForAdmin :many
 -- Lintas-sekolah (panel super admin): daftar status semua sekolah.

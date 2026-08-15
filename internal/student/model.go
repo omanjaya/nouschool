@@ -37,9 +37,11 @@ func (d *Date) UnmarshalJSON(b []byte) error {
 // (harus sama persis dengan konstanta di internal/identity, tapi
 // didefinisikan ulang di sini karena student tidak boleh mengimpor identity).
 const (
-	RoleGuru     = "guru"
-	RoleSiswa    = "siswa"
-	RoleOrangTua = "orang_tua"
+	RoleGuru          = "guru"
+	RoleSiswa         = "siswa"
+	RoleOrangTua      = "orang_tua"
+	RoleAdminSekolah  = "admin_sekolah"
+	RoleKepalaSekolah = "kepala_sekolah"
 )
 
 // Relasi wali (guardians.relation).

@@ -47,6 +47,15 @@ type StudentClassLookup interface {
 // ErrNoActiveAcademicYear — sekolah belum mengaktifkan tahun ajaran.
 var ErrNoActiveAcademicYear = httpx.Validation("Sekolah belum punya tahun ajaran aktif. Aktifkan dulu di menu tahun ajaran.")
 
+// Realtime adalah kebutuhan modul schedule dari modul realtime (Fase 12, bus
+// event WebSocket read-only server->client) — consumer-side interface kecil
+// dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
+// *realtime.Hub secara langsung — dijembatani adapter kecil di cmd/server
+// (realtimeadapter.go).
+type Realtime interface {
+	Publish(schoolID int64, eventType string, data map[string]any)
+}
+
 // Service berisi aturan bisnis modul schedule.
 type Service struct {
 	repo     scheduleRepository
@@ -55,6 +64,7 @@ type Service struct {
 	students StudentClassLookup
 	clock    clock.Clock
 	imports  *importStore
+	realtime Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup, students StudentClassLookup, clk clock.Clock) *Service {
@@ -62,6 +72,22 @@ func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLo
 		clk = clock.System{}
 	}
 	return &Service{repo: repo, identity: identity, years: years, students: students, clock: clk, imports: newImportStore()}
+}
+
+// SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
+// main.go — pola yang sama dengan modul lain; nil aman/no-op).
+func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// emitSchedule memancarkan "schedule" {} broadcast satu sekolah (docs tugas
+// Fase 12: "slot create/update/delete/copy/import commit & periods
+// replace") — dipanggil SETELAH operasi sukses, best-effort (nil-safe).
+// Data SENGAJA kosong — klien selalu refetch endpoint schedule yang relevan
+// (bus read-only).
+func (s *Service) emitSchedule(schoolID int64) {
+	if s.realtime == nil {
+		return
+	}
+	s.realtime.Publish(schoolID, "schedule", map[string]any{})
 }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
@@ -212,6 +238,7 @@ func (s *Service) ReplacePeriods(ctx context.Context, actorUserID, schoolID int6
 		return nil, err
 	}
 	s.audit(ctx, schoolID, actorUserID, "schedule.periods_replace", "period", 0, nil, map[string]any{"count": len(recs)})
+	s.emitSchedule(schoolID)
 	return periodViews(recs), nil
 }
 
@@ -453,6 +480,7 @@ func (s *Service) CreateSlot(ctx context.Context, actorUserID, schoolID int64, i
 		"class_id": rec.ClassID, "subject_id": rec.SubjectID, "teacher_id": rec.TeacherID,
 		"day_of_week": rec.DayOfWeek, "period_start": rec.PeriodStart, "period_end": rec.PeriodEnd,
 	})
+	s.emitSchedule(schoolID)
 	return slotView(rec), nil
 }
 
@@ -492,6 +520,7 @@ func (s *Service) UpdateSlot(ctx context.Context, actorUserID, schoolID, id int6
 		"class_id": rec.ClassID, "subject_id": rec.SubjectID, "teacher_id": rec.TeacherID,
 		"day_of_week": rec.DayOfWeek, "period_start": rec.PeriodStart, "period_end": rec.PeriodEnd,
 	})
+	s.emitSchedule(schoolID)
 	return slotView(rec), nil
 }
 
@@ -510,6 +539,7 @@ func (s *Service) DeleteSlot(ctx context.Context, actorUserID, schoolID, id int6
 		"class_id": old.ClassID, "subject_id": old.SubjectID, "teacher_id": old.TeacherID,
 		"day_of_week": old.DayOfWeek, "period_start": old.PeriodStart, "period_end": old.PeriodEnd,
 	}, nil)
+	s.emitSchedule(schoolID)
 	return nil
 }
 
@@ -674,6 +704,7 @@ func (s *Service) CopySchedule(ctx context.Context, actorUserID, schoolID int64,
 	}
 	s.audit(ctx, schoolID, actorUserID, "schedule.copy", "class", in.ToClassID, nil,
 		map[string]any{"from_class_id": in.FromClassID, "copied": len(created), "skipped": len(skipped)})
+	s.emitSchedule(schoolID)
 	return CopyResult{Copied: len(created), Skipped: skipped}, nil
 }
 
