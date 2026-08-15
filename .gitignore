@@ -1,0 +1,25 @@
+# Env & secrets
+.env
+*.local
+
+# Go
+/bin/
+/server.exe
+/server
+
+# Node / frontend
+node_modules/
+web/dist/
+web/dev-dist/
+
+# sqlc & tooling cache
+.sqlc/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+
+# Uploads (data runtime, bukan kode)
+/uploads/
