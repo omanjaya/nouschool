@@ -49,10 +49,28 @@ dikerjakan — backend siap dipakai frontend.
 - ✅ Fix proxy dev Vite: `changeOrigin: false` supaya Host `*.localhost` diteruskan (resolusi tenant di browser jalan)
 - ✅ **Milestone: sekolah pertama bisa pakai absensi harian**
 
-## Fase 4 — Leave (izin guru) ⬜
-- ⬜ Settings chain + snapshot approval steps
-- ⬜ Pengajuan (+ lampiran), antrian approver, keputusan berurutan
-- ⬜ Rekap izin per guru
+## Fase 4 — Leave (izin guru) ✅ (backend)
+Backend terverifikasi end-to-end di Docker dev (`demo.localhost`): guru login
+→ GET tipe izin → POST pengajuan (izin, besok, tanpa lampiran) → steps
+ber-snapshot 1 step kepala_sekolah → kepsek login → GET antrian approval
+(muncul) → decide approved → status request approved, approver_name
+terisi → guru lihat scope=mine (approved) → POST pengajuan kedua lalu
+cancel → summary via kepsek (1 hari izin, sakit yang dibatalkan tidak
+terhitung) → guru GET approvals (200, daftar kosong — guru punya
+`leave:approve` sebagai gerbang kasar RBAC docs/02, tapi tidak ada step aktif
+miliknya) → upload lampiran PDF + GET file sebagai kepsek (200, Content-Type
+& Content-Disposition benar) vs sebagai guru lain (403) → admin scope=all
+(200) vs guru scope=all (403, butuh `leave:manage`). `go build/vet/test ./...`
+hijau; test service (fake repo): snapshot immune, sequential, rejected
+menghentikan chain, derivasi status, self-approval skip & auto-approve,
+guard eksplisit larangan approve request sendiri, cancel hanya
+pending+pemilik, validasi tanggal & settings.
+- ✅ Migrasi `00005_leave.sql` (`leave_requests` + kolom attachment/attachment_name/attachment_mime, `leave_approval_steps`)
+- ✅ Settings module `leave` (Types/Chain, validasi snake_case & role chain) terdaftar di `tenant.NewModuleSettings`
+- ✅ `internal/leave/`: GET tipe, POST pengajuan (multipart + lampiran pdf/jpg/png max 5MB via `platform/storage`), snapshot chain → steps saat submit, self-approval skip + auto-approve saat chain habis (audit `leave.auto_approved_self_chain`), GET daftar (scope mine/all), cancel (pemilik+pending), antrian approval, decide berurutan (audit `leave.decide`), rekap `/api/leave/summary` (perm `leave:manage` atau role `kepala_sekolah`), serve lampiran `/api/files/leave/{id}/attachment` (pengaju/approver-di-chain/`leave:manage`)
+- ✅ Interface publik `Service.ApprovedOn` (dipakai modul teaching, Fase 6)
+- ✅ Bootstrap: akun kepala sekolah demo (`kepsek`/`kepsek12345`) + password guru demo (`rendi@demo.sch.id`/`guru12345`) di-upsert idempoten setiap run
+- ✅ UI frontend (`web/`, dibangun terhadap kontrak API di `docs/07-leave.md`): `/izin` (daftar pengajuan sendiri + filter status + form ajukan izin dengan lampiran), `/izin/:id` (detail + timeline persetujuan + batalkan), `/izin/persetujuan` + `/izin/persetujuan/:stepId` (antrian approver, setujui/tolak dengan komentar wajib saat tolak), `/izin/rekap` (kepsek/admin, per rentang), seksi "Alur Persetujuan Izin" + "Jenis Izin" di `/pengaturan` (admin). `npm run build` & `npm run lint` hijau. Backend sekarang sudah ada (baris di atas) — UI ini belum diverifikasi ulang end-to-end terhadap backend nyata pada sesi ini (fokus sesi ini backend + verifikasi curl).
 
 ## Fase 5 — Schedule ⬜
 - ⬜ Periods, rooms (+ QR token & cetak QR ruangan), subjects

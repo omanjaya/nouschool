@@ -93,6 +93,34 @@ type Invitation struct {
 	UsedAt    pgtype.Timestamptz `json:"used_at"`
 }
 
+type LeaveApprovalStep struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	LeaveRequestID int64              `json:"leave_request_id"`
+	StepOrder      int32              `json:"step_order"`
+	ApproverRole   string             `json:"approver_role"`
+	ApproverUserID pgtype.Int8        `json:"approver_user_id"`
+	DecidedBy      pgtype.Int8        `json:"decided_by"`
+	Decision       pgtype.Text        `json:"decision"`
+	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
+	Comment        pgtype.Text        `json:"comment"`
+}
+
+type LeaveRequest struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	TeacherID      int64              `json:"teacher_id"`
+	Type           string             `json:"type"`
+	DateStart      pgtype.Date        `json:"date_start"`
+	DateEnd        pgtype.Date        `json:"date_end"`
+	Reason         string             `json:"reason"`
+	Attachment     pgtype.Text        `json:"attachment"`
+	AttachmentName pgtype.Text        `json:"attachment_name"`
+	AttachmentMime pgtype.Text        `json:"attachment_mime"`
+	Status         string             `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Membership struct {
 	ID       int64  `json:"id"`
 	UserID   int64  `json:"user_id"`

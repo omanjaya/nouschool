@@ -129,7 +129,7 @@ func main() {
 	}
 	slog.Info("siswa demo siap", "count", 8)
 
-	if err := ensureDemoTeachers(ctx, identitySvc, studentRepo, schoolID); err != nil {
+	if err := ensureDemoTeachers(ctx, identitySvc, identityRepo, studentRepo, schoolID); err != nil {
 		slog.Error("gagal menyiapkan guru demo", "err", err)
 		os.Exit(1)
 	}
@@ -146,6 +146,22 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("akun siswa demo siap", "username", "siswa", "password", "siswa12345", "nis", "22101")
+
+	// --- data contoh modul leave (Fase 4): akun kepala sekolah demo ---
+	kepsekID, err := upsertUser(ctx, identityRepo, upsertUserInput{
+		Username: "kepsek",
+		Name:     "Kepala Sekolah Demo",
+		Password: "kepsek12345",
+	})
+	if err != nil {
+		slog.Error("gagal menyiapkan akun kepala sekolah demo", "err", err)
+		os.Exit(1)
+	}
+	if _, err := identityRepo.CreateMembership(ctx, kepsekID, schoolID, identity.RoleKepalaSekolah); err != nil {
+		slog.Error("gagal membuat membership kepala sekolah demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("kepala sekolah demo siap", "username", "kepsek", "password", "kepsek12345", "school_id", schoolID)
 }
 
 // ensureDemoStudentAccount membuat akun login siswa demo (username `siswa`)
@@ -238,12 +254,20 @@ func ensureDemoStudents(ctx context.Context, repo *student.Repository, schoolID,
 }
 
 // ensureDemoTeachers membuat 2 akun guru contoh (idempoten by email) —
-// password contoh "guru12345" (bukan placeholder acak, supaya bisa dipakai
-// login demo langsung tanpa lewat alur undangan).
-func ensureDemoTeachers(ctx context.Context, identitySvc *identity.Service, repo *student.Repository, schoolID int64) error {
+// password "guru12345" DIPAKSA (upsert) setiap kali bootstrap dijalankan,
+// bukan hanya saat akun baru dibuat. Ini menutup celah dari fase 2: akun guru
+// yang pernah dibuat lewat CreateAccount dengan password placeholder acak
+// (mis. lewat import Excel) jadi TIDAK BISA login sampai bootstrap
+// dijalankan ulang — dengan password dipaksa di sini, bootstrap selalu
+// membuat akun demo bisa dipakai login (lihat Fase 4, verifikasi e2e leave).
+func ensureDemoTeachers(ctx context.Context, identitySvc *identity.Service, identityRepo *identity.Repository, repo *student.Repository, schoolID int64) error {
 	specs := []struct{ name, email string }{
 		{"Rendi Saputra", "rendi@demo.sch.id"},
 		{"Sari Wulandari", "sari@demo.sch.id"},
+	}
+	hash, err := identitySvc.HashPassword("guru12345")
+	if err != nil {
+		return err
 	}
 	for _, sp := range specs {
 		userID, exists, err := identitySvc.UserIDByEmail(ctx, sp.email)
@@ -251,14 +275,16 @@ func ensureDemoTeachers(ctx context.Context, identitySvc *identity.Service, repo
 			return err
 		}
 		if !exists {
-			hash, err := identitySvc.HashPassword("guru12345")
-			if err != nil {
-				return err
-			}
 			userID, err = identitySvc.CreateAccount(ctx, sp.email, "", hash, sp.name)
 			if err != nil {
 				return err
 			}
+			slog.Info("akun guru demo dibuat", "email", sp.email, "password", "guru12345")
+		} else {
+			if err := identityRepo.UpdateUserPassword(ctx, userID, hash); err != nil {
+				return err
+			}
+			slog.Info("password guru demo disetel ulang (idempoten)", "email", sp.email, "password", "guru12345")
 		}
 		if err := identitySvc.CreateMembership(ctx, userID, schoolID, identity.RoleGuru); err != nil {
 			return err

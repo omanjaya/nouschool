@@ -12,11 +12,13 @@ import (
 
 	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/identity"
+	"github.com/omanjaya/nouschool/internal/leave"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
 	"github.com/omanjaya/nouschool/internal/platform/database"
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
 	"github.com/omanjaya/nouschool/internal/platform/middleware"
+	"github.com/omanjaya/nouschool/internal/platform/storage"
 	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
@@ -82,11 +84,21 @@ func main() {
 		attendanceSvc := attendance.NewService(attendanceRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
 		attendanceHandler := attendance.NewHandler(attendanceSvc)
 
+		// --- modul leave (izin guru dengan approval engine konfigurable) ---
+		// identitySvc memenuhi leave.IdentityGateway secara STRUKTURAL
+		// (consumer-side interface dideklarasikan di internal/leave — lihat
+		// CLAUDE.md) — leave TIDAK mengimpor identity untuk tipe apa pun.
+		// platform/storage diimpor LANGSUNG (infrastruktur bersama, seperti clock).
+		leaveRepo := leave.NewRepository(pool)
+		leaveSvc := leave.NewService(leaveRepo, identitySvc, storage.FromEnv(), clock.System{})
+		leaveHandler := leave.NewHandler(leaveSvc)
+
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		student.RegisterRoutes(mux, studentHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 
 		tenantResolverMW = hostResolver.Middleware
 	} else {
