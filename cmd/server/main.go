@@ -21,6 +21,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/platform/storage"
 	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
+	"github.com/omanjaya/nouschool/internal/teaching"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
 
@@ -75,16 +76,6 @@ func main() {
 		studentSvc := student.NewService(studentRepo, identitySvc, tenantSvc)
 		studentHandler := student.NewHandler(studentSvc)
 
-		// --- modul attendance (absensi siswa mode daily) ---
-		// identitySvc, tenantSvc, studentSvc memenuhi attendance.IdentityGateway /
-		// attendance.AcademicYearLookup / attendance.StudentAccess secara
-		// STRUKTURAL (consumer-side interface dideklarasikan di
-		// internal/attendance — lihat CLAUDE.md) — attendance TIDAK mengimpor
-		// identity/tenant/student untuk tipe apa pun.
-		attendanceRepo := attendance.NewRepository(pool)
-		attendanceSvc := attendance.NewService(attendanceRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
-		attendanceHandler := attendance.NewHandler(attendanceSvc)
-
 		// --- modul leave (izin guru dengan approval engine konfigurable) ---
 		// identitySvc memenuhi leave.IdentityGateway secara STRUKTURAL
 		// (consumer-side interface dideklarasikan di internal/leave — lihat
@@ -100,10 +91,38 @@ func main() {
 		// schedule.AcademicYearLookup / schedule.StudentClassLookup secara
 		// STRUKTURAL (consumer-side interface dideklarasikan di
 		// internal/schedule — lihat CLAUDE.md) — schedule TIDAK mengimpor
-		// identity/tenant/student untuk tipe apa pun.
+		// identity/tenant/student untuk tipe apa pun. Dikonstruksi SEBELUM
+		// attendance & teaching karena keduanya butuh scheduleSvc (fase 6).
 		scheduleRepo := schedule.NewRepository(pool)
 		scheduleSvc := schedule.NewService(scheduleRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
 		scheduleHandler := schedule.NewHandler(scheduleSvc)
+
+		// --- modul attendance (absensi siswa mode daily & per-mapel) ---
+		// identitySvc, tenantSvc, studentSvc memenuhi attendance.IdentityGateway /
+		// attendance.AcademicYearLookup / attendance.StudentAccess /
+		// attendance.TeacherLookup secara STRUKTURAL (consumer-side interface
+		// dideklarasikan di internal/attendance — lihat CLAUDE.md) — attendance
+		// TIDAK mengimpor identity/tenant/student untuk tipe apa pun.
+		// attendance.ScheduleSlotLookup TIDAK dipenuhi langsung oleh
+		// *schedule.Service (shape data beda, bukan primitif) — dijembatani
+		// scheduleForAttendance (lihat scheduleadapter.go, fase 6).
+		attendanceRepo := attendance.NewRepository(pool)
+		attendanceSvc := attendance.NewService(attendanceRepo, identitySvc, tenantSvc, studentSvc, scheduleForAttendance{svc: scheduleSvc}, studentSvc, clock.System{})
+		attendanceHandler := attendance.NewHandler(attendanceSvc)
+
+		// --- modul teaching (jurnal mengajar via scan QR ruangan + monitoring
+		// status mengajar, fase 6 — docs/06-teaching.md) ---
+		// identitySvc & studentSvc memenuhi teaching.IdentityGateway /
+		// teaching.StudentGateway secara STRUKTURAL; leaveSvc & attendanceSvc
+		// memenuhi teaching.LeaveGateway / teaching.AttendanceGateway secara
+		// STRUKTURAL juga (method ApprovedOn/OpenSubjectSession primitif) —
+		// teaching TIDAK mengimpor identity/student/leave/attendance untuk
+		// tipe apa pun. teaching.ScheduleGateway TIDAK dipenuhi langsung oleh
+		// *schedule.Service (shape data beda) — dijembatani scheduleForTeaching
+		// (lihat scheduleadapter.go).
+		teachingRepo := teaching.NewRepository(pool)
+		teachingSvc := teaching.NewService(teachingRepo, identitySvc, scheduleForTeaching{svc: scheduleSvc}, leaveSvc, attendanceSvc, studentSvc, clock.System{})
+		teachingHandler := teaching.NewHandler(teachingSvc)
 
 		// --- wiring routes ---
 		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
@@ -112,6 +131,7 @@ func main() {
 		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 
 		tenantResolverMW = hostResolver.Middleware
 	} else {

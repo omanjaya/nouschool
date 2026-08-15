@@ -215,6 +215,22 @@ type Teacher struct {
 	Nip      pgtype.Text `json:"nip"`
 }
 
+type TeachingJournal struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	TeacherID      int64              `json:"teacher_id"`
+	ScheduleSlotID pgtype.Int8        `json:"schedule_slot_id"`
+	ClassID        int64              `json:"class_id"`
+	SubjectID      pgtype.Int8        `json:"subject_id"`
+	RoomID         pgtype.Int8        `json:"room_id"`
+	Date           pgtype.Date        `json:"date"`
+	StartedAt      pgtype.Timestamptz `json:"started_at"`
+	EndedAt        pgtype.Timestamptz `json:"ended_at"`
+	Material       pgtype.Text        `json:"material"`
+	Note           pgtype.Text        `json:"note"`
+	Flags          []string           `json:"flags"`
+}
+
 type User struct {
 	ID           int64              `json:"id"`
 	Email        pgtype.Text        `json:"email"`

@@ -96,14 +96,32 @@ func TestParseSlotRows_UnknownReferences(t *testing.T) {
 func TestParseSlotRows_InvalidDay(t *testing.T) {
 	records := [][]string{
 		{"rombel", "hari", "jam_mulai", "jam_selesai", "kode_mapel", "email_guru", "ruangan"},
-		{"XII RPL 1", "Minggu", "1", "2", "BDT", "rendi@demo.sch.id", ""},
+		{"XII RPL 1", "Kemarin", "1", "2", "BDT", "rendi@demo.sch.id", ""},
 	}
 	rows, err := parseSlotRows(records, baseLookup())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if rows[0].Action != "error" {
-		t.Fatalf("expected 'Minggu' ditolak (bukan hari sekolah 1-6), got action=%q", rows[0].Action)
+		t.Fatalf("expected 'Kemarin' ditolak (bukan nama hari dikenal), got action=%q", rows[0].Action)
+	}
+}
+
+// TestParseSlotRows_SundayAccepted — Minggu (0) DITERIMA sejak fase 6 (lihat
+// komentar dayNames di model.go: teaching butuh kemampuan seed slot pada
+// HARI INI apa pun harinya untuk verifikasi e2e, keputusan diotorisasi
+// eksplisit di scope kerja fase 6).
+func TestParseSlotRows_SundayAccepted(t *testing.T) {
+	records := [][]string{
+		{"rombel", "hari", "jam_mulai", "jam_selesai", "kode_mapel", "email_guru", "ruangan"},
+		{"XII RPL 1", "Minggu", "1", "2", "BDT", "rendi@demo.sch.id", ""},
+	}
+	rows, err := parseSlotRows(records, baseLookup())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rows[0].Action == "error" {
+		t.Fatalf("expected 'Minggu' diterima (day_of_week=0), got error: %v", rows[0].Messages)
 	}
 }
 

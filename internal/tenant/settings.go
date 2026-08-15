@@ -6,6 +6,7 @@ import (
 
 	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/leave"
+	"github.com/omanjaya/nouschool/internal/teaching"
 )
 
 // Settings adalah kontrak yang wajib dipenuhi tiap struct settings modul
@@ -72,6 +73,9 @@ func NewModuleSettings(module string) (Settings, bool) {
 	case "leave":
 		l := leave.DefaultSettings()
 		return &l, true
+	case "teaching":
+		t := teaching.DefaultSettings()
+		return &t, true
 	default:
 		return nil, false
 	}

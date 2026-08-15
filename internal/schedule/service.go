@@ -362,8 +362,10 @@ func slotView(rec SlotRecord) SlotView {
 }
 
 func validateSlotShape(dayOfWeek, periodStart, periodEnd int) error {
-	if dayOfWeek < 1 || dayOfWeek > 6 {
-		return httpx.Validation("Hari harus 1 (Senin) sampai 6 (Sabtu).")
+	// 0 (Minggu) diizinkan sejak fase 6 (lihat komentar dayNames di model.go)
+	// — sebelumnya hanya 1 (Senin) sampai 6 (Sabtu).
+	if dayOfWeek < 0 || dayOfWeek > 6 {
+		return httpx.Validation("Hari harus 0 (Minggu) sampai 6 (Sabtu).")
 	}
 	if periodStart <= 0 || periodEnd <= 0 {
 		return httpx.Validation("Jam ke- harus lebih dari 0.")
@@ -800,6 +802,65 @@ func (s *Service) SlotsToday(ctx context.Context, schoolID int64, in TodayQuery,
 		out = append(out, TodaySlotView{SlotView: slotView(sl), IsNow: isNow})
 	}
 	return out, nil
+}
+
+// SlotsForDayOfWeek — SEMUA slot jadwal (tahun ajaran aktif) pada
+// day_of_week tertentu, lintas kelas & guru, TANPA filter object-level
+// (dipakai modul teaching fase 6 lewat consumer-side interface untuk
+// monitoring lintas guru — otorisasi teaching:monitor sudah ditegakkan
+// pemanggil, lihat docs/06-teaching.md "Status mengajar"). Berbeda dari
+// SlotsToday: tidak butuh class_id/teacher_id, dan tidak terikat "hari ini"
+// (dipakai juga untuk tanggal lampau saat GET /api/teaching/status?date=).
+func (s *Service) SlotsForDayOfWeek(ctx context.Context, schoolID int64, dayOfWeek int) ([]SlotView, error) {
+	yearID, err := s.resolveYear(ctx, schoolID, 0)
+	if err != nil {
+		if errors.Is(err, ErrNoActiveAcademicYear) {
+			return []SlotView{}, nil
+		}
+		return nil, err
+	}
+	all, err := s.repo.ListSlotsForYear(ctx, schoolID, yearID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SlotView, 0)
+	for _, sl := range all {
+		if sl.DayOfWeek == dayOfWeek {
+			out = append(out, slotView(sl))
+		}
+	}
+	return out, nil
+}
+
+// SlotByID mengembalikan satu slot apa adanya (tanpa filter tanggal/guru) —
+// dipakai modul teaching (fase 6, lewat consumer-side interface) menderivasi
+// status "done" jurnal individual dari period_end slot itu (docs/06-teaching.md).
+// ok=false bila slot tidak ditemukan di sekolah ini.
+func (s *Service) SlotByID(ctx context.Context, schoolID, slotID int64) (SlotView, bool, error) {
+	rec, err := s.repo.GetSlotByID(ctx, schoolID, slotID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return SlotView{}, false, nil
+		}
+		return SlotView{}, false, err
+	}
+	return slotView(rec), true, nil
+}
+
+// SlotOwnership mengembalikan (class_id, teacher_id) satu slot — primitif
+// murni supaya modul lain (attendance fase 6, lewat consumer-side interface)
+// bisa memvalidasi kepemilikan slot ("guru hanya boleh buka sesi absen utk
+// slotnya sendiri") TANPA mengimpor tipe schedule. ok=false bila slot tidak
+// ditemukan di sekolah ini.
+func (s *Service) SlotOwnership(ctx context.Context, schoolID, slotID int64) (classID, teacherID int64, ok bool, err error) {
+	rec, err := s.repo.GetSlotByID(ctx, schoolID, slotID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, err
+	}
+	return rec.ClassID, rec.TeacherID, true, nil
 }
 
 // SlotNow — slot guru (teacherID) yang sedang berlangsung pada waktu `at`

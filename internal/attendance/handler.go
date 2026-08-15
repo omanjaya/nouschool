@@ -37,11 +37,14 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 }
 
 type createSessionRequest struct {
-	ClassID int64  `json:"class_id"`
-	Date    string `json:"date"`
+	ClassID        int64  `json:"class_id"`
+	ScheduleSlotID int64  `json:"schedule_slot_id"`
+	Date           string `json:"date"`
 }
 
-// CreateSession — POST /api/attendance/sessions.
+// CreateSession — POST /api/attendance/sessions. Terima {class_id} (sesi
+// daily) ATAU {schedule_slot_id} (sesi subject dari slot jadwal, fase 6 —
+// docs/06-teaching.md).
 func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	var req createSessionRequest
 	if err := httpx.Decode(r, &req); err != nil {
@@ -50,7 +53,7 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	detail, err := h.svc.CreateSession(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), NewSessionInput{
-		ClassID: req.ClassID, Date: req.Date,
+		ClassID: req.ClassID, ScheduleSlotID: req.ScheduleSlotID, Date: req.Date,
 	})
 	if err != nil {
 		httpx.WriteError(w, err)
@@ -124,6 +127,17 @@ func (h *Handler) Finalize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, result)
+}
+
+// SlotsToday — GET /api/attendance/slots-today.
+func (h *Handler) SlotsToday(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	items, err := h.svc.SlotsToday(ctx, reqctx.SchoolID(ctx), reqctx.UserID(ctx))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
 }
 
 // Summary — GET /api/attendance/summary?date=&class_id=.

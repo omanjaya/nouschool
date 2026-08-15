@@ -71,6 +71,51 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (A
 	return i, err
 }
 
+const createSubjectSession = `-- name: CreateSubjectSession :one
+
+INSERT INTO attendance_sessions (school_id, academic_year_id, class_id, date, type, schedule_slot_id, opened_by, status)
+VALUES ($1, $2, $3, $4, 'subject', $5, $6, 'open')
+RETURNING id, school_id, academic_year_id, class_id, date, type, schedule_slot_id, opened_by, status, created_at
+`
+
+type CreateSubjectSessionParams struct {
+	SchoolID       int64       `json:"school_id"`
+	AcademicYearID int64       `json:"academic_year_id"`
+	ClassID        int64       `json:"class_id"`
+	Date           pgtype.Date `json:"date"`
+	ScheduleSlotID pgtype.Int8 `json:"schedule_slot_id"`
+	OpenedBy       int64       `json:"opened_by"`
+}
+
+// -- mode per_subject (fase 6, docs/05 & docs/06): sesi type='subject' terikat
+// -- schedule_slot_id, bukan class_id+date langsung — dibuka via scan QR
+// -- ruangan (teaching.Scan -> attendance.OpenSubjectSession) ATAU manual dari
+// -- layar "slot hari ini" guru (POST /api/attendance/sessions {schedule_slot_id}).
+func (q *Queries) CreateSubjectSession(ctx context.Context, arg CreateSubjectSessionParams) (AttendanceSession, error) {
+	row := q.db.QueryRow(ctx, createSubjectSession,
+		arg.SchoolID,
+		arg.AcademicYearID,
+		arg.ClassID,
+		arg.Date,
+		arg.ScheduleSlotID,
+		arg.OpenedBy,
+	)
+	var i AttendanceSession
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.AcademicYearID,
+		&i.ClassID,
+		&i.Date,
+		&i.Type,
+		&i.ScheduleSlotID,
+		&i.OpenedBy,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const finalizeSession = `-- name: FinalizeSession :one
 UPDATE attendance_sessions SET status = 'finalized' WHERE id = $1 AND school_id = $2 RETURNING id, school_id, academic_year_id, class_id, date, type, schedule_slot_id, opened_by, status, created_at
 `
@@ -176,6 +221,35 @@ type GetSessionByIDParams struct {
 
 func (q *Queries) GetSessionByID(ctx context.Context, arg GetSessionByIDParams) (AttendanceSession, error) {
 	row := q.db.QueryRow(ctx, getSessionByID, arg.ID, arg.SchoolID)
+	var i AttendanceSession
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.AcademicYearID,
+		&i.ClassID,
+		&i.Date,
+		&i.Type,
+		&i.ScheduleSlotID,
+		&i.OpenedBy,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSessionBySlotDate = `-- name: GetSessionBySlotDate :one
+SELECT id, school_id, academic_year_id, class_id, date, type, schedule_slot_id, opened_by, status, created_at FROM attendance_sessions
+WHERE school_id = $1 AND schedule_slot_id = $2 AND date = $3 AND type = 'subject'
+`
+
+type GetSessionBySlotDateParams struct {
+	SchoolID       int64       `json:"school_id"`
+	ScheduleSlotID pgtype.Int8 `json:"schedule_slot_id"`
+	Date           pgtype.Date `json:"date"`
+}
+
+func (q *Queries) GetSessionBySlotDate(ctx context.Context, arg GetSessionBySlotDateParams) (AttendanceSession, error) {
+	row := q.db.QueryRow(ctx, getSessionBySlotDate, arg.SchoolID, arg.ScheduleSlotID, arg.Date)
 	var i AttendanceSession
 	err := row.Scan(
 		&i.ID,

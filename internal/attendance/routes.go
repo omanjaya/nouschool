@@ -20,6 +20,7 @@ func RegisterRoutes(
 	report := func(hf http.HandlerFunc) http.Handler { return requireAuth(requirePerm(PermAttendanceReport)(hf)) }
 
 	mux.Handle("GET /api/attendance/classes", write(h.ListClasses))
+	mux.Handle("GET /api/attendance/slots-today", write(h.SlotsToday))
 	mux.Handle("POST /api/attendance/sessions", write(h.CreateSession))
 	// GetSession sengaja hanya requireAuth: otorisasi (attendance:write ATAU
 	// attendance:report) ditegakkan sepenuhnya di Service.GetSession/checkSessionAccess.

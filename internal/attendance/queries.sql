@@ -41,6 +41,20 @@ RETURNING *;
 SELECT * FROM attendance_sessions
 WHERE school_id = $1 AND class_id = $2 AND date = $3 AND type = 'daily';
 
+-- -- mode per_subject (fase 6, docs/05 & docs/06): sesi type='subject' terikat
+-- -- schedule_slot_id, bukan class_id+date langsung — dibuka via scan QR
+-- -- ruangan (teaching.Scan -> attendance.OpenSubjectSession) ATAU manual dari
+-- -- layar "slot hari ini" guru (POST /api/attendance/sessions {schedule_slot_id}).
+
+-- name: CreateSubjectSession :one
+INSERT INTO attendance_sessions (school_id, academic_year_id, class_id, date, type, schedule_slot_id, opened_by, status)
+VALUES ($1, $2, $3, $4, 'subject', $5, $6, 'open')
+RETURNING *;
+
+-- name: GetSessionBySlotDate :one
+SELECT * FROM attendance_sessions
+WHERE school_id = $1 AND schedule_slot_id = $2 AND date = $3 AND type = 'subject';
+
 -- name: GetSessionByID :one
 SELECT * FROM attendance_sessions WHERE id = $1 AND school_id = $2;
 

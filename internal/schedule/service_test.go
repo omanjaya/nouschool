@@ -735,3 +735,66 @@ func TestListSlots_StudentObjectLevel(t *testing.T) {
 		t.Fatalf("expected 403, got %d", status)
 	}
 }
+
+// -- SlotsForDayOfWeek & SlotOwnership (fase 6, dipakai modul teaching &
+// attendance lewat consumer-side interface) --
+
+func TestSlotsForDayOfWeek(t *testing.T) {
+	repo := newFakeScheduleRepo()
+	setupBasicRefs(repo)
+	svc := newTestService(repo, 10, time.Now())
+	admin := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+
+	if _, err := svc.CreateSlot(admin, 1, 1, SlotInputRequest{ClassID: 100, SubjectID: 200, TeacherID: 300, DayOfWeek: 1, PeriodStart: 1, PeriodEnd: 2}); err != nil {
+		t.Fatalf("setup gagal: %v", err)
+	}
+	if _, err := svc.CreateSlot(admin, 1, 1, SlotInputRequest{ClassID: 100, SubjectID: 200, TeacherID: 300, DayOfWeek: 2, PeriodStart: 1, PeriodEnd: 2}); err != nil {
+		t.Fatalf("setup gagal: %v", err)
+	}
+
+	senin, err := svc.SlotsForDayOfWeek(admin, 1, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(senin) != 1 {
+		t.Fatalf("expected 1 slot Senin, got %d", len(senin))
+	}
+
+	// Minggu (0) — TIDAK ada slot ditambahkan -> kosong, TAPI tidak error
+	// (hari itu sendiri valid sejak fase 6, lihat model.go dayNames).
+	minggu, err := svc.SlotsForDayOfWeek(admin, 1, 0)
+	if err != nil {
+		t.Fatalf("unexpected error hari Minggu: %v", err)
+	}
+	if len(minggu) != 0 {
+		t.Fatalf("expected 0 slot Minggu, got %d", len(minggu))
+	}
+}
+
+func TestSlotOwnership(t *testing.T) {
+	repo := newFakeScheduleRepo()
+	setupBasicRefs(repo)
+	svc := newTestService(repo, 10, time.Now())
+	admin := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+
+	created, err := svc.CreateSlot(admin, 1, 1, SlotInputRequest{ClassID: 100, SubjectID: 200, TeacherID: 300, DayOfWeek: 1, PeriodStart: 1, PeriodEnd: 2})
+	if err != nil {
+		t.Fatalf("setup gagal: %v", err)
+	}
+
+	classID, teacherID, ok, err := svc.SlotOwnership(admin, 1, created.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok || classID != 100 || teacherID != 300 {
+		t.Fatalf("expected class=100 teacher=300 ok=true, got class=%d teacher=%d ok=%v", classID, teacherID, ok)
+	}
+
+	_, _, ok2, err := svc.SlotOwnership(admin, 1, 99999)
+	if err != nil {
+		t.Fatalf("unexpected error slot tidak ada: %v", err)
+	}
+	if ok2 {
+		t.Fatal("expected ok=false utk slot tidak ditemukan")
+	}
+}

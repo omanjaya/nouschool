@@ -193,6 +193,20 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("jadwal demo siap", "kelas", "XII RPL 1, XI RPL 2", "hari", "Senin-Jumat")
+
+	// --- fase 6 (teaching + attendance per-mapel): slot demo HARI INI ---
+	// ensureDemoSchedule di atas hanya mengisi Senin-Jumat, jadi Sabtu/Minggu
+	// SELALU kosong (SlotNow/SlotsForDayOfWeek tidak ada yang bisa ditemukan)
+	// — bootstrap ini bisa dijalankan ulang kapan pun (mesin dev, CI, demo di
+	// hari apa pun), jadi tambahkan 2 slot pada day_of_week HARI INI (waktu
+	// lokal sekolah) supaya verifikasi end-to-end scan QR/monitoring selalu
+	// reproducible, termasuk Minggu (day_of_week=0 — lihat komentar dayNames
+	// di internal/schedule/model.go, diotorisasi eksplisit di scope fase 6).
+	if err := ensureDemoTodaySlots(ctx, scheduleSvc, scheduleRepo, studentRepo, schoolID, activeYear.ID, superAdminID, classIDs); err != nil {
+		slog.Error("gagal menyiapkan slot demo hari ini", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("slot demo HARI INI siap (fase 6, verifikasi e2e scan/monitoring)")
 }
 
 // ensureDemoPeriods membuat 9 period demo (8 jam KBM + 1 Istirahat, semua
@@ -341,6 +355,64 @@ func ensureDemoSchedule(ctx context.Context, svc *schedule.Service, repo *schedu
 		}); err != nil {
 			return fmt.Errorf("bootstrap: gagal membuat slot demo (%s hari %d jam %d-%d): %w",
 				spec.ClassName, spec.Day, spec.PeriodStart, spec.PeriodEnd, err)
+		}
+	}
+	return nil
+}
+
+// ensureDemoTodaySlots menambahkan 2 slot jadwal pada HARI INI (day_of_week
+// waktu lokal sekolah "Asia/Jakarta" — termasuk Minggu=0) untuk XII RPL 1,
+// bila kelas itu BELUM punya slot pada hari tsb sama sekali. Idempoten:
+// hanya menambah bila hari itu masih kosong untuk kelas ini (tidak
+// menduplikasi tiap kali bootstrap dijalankan ulang pada hari yang sama).
+func ensureDemoTodaySlots(ctx context.Context, svc *schedule.Service, repo *schedule.Repository, studentRepo *student.Repository, schoolID, yearID, actorUserID int64, classIDs map[string]int64) error {
+	today := int(clock.InZone(time.Now(), "Asia/Jakarta").Weekday())
+
+	existing, err := repo.ListSlotsForYear(ctx, schoolID, yearID)
+	if err != nil {
+		return err
+	}
+	xiiID, ok := classIDs["XII RPL 1"]
+	if !ok {
+		return fmt.Errorf("bootstrap: rombel XII RPL 1 tidak ditemukan utk slot hari ini")
+	}
+	for _, sl := range existing {
+		if sl.ClassID == xiiID && sl.DayOfWeek == today {
+			return nil // sudah ada slot hari ini utk kelas ini -> idempoten, skip
+		}
+	}
+
+	bdt, err := studentRepo.GetSubjectByCode(ctx, schoolID, "BDT")
+	if err != nil {
+		return err
+	}
+	mtk, err := studentRepo.GetSubjectByCode(ctx, schoolID, "MTK")
+	if err != nil {
+		return err
+	}
+	rendi, err := studentRepo.GetTeacherByEmail(ctx, schoolID, "rendi@demo.sch.id")
+	if err != nil {
+		return err
+	}
+	sari, err := studentRepo.GetTeacherByEmail(ctx, schoolID, "sari@demo.sch.id")
+	if err != nil {
+		return err
+	}
+
+	specs := []struct {
+		subjectID, teacherID   int64
+		periodStart, periodEnd int
+	}{
+		{bdt.ID, rendi.ID, 1, 2}, // 07:00-08:20 WIB
+		{mtk.ID, sari.ID, 3, 4},  // 08:20-09:30 WIB
+	}
+	for _, sp := range specs {
+		if _, err := svc.CreateSlot(ctx, actorUserID, schoolID, schedule.SlotInputRequest{
+			ClassID: xiiID, SubjectID: sp.subjectID, TeacherID: sp.teacherID,
+			DayOfWeek: today, PeriodStart: sp.periodStart, PeriodEnd: sp.periodEnd,
+			AcademicYearID: yearID,
+		}); err != nil {
+			return fmt.Errorf("bootstrap: gagal membuat slot hari ini (day_of_week=%d jam %d-%d): %w", today, sp.periodStart, sp.periodEnd, err)
 		}
 	}
 	return nil

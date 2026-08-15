@@ -78,6 +78,30 @@ func (f *fakeRepo) GetSessionByClassDate(ctx context.Context, schoolID, classID 
 	return SessionRecord{}, ErrNotFound
 }
 
+func (f *fakeRepo) CreateSubjectSession(ctx context.Context, in CreateSubjectSessionInput) (SessionRecord, error) {
+	for _, sess := range f.sessions {
+		if sess.Type == TypeSubject && sess.ScheduleSlotID == in.ScheduleSlotID && sameDate(sess.Date, in.Date) {
+			return SessionRecord{}, ErrConflict
+		}
+	}
+	f.nextID++
+	sess := SessionRecord{
+		ID: f.nextID, SchoolID: in.SchoolID, AcademicYearID: in.AcademicYearID, ClassID: in.ClassID,
+		Date: in.Date, Type: TypeSubject, ScheduleSlotID: in.ScheduleSlotID, OpenedBy: in.OpenedBy, Status: SessionOpen, CreatedAt: in.Date,
+	}
+	f.sessions[sess.ID] = sess
+	return sess, nil
+}
+
+func (f *fakeRepo) GetSessionBySlotDate(ctx context.Context, schoolID, scheduleSlotID int64, date time.Time) (SessionRecord, error) {
+	for _, sess := range f.sessions {
+		if sess.Type == TypeSubject && sess.ScheduleSlotID == scheduleSlotID && sameDate(sess.Date, date) {
+			return sess, nil
+		}
+	}
+	return SessionRecord{}, ErrNotFound
+}
+
 func (f *fakeRepo) GetSessionByID(ctx context.Context, schoolID, id int64) (SessionRecord, error) {
 	sess, ok := f.sessions[id]
 	if !ok || sess.SchoolID != schoolID {
@@ -202,6 +226,36 @@ func (f fakeStudents) CanViewStudent(ctx context.Context, userID int64, role str
 	return httpx.ErrForbidden
 }
 
+// fakeSchedule implementasi ScheduleSlotLookup untuk test (fase 6).
+type fakeSchedule struct {
+	// slotID -> (classID, teacherID)
+	slots      map[int64][2]int64
+	slotsToday map[int64][]SlotToday // teacherID -> slot hari ini
+}
+
+func (f fakeSchedule) SlotOwnership(ctx context.Context, schoolID, slotID int64) (int64, int64, bool, error) {
+	v, ok := f.slots[slotID]
+	if !ok {
+		return 0, 0, false, nil
+	}
+	return v[0], v[1], true, nil
+}
+
+func (f fakeSchedule) SlotsTodayForTeacher(ctx context.Context, schoolID, teacherID int64, at time.Time) ([]SlotToday, error) {
+	return f.slotsToday[teacherID], nil
+}
+
+// fakeTeachers implementasi TeacherLookup untuk test (fase 6).
+type fakeTeachers struct {
+	// userID -> teacherID
+	byUser map[int64]int64
+}
+
+func (f fakeTeachers) MyTeacherID(ctx context.Context, schoolID, userID int64) (int64, bool, error) {
+	id, ok := f.byUser[userID]
+	return id, ok, nil
+}
+
 func ctxAs(role string, userID int64, tz string) context.Context {
 	ctx := reqctx.WithUser(context.Background(), userID, role, false)
 	ctx = reqctx.WithSchool(ctx, reqctx.School{ID: 1, Name: "Sekolah Uji", Slug: "uji", Timezone: tz})
@@ -263,7 +317,7 @@ func TestCreateSessionUsesSchoolLocalDate(t *testing.T) {
 
 	// 23:30 WIB pada 1 Agustus 2026 = 16:30 UTC.
 	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 16, 30, 0, 0, time.UTC)}
-	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 
 	ctx := ctxAs("guru", 999, "Asia/Jakarta")
 	detail, err := svc.CreateSession(ctx, 999, 1, NewSessionInput{ClassID: 1})
@@ -304,7 +358,7 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 		repo := newFakeRepo()
 		sessionID := setupSessionWithOneStudent(repo, created, SessionOpen)
 		fixed := clock.Fixed{T: created.Add(2 * time.Hour)}
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 
 		ctx := ctxAs("guru", 999, "Asia/Jakarta")
 		_, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusHadir}})
@@ -317,7 +371,7 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 		repo := newFakeRepo()
 		sessionID := setupSessionWithOneStudent(repo, created, SessionOpen)
 		fixed := clock.Fixed{T: created.Add(25 * time.Hour)}
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 
 		ctx := ctxAs("guru", 999, "Asia/Jakarta")
 		_, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusHadir}})
@@ -331,7 +385,7 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 		repo := newFakeRepo()
 		sessionID := setupSessionWithOneStudent(repo, created, SessionOpen)
 		fixed := clock.Fixed{T: created.Add(48 * time.Hour)}
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 
 		ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
 		_, err := svc.UpdateRecords(ctx, 1, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusHadir}})
@@ -344,7 +398,7 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 		repo := newFakeRepo()
 		sessionID := setupSessionWithOneStudent(repo, created, SessionFinalized)
 		fixed := clock.Fixed{T: created.Add(time.Hour)}
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 
 		ctx := ctxAs("guru", 999, "Asia/Jakarta")
 		_, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusHadir}})
@@ -357,7 +411,7 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 		repo := newFakeRepo()
 		sessionID := setupSessionWithOneStudent(repo, created, SessionFinalized)
 		fixed := clock.Fixed{T: created.Add(time.Hour)}
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 
 		ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
 		_, err := svc.UpdateRecords(ctx, 1, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: StatusHadir}})
@@ -370,7 +424,7 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 		repo := newFakeRepo()
 		sessionID := setupSessionWithOneStudent(repo, created, SessionOpen)
 		fixed := clock.Fixed{T: created.Add(time.Hour)}
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 
 		ctx := ctxAs("guru", 999, "Asia/Jakarta")
 		_, err := svc.UpdateRecords(ctx, 999, 1, sessionID, []RecordInputRequest{{StudentID: 10, Status: "ngasal"}})
@@ -385,7 +439,7 @@ func TestUpdateRecordsEditWindow(t *testing.T) {
 		sessionID := setupSessionWithOneStudent(repo, created, SessionOpen)
 		fixed := clock.Fixed{T: created.Add(time.Hour)}
 		identity := newFakeIdentity()
-		svc := newServiceForTest(repo, identity, fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, identity, fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 		ctx := ctxAs("guru", 999, "Asia/Jakarta")
 
 		// isian pertama: hadir — belum ada nilai sebelumnya -> TIDAK diaudit.
@@ -428,7 +482,7 @@ func TestFinalizeRejectsUnmarked(t *testing.T) {
 	repo.records[sess.ID] = []RecordRow{{StudentID: 10, Status: StatusHadir, Method: "manual"}}
 
 	fixed := clock.Fixed{T: created.Add(time.Hour)}
-	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 	ctx := ctxAs("guru", 999, "Asia/Jakarta")
 
 	_, err := svc.Finalize(ctx, 999, 1, sess.ID)
@@ -458,7 +512,7 @@ func TestStudentHistoryAccess(t *testing.T) {
 	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)}
 
 	t.Run("attendance:report OK untuk siapa saja", func(t *testing.T) {
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
 		ctx := ctxAs("guru", 999, "Asia/Jakarta")
 		if _, err := svc.StudentHistory(ctx, 1, 10, "", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -466,7 +520,7 @@ func TestStudentHistoryAccess(t *testing.T) {
 	})
 
 	t.Run("orang tua anak sendiri OK", func(t *testing.T) {
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{allowed: map[int64]int64{500: 10}}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{allowed: map[int64]int64{500: 10}}, fakeSchedule{}, fakeTeachers{}, fixed)
 		ctx := ctxAs("orang_tua", 500, "Asia/Jakarta")
 		if _, err := svc.StudentHistory(ctx, 1, 10, "", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -474,11 +528,154 @@ func TestStudentHistoryAccess(t *testing.T) {
 	})
 
 	t.Run("orang tua anak lain FORBIDDEN", func(t *testing.T) {
-		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{allowed: map[int64]int64{500: 10}}, fixed)
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{allowed: map[int64]int64{500: 10}}, fakeSchedule{}, fakeTeachers{}, fixed)
 		ctx := ctxAs("orang_tua", 500, "Asia/Jakarta")
 		_, err := svc.StudentHistory(ctx, 1, 20, "", "")
 		if err != httpx.ErrForbidden {
 			t.Fatalf("expected ErrForbidden, got: %v", err)
 		}
 	})
+}
+
+// -- OpenSubjectSession & CreateSession(schedule_slot_id) — fase 6 --
+
+func TestOpenSubjectSessionCreatesAndIsIdempotent(t *testing.T) {
+	repo := newFakeRepo()
+	repo.classes[1] = ClassMeta{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	sched := fakeSchedule{slots: map[int64][2]int64{50: {1, 300}}} // slot 50 -> kelas 1, guru 300
+	fixed := clock.Fixed{T: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, sched, fakeTeachers{}, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	sessionID, err := svc.OpenSubjectSession(ctx, 1, 999, 50, "2026-08-10")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sessionID == 0 {
+		t.Fatal("expected sessionID != 0")
+	}
+
+	// Panggilan kedua slot+tanggal sama -> sesi yang sama (idempoten).
+	sessionID2, err := svc.OpenSubjectSession(ctx, 1, 999, 50, "2026-08-10")
+	if err != nil {
+		t.Fatalf("unexpected error kedua: %v", err)
+	}
+	if sessionID2 != sessionID {
+		t.Fatalf("expected idempoten, got %d vs %d", sessionID, sessionID2)
+	}
+
+	sess, err := repo.GetSessionByID(context.Background(), 1, sessionID)
+	if err != nil {
+		t.Fatalf("unexpected error ambil sesi: %v", err)
+	}
+	if sess.Type != TypeSubject || sess.ScheduleSlotID != 50 {
+		t.Fatalf("expected sesi type=subject schedule_slot_id=50, got type=%s slot=%d", sess.Type, sess.ScheduleSlotID)
+	}
+}
+
+func TestOpenSubjectSessionUnknownSlot(t *testing.T) {
+	repo := newFakeRepo()
+	fixed := clock.Fixed{T: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	_, err := svc.OpenSubjectSession(ctx, 1, 999, 999, "2026-08-10")
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 422 {
+		t.Fatalf("expected 422 (slot tidak ditemukan), got: %v", err)
+	}
+}
+
+func TestCreateSessionFromSlot_ObjectLevelOwnership(t *testing.T) {
+	repo := newFakeRepo()
+	repo.classes[1] = ClassMeta{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	sched := fakeSchedule{slots: map[int64][2]int64{50: {1, 300}}} // slot 50 milik teacherID 300
+	teachers := fakeTeachers{byUser: map[int64]int64{999: 300, 888: 301}}
+	fixed := clock.Fixed{T: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
+
+	t.Run("guru pemilik slot OK", func(t *testing.T) {
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, sched, teachers, fixed)
+		ctx := ctxAs("guru", 999, "Asia/Jakarta")
+		detail, err := svc.CreateSession(ctx, 999, 1, NewSessionInput{ScheduleSlotID: 50})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if detail.Session.Type != TypeSubject {
+			t.Fatalf("expected type subject, got %s", detail.Session.Type)
+		}
+	})
+
+	t.Run("guru lain BUKAN pemilik slot 403", func(t *testing.T) {
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, sched, teachers, fixed)
+		ctx := ctxAs("guru", 888, "Asia/Jakarta")
+		_, err := svc.CreateSession(ctx, 888, 1, NewSessionInput{ScheduleSlotID: 50})
+		if err != httpx.ErrForbidden {
+			t.Fatalf("expected ErrForbidden, got: %v", err)
+		}
+	})
+
+	t.Run("admin_sekolah bebas slot siapapun", func(t *testing.T) {
+		svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, sched, teachers, fixed)
+		ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+		_, err := svc.CreateSession(ctx, 1, 1, NewSessionInput{ScheduleSlotID: 50})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+// -- SlotsToday --
+
+func TestSlotsTodayGuru(t *testing.T) {
+	repo := newFakeRepo()
+	repo.roster[1] = []RosterStudent{{ID: 10, Name: "Siswa A", NIS: "001"}}
+	fixed := clock.Fixed{T: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)} // 08:00 WIB
+	sched := fakeSchedule{
+		slots: map[int64][2]int64{50: {1, 300}},
+		slotsToday: map[int64][]SlotToday{
+			300: {{ID: 50, ClassID: 1, ClassName: "XII RPL 1", SubjectID: 5, SubjectCode: "BDT", SubjectName: "Basis Data", PeriodStart: 1, PeriodEnd: 2, StartsAt: "07:00", EndsAt: "08:20", IsNow: true}},
+		},
+	}
+	teachers := fakeTeachers{byUser: map[int64]int64{999: 300}}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, sched, teachers, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	// Belum ada sesi dibuka -> session nil.
+	items, err := svc.SlotsToday(ctx, 1, 999)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 || items[0].Session != nil {
+		t.Fatalf("expected 1 slot tanpa sesi, got: %+v", items)
+	}
+
+	// Buka sesi lalu isi 1 record -> marked_count=1, total=1.
+	sessionID, err := svc.OpenSubjectSession(ctx, 1, 999, 50, "2026-08-10")
+	if err != nil {
+		t.Fatalf("unexpected error open session: %v", err)
+	}
+	if err := repo.BulkUpsertRecords(ctx, 1, sessionID, 999, "manual", []RecordInput{{StudentID: 10, Status: StatusHadir}}); err != nil {
+		t.Fatalf("unexpected error upsert: %v", err)
+	}
+
+	items2, err := svc.SlotsToday(ctx, 1, 999)
+	if err != nil {
+		t.Fatalf("unexpected error kedua: %v", err)
+	}
+	if len(items2) != 1 || items2[0].Session == nil {
+		t.Fatalf("expected 1 slot DENGAN sesi, got: %+v", items2)
+	}
+	if items2[0].Session.MarkedCount != 1 || items2[0].Session.Total != 1 {
+		t.Fatalf("expected marked_count=1 total=1, got %+v", items2[0].Session)
+	}
+
+	// Bukan guru (tidak ada di fakeTeachers) -> daftar kosong, bukan error.
+	ctxAdmin := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+	itemsAdmin, err := svc.SlotsToday(ctxAdmin, 1, 1)
+	if err != nil {
+		t.Fatalf("unexpected error admin: %v", err)
+	}
+	if len(itemsAdmin) != 0 {
+		t.Fatalf("expected daftar kosong utk non-guru, got %d", len(itemsAdmin))
+	}
 }

@@ -114,11 +114,82 @@ angka, referensi tak dikenal, header wajib hilang).
   halaman rooms/periods/import di `web/` — belum dikerjakan sesi ini (fokus
   backend + verifikasi curl, sesuai batasan tugas)
 
-## Fase 6 — Attendance per-mapel + Teaching ⬜
-- ⬜ Mode per_subject (sesi dari slot jadwal)
-- ⬜ Scan QR ruangan → jurnal mengajar + buka sesi absen (satu aksi)
-- ⬜ Jurnal mengajar (materi, flags, riwayat)
-- ⬜ Status mengajar derivasi (mengajar/belum masuk/izin/belum mulai)
+## Fase 6 — Attendance per-mapel + Teaching ✅ (backend)
+Backend terverifikasi end-to-end di Docker dev (`demo.localhost`): guru login
+→ scan QR di luar jam period (dini hari) → `needs_manual:true` + room terisi,
+TANPA journal dibuat → POST jurnal unscheduled (room_id+class_id+subject_id)
+→ 201, flag `unscheduled`, status `ongoing` → PATCH material+note → 200 →
+POST end → `ended_at` terisi, status `done` → GET journals scope=mine →
+1 baris → GET `/api/teaching/status?date=2026-08-14` (Jumat lalu) sebagai
+admin & kepsek → 200, 4 slot XII RPL 1/XI RPL 2 SEMUA `belum_masuk` (tanggal
+lampau tanpa journal, sesuai "tetap merah di rekap") → sebagai guru → 403
+(guru TIDAK punya `teaching:monitor`, dikonfirmasi rbac docs/02) → GET
+`/api/attendance/slots-today` (guru Rendi, hari Minggu = 2 slot yang di-seed
+`ensureDemoTodaySlots`) → 1 slot miliknya (Sari tidak muncul), `session:null`
+→ POST `/api/attendance/sessions {schedule_slot_id}` → 201, sesi type
+`subject`, roster 6 siswa → coba buka slot Rendi sebagai guru LAIN (Sari) →
+403 (object-level "slot milik guru itu kecuali admin") → PUT records 6 siswa
+→ GET slots-today → `marked_count:6/total:6` → GET/PUT `/api/settings/teaching`
+(`not_started_after_min`) → 200. Jalur "slot ketemu" (scan saat jam pelajaran
+berjalan) tidak bisa diuji live pada sesi ini (dini hari, di luar semua jam
+period) — diuji lewat unit test `clock.Fixed` (cukup, sesuai instruksi
+tugas). `go build/vet/test ./...` hijau; test service (fake repo/gateway):
+scan slot ketemu (journal+sesi dibuka), scan idempoten (journal & sesi sama),
+flag `room_mismatch`, `needs_manual` tanpa slot, derivasi status jurnal
+(ongoing→done saat lewat period_end), derivasi status monitoring SEMUA
+cabang (mengajar/selesai/izin/belum_mulai×2/belum_masuk×2, termasuk grace
+period `not_started_after_min` & prioritas izin di atas belum_masuk), jendela
+edit jurnal H+2 (guru ditolak lewat H+2, admin bebas), akses PATCH (guru lain
+ditolak, pemilik/admin boleh), object-level `attendance.CreateSession`
+(schedule_slot_id) & `SlotsToday` guru.
+- ✅ Migrasi `00007_teaching.sql` (`teaching_journals`, `flags text[]`,
+  UNIQUE `(schedule_slot_id, date)` partial WHERE NOT NULL — unscheduled
+  boleh banyak per hari)
+- ✅ Settings module `teaching` (`not_started_after_min`, default 10) +
+  terdaftar `tenant.NewModuleSettings`
+- ✅ `internal/teaching/`: `POST /api/teaching/scan` (resolve room by
+  token/id → `SlotNow` → slot ketemu: journal + `attendance.OpenSubjectSession`
+  sekaligus, idempoten per slot+tanggal, flag `room_mismatch` bila ruang
+  aktual ≠ ruang slot; slot tidak ketemu: `needs_manual` TANPA journal),
+  `POST /api/teaching/journals` (entry unscheduled, flag `unscheduled`, TANPA
+  sesi absen otomatis), `PATCH .../journals/{id}` (pemilik/admin, jendela
+  H+2), `POST .../journals/{id}/end` (pemilik saja), `GET /api/teaching/journals`
+  (scope mine/all, filter date/month, max 100), `GET /api/teaching/status`
+  (derivasi lintas guru per slot hari itu: mengajar/belum_masuk/izin/
+  belum_mulai/selesai + `current_period` + `summary`) — semua konsumsi
+  lintas modul lewat consumer-side interface primitif
+  (`ScheduleGateway`/`LeaveGateway`/`AttendanceGateway`/`StudentGateway`);
+  `teaching.SlotInfo` (tipe lokal, bukan tipe schedule) dijembatani dari
+  `*schedule.Service` oleh adapter `scheduleForTeaching` di
+  `cmd/server/scheduleadapter.go` (satu-satunya tempat yang boleh mengimpor
+  kedua modul — keputusan didokumentasikan di sana: data yang dibutuhkan
+  terlalu kaya utk primitif langsung seperti modul lain)
+- ✅ Interface publik baru `attendance.Service.OpenSubjectSession` (create-or-get
+  sesi subject dari slot, dipakai teaching), `attendance.Service.CreateSession`
+  diperluas terima `{schedule_slot_id}` (alternatif `{class_id}`, object-level
+  "slot milik guru kecuali admin" via consumer-side interface
+  `ScheduleSlotLookup`/`TeacherLookup`), `GET /api/attendance/slots-today`
+  (slot jadwal guru hari ini + status sesi subject, via
+  `ScheduleSlotLookup.SlotsTodayForTeacher` dijembatani adapter
+  `scheduleForAttendance`)
+- ✅ Interface publik baru `schedule.Service`: `SlotByID`,
+  `SlotsForDayOfWeek` (semua slot lintas guru pada satu hari, dipakai
+  monitoring), `SlotOwnership` (primitif langsung, tanpa adapter)
+- ✅ **Keputusan: hari Minggu (day_of_week=0) kini valid** di `schedule`
+  (sebelumnya hanya Senin–Sabtu 1–6) — diotorisasi eksplisit di scope kerja
+  fase 6 supaya bootstrap bisa menyeed slot pada HARI INI apa pun harinya
+  untuk verifikasi e2e reproducible; lihat komentar `dayNames` di
+  `internal/schedule/model.go`
+- ✅ **Keputusan: mode absensi tidak berubah otomatis** — sesi `subject`
+  boleh dibuat server-side apapun mode `attendance.Settings.Mode` sekolah
+  (daily/per_subject); mode hanya menentukan default UI, bukan gerbang
+  server. Demo tetap `daily`.
+- ✅ Bootstrap idempoten: `ensureDemoTodaySlots` — 2 slot tambahan pada
+  day_of_week HARI INI (waktu lokal sekolah, termasuk Minggu) utk XII RPL 1,
+  skip bila kelas itu sudah punya slot hari itu (mis. Senin–Jumat sudah
+  terisi `ensureDemoSchedule`)
+- ⬜ UI frontend (belum dikerjakan sesi ini — fokus backend + verifikasi
+  curl, sesuai batasan tugas)
 
 ## Fase 7 — Dashboard TV + Kepsek ⬜
 - ⬜ Akun display (role, session panjang) + halaman TV fullscreen `/tv`

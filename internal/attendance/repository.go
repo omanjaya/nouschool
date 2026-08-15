@@ -33,6 +33,8 @@ type attendanceRepository interface {
 
 	CreateSession(ctx context.Context, in CreateSessionInput) (SessionRecord, error)
 	GetSessionByClassDate(ctx context.Context, schoolID, classID int64, date time.Time) (SessionRecord, error)
+	CreateSubjectSession(ctx context.Context, in CreateSubjectSessionInput) (SessionRecord, error)
+	GetSessionBySlotDate(ctx context.Context, schoolID, scheduleSlotID int64, date time.Time) (SessionRecord, error)
 	GetSessionByID(ctx context.Context, schoolID, id int64) (SessionRecord, error)
 	GetSessionDetail(ctx context.Context, schoolID, id int64) (SessionDetailRow, error)
 	FinalizeSession(ctx context.Context, schoolID, id int64) (SessionRecord, error)
@@ -100,6 +102,13 @@ func int8OrNil(v int64) pgtype.Int8 {
 	return pgtype.Int8{Int64: v, Valid: true}
 }
 
+func int8ToInt64(v pgtype.Int8) int64 {
+	if !v.Valid {
+		return 0
+	}
+	return v.Int64
+}
+
 // -- domain records --
 
 type ClassMeta struct {
@@ -115,6 +124,7 @@ type SessionRecord struct {
 	ClassID        int64
 	Date           time.Time
 	Type           string
+	ScheduleSlotID int64 // 0 = NULL (sesi daily)
 	OpenedBy       int64
 	Status         string
 	CreatedAt      time.Time
@@ -123,7 +133,7 @@ type SessionRecord struct {
 func sessionFromDB(s attendancedb.AttendanceSession) SessionRecord {
 	return SessionRecord{
 		ID: s.ID, SchoolID: s.SchoolID, AcademicYearID: s.AcademicYearID, ClassID: s.ClassID,
-		Date: s.Date.Time, Type: s.Type, OpenedBy: s.OpenedBy, Status: s.Status, CreatedAt: s.CreatedAt.Time,
+		Date: s.Date.Time, Type: s.Type, ScheduleSlotID: int8ToInt64(s.ScheduleSlotID), OpenedBy: s.OpenedBy, Status: s.Status, CreatedAt: s.CreatedAt.Time,
 	}
 }
 
@@ -250,6 +260,44 @@ func (r *Repository) CreateSession(ctx context.Context, in CreateSessionInput) (
 			return SessionRecord{}, ErrConflict
 		}
 		return SessionRecord{}, err
+	}
+	return sessionFromDB(row), nil
+}
+
+// CreateSubjectSessionInput adalah parameter INSERT sesi type='subject'
+// (fase 6 — docs/05 & docs/06). Sama seperti CreateSession, mengembalikan
+// ErrConflict bila sesi utk (schedule_slot_id,date) itu sudah ada (partial
+// unique index attendance_sessions_subject_unique) — pemanggil (Service)
+// lalu memanggil GetSessionBySlotDate (create-or-get idempoten).
+type CreateSubjectSessionInput struct {
+	SchoolID       int64
+	AcademicYearID int64
+	ClassID        int64
+	ScheduleSlotID int64
+	Date           time.Time
+	OpenedBy       int64
+}
+
+func (r *Repository) CreateSubjectSession(ctx context.Context, in CreateSubjectSessionInput) (SessionRecord, error) {
+	row, err := r.q.CreateSubjectSession(ctx, attendancedb.CreateSubjectSessionParams{
+		SchoolID: in.SchoolID, AcademicYearID: in.AcademicYearID, ClassID: in.ClassID,
+		Date: dateOf(in.Date), ScheduleSlotID: int8OrNil(in.ScheduleSlotID), OpenedBy: in.OpenedBy,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return SessionRecord{}, ErrConflict
+		}
+		return SessionRecord{}, err
+	}
+	return sessionFromDB(row), nil
+}
+
+func (r *Repository) GetSessionBySlotDate(ctx context.Context, schoolID, scheduleSlotID int64, date time.Time) (SessionRecord, error) {
+	row, err := r.q.GetSessionBySlotDate(ctx, attendancedb.GetSessionBySlotDateParams{
+		SchoolID: schoolID, ScheduleSlotID: int8OrNil(scheduleSlotID), Date: dateOf(date),
+	})
+	if err != nil {
+		return SessionRecord{}, mapNoRows(err)
 	}
 	return sessionFromDB(row), nil
 }

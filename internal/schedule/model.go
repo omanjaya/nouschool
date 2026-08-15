@@ -25,9 +25,14 @@ const (
 	PermScheduleManage = "schedule:manage"
 )
 
-// dayNames — 1=Senin ... 6=Sabtu (docs/04-schedule.md).
+// dayNames — 1=Senin ... 6=Sabtu (docs/04-schedule.md). 0=Minggu DITAMBAHKAN
+// fase 6 (docs/06-teaching.md verifikasi e2e): beberapa sekolah punya kelas
+// akselerasi/ekstrakurikuler Minggu, dan modul teaching butuh kemampuan
+// menyeed slot pada HARI INI apa pun harinya untuk verifikasi live —
+// keputusan diotorisasi eksplisit oleh scope kerja fase 6 (bukan penyimpangan
+// diam-diam). Nilai selaras dengan Go time.Weekday (Minggu=0 ... Sabtu=6).
 var dayNames = map[int]string{
-	1: "Senin", 2: "Selasa", 3: "Rabu", 4: "Kamis", 5: "Jumat", 6: "Sabtu",
+	0: "Minggu", 1: "Senin", 2: "Selasa", 3: "Rabu", 4: "Kamis", 5: "Jumat", 6: "Sabtu",
 }
 
 func dayName(d int) string {
@@ -47,7 +52,7 @@ func dayNameToNumber(raw string) (int, bool) {
 		}
 	}
 	switch raw {
-	case "1", "2", "3", "4", "5", "6":
+	case "0", "1", "2", "3", "4", "5", "6":
 		return int(raw[0] - '0'), true
 	default:
 		return 0, false

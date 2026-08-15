@@ -54,3 +54,12 @@ sql:
         out: "internal/schedule/scheduledb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/teaching/queries.sql"
+    gen:
+      go:
+        package: "teachingdb"
+        out: "internal/teaching/teachingdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

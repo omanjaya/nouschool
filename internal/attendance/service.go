@@ -41,6 +41,39 @@ type StudentAccess interface {
 	CanViewStudent(ctx context.Context, userID int64, role string, schoolID, studentID int64) error
 }
 
+// SlotToday adalah potongan data slot jadwal yang dibutuhkan attendance dari
+// modul schedule (fase 6, docs/06-teaching.md "Absensi per-mapel untuk guru")
+// — primitif saja (lihat catatan interface teaching.ScheduleGateway,
+// dijembatani lewat adapter kecil di cmd/server/main.go).
+type SlotToday struct {
+	ID          int64
+	ClassID     int64
+	ClassName   string
+	SubjectID   int64
+	SubjectCode string
+	SubjectName string
+	PeriodStart int
+	PeriodEnd   int
+	StartsAt    string
+	EndsAt      string
+	IsNow       bool
+}
+
+// ScheduleSlotLookup adalah kebutuhan modul attendance dari modul schedule:
+// kepemilikan slot (validasi "guru hanya boleh buka sesi utk slotnya
+// sendiri") & daftar slot jadwal guru hari ini (GET /api/attendance/slots-today).
+type ScheduleSlotLookup interface {
+	SlotOwnership(ctx context.Context, schoolID, slotID int64) (classID, teacherID int64, ok bool, err error)
+	SlotsTodayForTeacher(ctx context.Context, schoolID, teacherID int64, at time.Time) ([]SlotToday, error)
+}
+
+// TeacherLookup adalah kebutuhan modul attendance dari modul student:
+// resolve profil guru dari user login (dipenuhi *student.Service secara
+// struktural lewat method MyTeacherID, sudah ada sejak fase 5).
+type TeacherLookup interface {
+	MyTeacherID(ctx context.Context, schoolID, userID int64) (teacherID int64, ok bool, err error)
+}
+
 // Permission kanonik dipakai modul attendance (nilai HARUS sama persis
 // dengan docs/02-identity.md — didefinisikan ulang di sini karena attendance
 // tidak boleh mengimpor identity).
@@ -57,24 +90,26 @@ var ErrSessionLocked = &httpx.Error{Status: http.StatusForbidden, Code: "session
 
 // Service berisi aturan bisnis modul attendance.
 type Service struct {
-	repo     attendanceRepository
-	identity IdentityGateway
-	years    AcademicYearLookup
-	students StudentAccess
-	clock    clock.Clock
+	repo          attendanceRepository
+	identity      IdentityGateway
+	years         AcademicYearLookup
+	students      StudentAccess
+	scheduleSlots ScheduleSlotLookup
+	teacherLookup TeacherLookup
+	clock         clock.Clock
 }
 
-func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup, students StudentAccess, clk clock.Clock) *Service {
+func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup, students StudentAccess, scheduleSlots ScheduleSlotLookup, teacherLookup TeacherLookup, clk clock.Clock) *Service {
 	if clk == nil {
 		clk = clock.System{}
 	}
-	return &Service{repo: repo, identity: identity, years: years, students: students, clock: clk}
+	return &Service{repo: repo, identity: identity, years: years, students: students, scheduleSlots: scheduleSlots, teacherLookup: teacherLookup, clock: clk}
 }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
 // tanpa DB) — dipakai test di package ini saja (service_test.go).
-func newServiceForTest(repo attendanceRepository, identity IdentityGateway, years AcademicYearLookup, students StudentAccess, clk clock.Clock) *Service {
-	return &Service{repo: repo, identity: identity, years: years, students: students, clock: clk}
+func newServiceForTest(repo attendanceRepository, identity IdentityGateway, years AcademicYearLookup, students StudentAccess, scheduleSlots ScheduleSlotLookup, teacherLookup TeacherLookup, clk clock.Clock) *Service {
+	return &Service{repo: repo, identity: identity, years: years, students: students, scheduleSlots: scheduleSlots, teacherLookup: teacherLookup, clock: clk}
 }
 
 func (s *Service) audit(ctx context.Context, schoolID, actorUserID int64, action, entity string, entityID int64, oldValue, newValue any) {
@@ -192,15 +227,19 @@ func (s *Service) buildSessionDetail(ctx context.Context, schoolID, sessionID in
 // -- POST /api/attendance/sessions --
 
 // NewSessionInput adalah parameter POST /api/attendance/sessions.
+// ScheduleSlotID != 0 -> buat sesi type='subject' dari slot jadwal (fase 6,
+// docs/06-teaching.md) alih-alih sesi daily dari class_id.
 type NewSessionInput struct {
-	ClassID int64
-	Date    string // "" = hari ini (waktu lokal sekolah)
+	ClassID        int64
+	ScheduleSlotID int64
+	Date           string // "" = hari ini (waktu lokal sekolah)
 }
 
-// CreateSession membuat-atau-mengambil sesi daily untuk (class_id, date) —
-// idempoten lewat partial unique index (class_id,date) WHERE type='daily'
-// (docs/05-attendance.md). Percobaan kedua pada rombel+tanggal yang sama
-// TIDAK membuat sesi baru, hanya mengembalikan sesi yang sudah ada.
+// CreateSession membuat-atau-mengambil sesi untuk (class_id, date) mode
+// daily, ATAU (schedule_slot_id, date) mode subject — idempoten lewat
+// partial unique index masing-masing (docs/05-attendance.md). Percobaan
+// kedua pada kunci yang sama TIDAK membuat sesi baru, hanya mengembalikan
+// sesi yang sudah ada.
 func (s *Service) CreateSession(ctx context.Context, actorUserID, schoolID int64, in NewSessionInput) (SessionDetail, error) {
 	date, err := parseDateParam(in.Date, s.clock.Now(), schoolTimezone(ctx))
 	if err != nil {
@@ -210,8 +249,12 @@ func (s *Service) CreateSession(ctx context.Context, actorUserID, schoolID int64
 	if err != nil {
 		return SessionDetail{}, err
 	}
+
+	if in.ScheduleSlotID != 0 {
+		return s.createSubjectSessionFromSlot(ctx, actorUserID, schoolID, yearID, in.ScheduleSlotID, date)
+	}
 	if in.ClassID == 0 {
-		return SessionDetail{}, httpx.Validation("class_id wajib diisi.")
+		return SessionDetail{}, httpx.Validation("class_id atau schedule_slot_id wajib diisi.")
 	}
 	cls, err := s.repo.GetClassMeta(ctx, schoolID, in.ClassID)
 	if err != nil {
@@ -238,6 +281,141 @@ func (s *Service) CreateSession(ctx context.Context, actorUserID, schoolID int64
 	}
 
 	return s.buildSessionDetail(ctx, schoolID, sess.ID)
+}
+
+// createSubjectSessionFromSlot — object-level: guru hanya boleh membuka sesi
+// utk slot MILIKNYA sendiri kecuali admin_sekolah (docs/06-teaching.md
+// "validasi slot milik guru itu kecuali admin").
+func (s *Service) createSubjectSessionFromSlot(ctx context.Context, actorUserID, schoolID, yearID, slotID int64, date time.Time) (SessionDetail, error) {
+	classID, teacherID, ok, err := s.scheduleSlots.SlotOwnership(ctx, schoolID, slotID)
+	if err != nil {
+		return SessionDetail{}, err
+	}
+	if !ok {
+		return SessionDetail{}, httpx.Validation("Slot jadwal tidak ditemukan.")
+	}
+
+	if reqctx.Role(ctx) != RoleAdminSekolah {
+		myTeacherID, ok, err := s.teacherLookup.MyTeacherID(ctx, schoolID, actorUserID)
+		if err != nil {
+			return SessionDetail{}, err
+		}
+		if !ok || myTeacherID != teacherID {
+			return SessionDetail{}, httpx.ErrForbidden
+		}
+	}
+
+	sess, err := s.repo.CreateSubjectSession(ctx, CreateSubjectSessionInput{
+		SchoolID: schoolID, AcademicYearID: yearID, ClassID: classID, ScheduleSlotID: slotID, Date: date, OpenedBy: actorUserID,
+	})
+	switch {
+	case err == nil:
+		s.audit(ctx, schoolID, actorUserID, "attendance.session_open", "attendance_session", sess.ID, nil,
+			map[string]any{"schedule_slot_id": slotID, "date": date.Format("2006-01-02")})
+	case errors.Is(err, ErrConflict):
+		sess, err = s.repo.GetSessionBySlotDate(ctx, schoolID, slotID, date)
+		if err != nil {
+			return SessionDetail{}, err
+		}
+	default:
+		return SessionDetail{}, err
+	}
+
+	return s.buildSessionDetail(ctx, schoolID, sess.ID)
+}
+
+// OpenSubjectSession buka-atau-ambil sesi absen subject utk satu slot —
+// interface publik fase 6 dipakai modul teaching lewat consumer-side
+// interface AttendanceGateway (docs/06-teaching.md "satu scan: jurnal terisi
+// + sesi absen siap"). TIDAK mengecek kepemilikan slot (pemanggil/teaching
+// SUDAH memvalidasinya lewat SlotNow(teacherID) sebelum memanggil ini).
+func (s *Service) OpenSubjectSession(ctx context.Context, schoolID, actorUserID, scheduleSlotID int64, date string) (int64, error) {
+	d, err := time.Parse("2006-01-02", strings.TrimSpace(date))
+	if err != nil {
+		return 0, httpx.Validation("Format tanggal harus YYYY-MM-DD.")
+	}
+	yearID, err := s.requireActiveYear(ctx, schoolID)
+	if err != nil {
+		return 0, err
+	}
+	classID, _, ok, err := s.scheduleSlots.SlotOwnership(ctx, schoolID, scheduleSlotID)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, httpx.Validation("Slot jadwal tidak ditemukan.")
+	}
+
+	sess, err := s.repo.CreateSubjectSession(ctx, CreateSubjectSessionInput{
+		SchoolID: schoolID, AcademicYearID: yearID, ClassID: classID, ScheduleSlotID: scheduleSlotID, Date: d, OpenedBy: actorUserID,
+	})
+	switch {
+	case err == nil:
+		s.audit(ctx, schoolID, actorUserID, "attendance.session_open", "attendance_session", sess.ID, nil,
+			map[string]any{"schedule_slot_id": scheduleSlotID, "date": date})
+		return sess.ID, nil
+	case errors.Is(err, ErrConflict):
+		sess, err = s.repo.GetSessionBySlotDate(ctx, schoolID, scheduleSlotID, d)
+		if err != nil {
+			return 0, err
+		}
+		return sess.ID, nil
+	default:
+		return 0, err
+	}
+}
+
+// -- GET /api/attendance/slots-today --
+
+// SlotsToday — slot jadwal GURU INI hari ini + status sesi subject
+// masing-masing (docs/06-teaching.md). Bukan guru (mis. admin memanggil
+// endpoint ini) -> daftar kosong, bukan error (endpoint ini murni "layar
+// saya", tidak berlaku utk role tanpa profil guru).
+func (s *Service) SlotsToday(ctx context.Context, schoolID, actorUserID int64) ([]SlotTodayView, error) {
+	teacherID, ok, err := s.teacherLookup.MyTeacherID(ctx, schoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []SlotTodayView{}, nil
+	}
+
+	now := s.clock.Now()
+	slots, err := s.scheduleSlots.SlotsTodayForTeacher(ctx, schoolID, teacherID, now)
+	if err != nil {
+		return nil, err
+	}
+	date := schoolToday(now, schoolTimezone(ctx))
+
+	out := make([]SlotTodayView, 0, len(slots))
+	for _, sl := range slots {
+		view := SlotTodayView{Slot: SlotTodaySlot{
+			ID: sl.ID, Class: SlotClassRef{ID: sl.ClassID, Name: sl.ClassName},
+			Subject:     SlotSubjectRef{ID: sl.SubjectID, Code: sl.SubjectCode, Name: sl.SubjectName},
+			PeriodStart: sl.PeriodStart, PeriodEnd: sl.PeriodEnd, StartsAt: sl.StartsAt, EndsAt: sl.EndsAt, IsNow: sl.IsNow,
+		}}
+
+		sess, serr := s.repo.GetSessionBySlotDate(ctx, schoolID, sl.ID, date)
+		switch {
+		case serr == nil:
+			roster, rerr := s.repo.ListClassStudents(ctx, schoolID, sl.ClassID)
+			if rerr != nil {
+				return nil, rerr
+			}
+			marked, merr := s.repo.CountRecordsForSession(ctx, sess.ID)
+			if merr != nil {
+				return nil, merr
+			}
+			view.Session = &SlotTodaySession{ID: sess.ID, Status: sess.Status, MarkedCount: marked, Total: int64(len(roster))}
+		case errors.Is(serr, ErrNotFound):
+			// belum ada sesi -> Session tetap nil.
+		default:
+			return nil, serr
+		}
+
+		out = append(out, view)
+	}
+	return out, nil
 }
 
 // -- GET /api/attendance/sessions/{id} --

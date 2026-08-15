@@ -162,3 +162,45 @@ type HistoryResult struct {
 	Counts HistoryCounts `json:"counts"`
 	Items  []HistoryItem `json:"items"`
 }
+
+// -- mode per_subject (fase 6, docs/05-attendance.md & docs/06-teaching.md) --
+
+// SlotRef adalah potongan info kelas/mapel disematkan pada SlotTodayView.
+type SlotClassRef struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+type SlotSubjectRef struct {
+	ID   int64  `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// SlotTodaySlot adalah potongan info slot jadwal disematkan pada
+// SlotTodayView (docs/06: dipakai GET /api/attendance/slots-today).
+type SlotTodaySlot struct {
+	ID          int64          `json:"id"`
+	Class       SlotClassRef   `json:"class"`
+	Subject     SlotSubjectRef `json:"subject"`
+	PeriodStart int            `json:"period_start"`
+	PeriodEnd   int            `json:"period_end"`
+	StartsAt    string         `json:"starts_at"`
+	EndsAt      string         `json:"ends_at"`
+	IsNow       bool           `json:"is_now"`
+}
+
+// SlotTodaySession adalah status sesi absen subject utk satu slot (null bila
+// belum dibuka).
+type SlotTodaySession struct {
+	ID          int64  `json:"id"`
+	Status      string `json:"status"`
+	MarkedCount int64  `json:"marked_count"`
+	Total       int64  `json:"total"`
+}
+
+// SlotTodayView adalah satu baris response GET /api/attendance/slots-today.
+type SlotTodayView struct {
+	Slot    SlotTodaySlot     `json:"slot"`
+	Session *SlotTodaySession `json:"session"`
+}
