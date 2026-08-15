@@ -9,6 +9,15 @@ import { SchoolsListPage } from './features/admin/SchoolsListPage';
 import { SchoolDetailPage } from './features/admin/SchoolDetailPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
+import { ActivationPage } from './features/activation/ActivationPage';
+import { DataLayout } from './features/data/DataLayout';
+import { StudentsListPage } from './features/students/StudentsListPage';
+import { StudentDetailPage } from './features/students/StudentDetailPage';
+import { ClassesListPage } from './features/classes/ClassesListPage';
+import { ClassDetailPage } from './features/classes/ClassDetailPage';
+import { TeachersListPage } from './features/teachers/TeachersListPage';
+import { SubjectsListPage } from './features/subjects/SubjectsListPage';
+import { ImportWizard } from './features/import/ImportWizard';
 import type { Me } from './lib/types';
 
 function getGreeting(hour: number) {
@@ -62,6 +71,19 @@ function AuthenticatedShell() {
         <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
         <Route path="/pengaturan" element={<SettingsPage />} />
         <Route path="/profil" element={<ProfilePage />} />
+
+        <Route path="/data" element={<DataLayout />}>
+          <Route index element={<Navigate to="siswa" replace />} />
+          <Route path="siswa" element={<StudentsListPage />} />
+          <Route path="rombel" element={<ClassesListPage />} />
+          <Route path="guru" element={<TeachersListPage />} />
+          <Route path="mapel" element={<SubjectsListPage />} />
+        </Route>
+        <Route path="/data/siswa/import" element={<ImportWizard entity="students" backTo="/data/siswa" />} />
+        <Route path="/data/siswa/:id" element={<StudentDetailPage />} />
+        <Route path="/data/rombel/:id" element={<ClassDetailPage />} />
+        <Route path="/data/guru/import" element={<ImportWizard entity="teachers" backTo="/data/guru" />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>
@@ -72,6 +94,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/aktivasi" element={<ActivationPage />} />
       <Route
         path="/*"
         element={

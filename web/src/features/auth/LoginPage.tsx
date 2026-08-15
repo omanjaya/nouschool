@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { Field, Input } from '../../components/ui/Field';
 import { Button } from '../../components/ui/Button';
@@ -90,6 +90,13 @@ export function LoginPage() {
             Masuk
           </Button>
         </form>
+
+        <Link
+          to="/aktivasi"
+          className="mt-4 block text-center text-[12px] font-medium text-muted hover:text-ink"
+        >
+          Punya kode aktivasi?
+        </Link>
       </div>
     </div>
   );

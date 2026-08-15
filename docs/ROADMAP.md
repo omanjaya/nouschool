@@ -22,11 +22,12 @@ Dev: `make docker-up` → `make docker-migrate` → bootstrap `go run ./cmd/boot
 - ✅ Pola school_settings jalan end-to-end (`GET/PUT /api/settings/{module}`, module `branding`) + halaman UI `/pengaturan`
 - ✅ Audit log helper (`identity.Service.Log`, dipanggil dari create/update school, activate tahun ajaran, put settings)
 
-## Fase 2 — Student ⬜
-- ⬜ CRUD siswa, rombel, enrollment, guru (profil), mapel
-- ⬜ Import Excel/CSV siswa & guru (preview → commit, idempotent)
-- ⬜ Undangan akun siswa/ortu/guru (generate massal + aktivasi)
-- ⬜ Object-level access ortu/siswa + test
+## Fase 2 — Student ✅
+Terverifikasi end-to-end di Docker dev (`demo.localhost`): list rombel (2) & siswa (8) demo, buat siswa baru, import CSV siswa (preview+commit: create/update/error rombel salah), import CSV guru (preview+commit), generate undangan kelas (idempoten — panggil ulang menghasilkan kode sama), aktivasi kode wali → akun orang tua baru + auto-login, GET siswa sendiri (200) vs siswa lain (403). `go test ./...` hijau.
+- ✅ CRUD siswa, rombel, enrollment, guru (profil), mapel
+- ✅ Import Excel/CSV siswa & guru (preview → commit, idempotent)
+- ✅ Undangan akun siswa/ortu/guru (generate massal + aktivasi)
+- ✅ Object-level access ortu/siswa + test
 
 ## Fase 3 — Attendance mode daily (nilai tercepat) ⬜
 - ⬜ Settings attendance + sesi/record skema

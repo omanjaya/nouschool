@@ -29,10 +29,14 @@ interface ApiSuccessBody<T> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // FormData (upload multipart) mengatur Content-Type + boundary sendiri —
+  // jangan pernah menimpanya dengan 'application/json'.
+  const isFormData = init?.body instanceof FormData;
+
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -77,4 +81,6 @@ export const api = {
   put: withBody('PUT'),
   patch: withBody('PATCH'),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /** Upload multipart (field `file`) — dipakai import Excel/CSV. */
+  upload: <T>(path: string, formData: FormData) => request<T>(path, { method: 'POST', body: formData }),
 };

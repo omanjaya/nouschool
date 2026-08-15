@@ -1,4 +1,4 @@
-import { House, ClipboardCheck, CalendarDays, Bell, User, School, Settings, type LucideIcon } from 'lucide-react';
+import { House, ClipboardCheck, CalendarDays, Bell, User, School, Settings, Users, type LucideIcon } from 'lucide-react';
 import type { Me } from './types';
 
 export interface NavItemDef {
@@ -28,9 +28,12 @@ export function getNavItems(me: Me): NavItemDef[] {
   }
 
   if (me.role === 'admin_sekolah') {
-    const withoutProfil = GURU_NAV.slice(0, -1);
-    const profil = GURU_NAV[GURU_NAV.length - 1];
-    return profil ? [...withoutProfil, { to: '/pengaturan', label: 'Pengaturan', icon: Settings }, profil] : GURU_NAV;
+    return [
+      { to: '/', label: 'Beranda', icon: House },
+      { to: '/data', label: 'Data', icon: Users },
+      { to: '/pengaturan', label: 'Pengaturan', icon: Settings },
+      { to: '/profil', label: 'Profil', icon: User },
+    ];
   }
 
   return GURU_NAV;
