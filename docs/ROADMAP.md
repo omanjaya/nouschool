@@ -188,8 +188,7 @@ ditolak, pemilik/admin boleh), object-level `attendance.CreateSession`
   day_of_week HARI INI (waktu lokal sekolah, termasuk Minggu) utk XII RPL 1,
   skip bila kelas itu sudah punya slot hari itu (mis. Senin–Jumat sudah
   terisi `ensureDemoSchedule`)
-- ⬜ UI frontend (belum dikerjakan sesi ini — fokus backend + verifikasi
-  curl, sesuai batasan tugas)
+- ✅ UI frontend izin (dikerjakan agent frontend fase 4 — /izin lengkap dengan timeline & antrian approver)
 
 ## Fase 7 — Dashboard TV + Kepsek ✅
 Backend terverifikasi end-to-end di Docker dev (`demo.localhost`): bootstrap
@@ -265,9 +264,7 @@ starts_at berikutnya, bukan seluruh sisa hari).
   `JournalComplianceCounts` yang HANYA menyentuh tabel `teaching_journals`
   milik modul sendiri; `pct`/`material_pct` dibulatkan 1 desimal, guru tanpa
   scheduled+journal sama sekali di-skip dari hasil; urut pct ASC
-- ⬜ Halaman TV fullscreen `/tv` (frontend) & dashboard kepsek interaktif +
-  drill-down (belum dikerjakan sesi ini — fokus backend + verifikasi curl,
-  sesuai batasan tugas)
+- ✅ Halaman TV fullscreen `/tv` & dashboard kepsek (dikerjakan agent frontend fase 7)
 
 ## Fase 8 — Metode absen lanjutan ✅ (backend)
 - ✅ QR kartu siswa (backend): token per siswa (`student_qr_tokens`), generate/list/revoke, scan guru (`POST /api/attendance/sessions/{id}/scan`), PNG QR — generator kartu PDF grid utk dicetak (frontend/print) BELUM dikerjakan (di luar scope backend)
@@ -360,10 +357,9 @@ pengaju + approver berikutnya bila ada).
 - ✅ Interface publik baru: `student.Service.GuardianUserIDs` (dipakai
   `attendance.StudentAccess`), `identity.Service.UsersWithRole` (dipakai
   `leave.IdentityGateway`, resolusi step approval role-only)
-- ⬜ Service worker frontend utk registrasi Web Push (`web/` — di luar scope
-  backend sesi ini, sesuai batasan tugas)
+- ✅ Service worker Web Push frontend (injectManifest custom SW, dikerjakan agent frontend fase 9)
 
-## Fase 10 — Billing ✅ (backend)
+## Fase 10 — Billing ✅
 - ✅ Plans + plan_prices + seeding Basic/Pro & bracket (`migrations/00011_billing.sql`) —
   basic {tv_dashboard:false, whatsapp:false, dapodik_import:false, qr_card:true,
   self_checkin:true}, pro semua true; bracket ≤300/≤600/≤99999 (basic
@@ -440,7 +436,7 @@ pengaju + approver berikutnya bila ada).
   + halaman baru `/admin/plans` (editor fitur & 3 bracket harga per plan,
   link dari header daftar sekolah). `npm run build` & `npm run lint` hijau.
 
-## Fase 11 — Branding & polish SaaS ✅ (backend)
+## Fase 11 — Branding & polish SaaS ✅
 Backend terverifikasi end-to-end via curl (server dev `localhost:8210`, Docker
 hot reload): `GET /api/public/context` host platform (`{"platform":true}`) &
 `demo.localhost` (`{"platform":false,"school":{...},"branding":{...}}`) → login
@@ -587,7 +583,7 @@ dijalankan (sesuai batasan tugas — hanya dibuat & didokumentasikan).
   PERINGATAN menimpa + konfirmasi ketik "ya" wajib, TIDAK dijalankan sesuai
   batasan tugas) — README seksi "Operasional" (cara backup manual, saran
   cron VPS harian, cara restore + peringatan, catatan `SERVER_IP` produksi)
-- ⬜ UI landing page nouschool.id, klien branding dinamis (CSS variables,
+- ✅ UI landing page (hero + fitur + harga + form minat) di host platform; klien branding dinamis (CSS variables,
   `<meta theme-color>`), form pengaturan custom domain, form registrasi minat
   (`web/` — di luar scope backend sesi ini, sesuai batasan tugas "jangan
   sentuh web/")
