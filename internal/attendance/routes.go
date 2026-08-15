@@ -47,6 +47,8 @@ func RegisterRoutes(
 	mux.Handle("POST /api/attendance/sessions/{id}/scan", write(h.Scan))
 	mux.Handle("GET /api/attendance/summary", report(h.Summary))
 	mux.Handle("GET /api/attendance/anomalies", report(h.Anomalies))
+	// Export Excel rekap bulanan (Fase 11).
+	mux.Handle("GET /api/attendance/export", report(h.ExportMonthlyXLSX))
 
 	// QR kartu siswa (Fase 8, docs/05-attendance.md "QR kartu siswa").
 	mux.Handle("POST /api/attendance/qr-cards/generate", manage(h.GenerateQRCards))

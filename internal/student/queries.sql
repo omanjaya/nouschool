@@ -37,6 +37,12 @@ WHERE s.id = sqlc.arg(id)::bigint AND s.school_id = sqlc.arg(school_id)::bigint;
 -- name: GetStudentByNIS :one
 SELECT * FROM students WHERE school_id = $1 AND nis = $2;
 
+-- name: GetStudentByNISN :one
+-- Dipakai parser import Dapodik (Fase 11, docs/03-student.md): matching by
+-- NISN dulu, fallback NIS. nisn nullable — hanya dipanggil dengan nilai
+-- non-kosong (lihat internal/student/dapodik.go).
+SELECT * FROM students WHERE school_id = $1 AND nisn = $2;
+
 -- name: GetStudentByUserID :one
 SELECT s.*,
        c.id AS class_id, c.name AS class_name

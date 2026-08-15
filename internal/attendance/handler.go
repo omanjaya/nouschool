@@ -25,6 +25,37 @@ func queryInt64(r *http.Request, name string) int64 {
 	return v
 }
 
+// ExportMonthlyXLSX — GET /api/attendance/export?month=YYYY-MM&class_id=
+// (Fase 11, perm attendance:report).
+func (h *Handler) ExportMonthlyXLSX(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	filename, data, err := h.svc.ExportMonthlyXLSX(ctx, reqctx.SchoolID(ctx), r.URL.Query().Get("month"), queryInt64(r, "class_id"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeExportFilename(filename)+`"`)
+	_, _ = w.Write(data)
+}
+
+// sanitizeExportFilename membuang tanda kutip/kontrol karakter supaya header
+// Content-Disposition tidak bisa disuntik lewat nama file (sama pola dengan
+// internal/leave.sanitizeFilename).
+func sanitizeExportFilename(name string) string {
+	out := make([]rune, 0, len(name))
+	for _, r := range name {
+		if r == '"' || r == '\\' || r < 0x20 {
+			continue
+		}
+		out = append(out, r)
+	}
+	if len(out) == 0 {
+		return "export.xlsx"
+	}
+	return string(out)
+}
+
 // ListClasses — GET /api/attendance/classes?date=.
 func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

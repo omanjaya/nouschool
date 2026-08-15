@@ -440,13 +440,157 @@ pengaju + approver berikutnya bila ada).
   + halaman baru `/admin/plans` (editor fitur & 3 bracket harga per plan,
   link dari header daftar sekolah). `npm run build` & `npm run lint` hijau.
 
-## Fase 11 — Branding & polish SaaS ⬜
-- ⬜ Branding per sekolah (logo, warna, nama) + PWA manifest dinamis + CSS variables
-- ⬜ Custom domain end-to-end (form, verifikasi DNS, on-demand TLS production)
-- ⬜ Import Dapodik (parser adaptor)
-- ⬜ Export Excel laporan (absensi bulanan, izin)
-- ⬜ Backup otomatis pg_dump harian + restore drill
-- ⬜ Landing page nouschool.id + registrasi minat sekolah
+## Fase 11 — Branding & polish SaaS ✅ (backend)
+Backend terverifikasi end-to-end via curl (server dev `localhost:8210`, Docker
+hot reload): `GET /api/public/context` host platform (`{"platform":true}`) &
+`demo.localhost` (`{"platform":false,"school":{...},"branding":{...}}`) → login
+admin demo → upload logo PNG 1x1 dummy (`POST /api/settings/branding/logo`) →
+`GET /api/public/branding/logo` 200 `image/png` → context & `GET
+/manifest.webmanifest` ikut berubah (`app_name`/`theme_color`/icon logo) →
+manifest host platform tetap default NouSchool → `PUT /api/custom-domain
+{"domain":"sekolahdemo.sch.id"}` → `GET` status `pending` + instructions →
+`POST /api/custom-domain/verify` → gagal jelas ("SERVER_IP belum diset...")
+→ `PUT` ulang domain yang sama (resave sendiri diizinkan) → `DELETE
+/api/custom-domain` → status kosong lagi → import Dapodik: CSV header gaya
+Dapodik ("No. Induk", "NISN", "Nama Peserta Didik", "JK", "Tanggal Lahir",
+"Rombongan Belajar") → preview 2 baris `create` (header dikenali walau beda
+dari template NouSchool) → commit → `created:2` → export absensi bulan
+2026-08 kelas XII RPL 1 → 200 xlsx (`Content-Type`
+`application/vnd.openxmlformats...`, size 7235 bytes) → export izin rentang
+Agustus → 200 xlsx (6466 bytes) → `POST /api/public/interest` 2x host
+platform → login super admin (password di-reset sekali pakai via
+`cmd/bootstrap`, tidak terdokumentasi sebelumnya — sama pola dengan catatan
+Fase 9) → `GET /api/admin/interest` → 2 lead muncul → `scripts/backup.sh`
+dijalankan → `backups/nouschool-2026-08-16.sql.gz` terbentuk (20K, `gunzip -t`
+OK, isi valid pg_dump). `go build/vet/test ./...` hijau. Restore TIDAK
+dijalankan (sesuai batasan tugas — hanya dibuat & didokumentasikan).
+- ✅ Migrasi `00012_branding_domain_interest.sql`: `schools.pending_domain`
+  (+ partial unique index) dan tabel `interest_leads` (platform-level, TANPA
+  `school_id` — landing page host platform, calon sekolah belum jadi tenant)
+- ✅ Branding: `BrandingSettings` (module `branding`, school_settings existing
+  sejak Fase 1) diperluas field `logo_path` — `POST
+  /api/settings/branding/logo` (perm `settings:manage`, multipart field
+  `file`, png/jpg ≤2MB, sniff via `http.DetectContentType`) menyimpan file
+  via `platform/storage` di `{school_id}/branding/logo.{ext}` lalu MENIMPA
+  HANYA `logo_path` pada settings tersimpan (memuat ulang lewat
+  `SettingsService.Get` dulu) — `app_name`/`primary_color` yang sudah
+  tersimpan TIDAK ikut ter-reset, beda dari `PUT /api/settings/branding`
+  generik (replace-all seperti modul settings lain)
+- ✅ `GET /api/public/context` (PUBLIK): host platform →
+  `{"platform":true}`; host tenant → `{"platform":false,"school":{"name",
+  "slug"},"branding":{"app_name","primary_color","logo_url"}}` (`logo_url`
+  null bila belum upload logo) — `GET /api/public/branding/logo` (PUBLIK,
+  404 host platform / belum ada logo) meng-stream file lewat
+  `platform/storage`
+- ✅ `GET /manifest.webmanifest` (PUBLIK): host tenant → manifest dari
+  branding sekolah (name/short_name = app_name, theme_color = primary_color,
+  icon = logo satu entri `sizes:"any"` bila ada else `/pwa-icon.svg`); host
+  platform → manifest default NouSchool. Logika penyusunan manifest
+  (`manifestForBranding`/`defaultManifest`) SENGAJA dipisah jadi fungsi murni
+  dari I/O (settings/HTTP) supaya bisa dites tanpa DB — lihat handler_test.go
+- ✅ Caddyfile blok PROD (masih komentar, TIDAK diaktifkan): ditambah rute
+  `handle /manifest.webmanifest { reverse_proxy localhost:8080 }` di kedua
+  contoh (`*.nouschool.id` & `https://` on-demand) — `/api/public/*` sudah
+  otomatis tercakup blok `/api/*` yang sudah ada
+- ✅ Custom domain end-to-end (`internal/tenant/domain.go`, modul baru
+  `DomainService` — dipisah dari `Service` CRUD sekolah supaya berdiri
+  sendiri, tetap pakai `Repository`/`AuditLogger` yang sama): `GET
+  /api/custom-domain` → `{domain,verified,server_ip,instructions}` (domain
+  aktif ATAU pending, salah satu kosong); `PUT /api/custom-domain {domain}`
+  → validasi format hostname (regex longgar, terima TLD apa pun) + unik
+  LINTAS SEKOLAH menyilang `custom_domain` DAN `pending_domain` (409
+  `domain_taken` bila dipakai sekolah lain, BUKAN 422 — keputusan sendiri:
+  ini konflik data, bukan salah format) → simpan sebagai PENDING; `POST
+  /api/custom-domain/verify` → `net.LookupHost` (dibungkus field
+  `lookupHost`, diganti fake di test) dibandingkan config baru `SERVER_IP`
+  (kosong di dev = gagal SEGERA dengan pesan jelas TANPA menyentuh jaringan,
+  sesuai scope tugas) → sukses: `custom_domain` = `pending_domain`,
+  `pending_domain` dikosongkan, **cache `HostResolver` di-invalidate**
+  (method baru `HostResolver.Invalidate(host)`, dipanggil utk domain yang
+  baru diverifikasi DAN saat `DELETE` melepas domain — supaya perubahan
+  langsung berlaku tanpa menunggu TTL 60 detik habis, docs/01: "perubahan
+  domain TIDAK butuh restart Caddy"); `DELETE /api/custom-domain` → lepas
+  `custom_domain`+`pending_domain` sekaligus. `/internal/check-domain`
+  (Caddy On-Demand TLS) TIDAK diubah — sudah benar sejak Fase 1 (hanya
+  domain `custom_domain` terverifikasi yang lolos)
+- ✅ **Keputusan desain**: `DomainService`/`InterestService` mendeklarasikan
+  interface kecil (`domainRepository`/`interestRepository`) dipenuhi
+  `*Repository` secara struktural — BEDA dari `tenant.Service`/
+  `SettingsService` yang sudah ada sebelumnya (langsung pegang `*Repository`
+  konkret, tanpa interface) — supaya keduanya bisa dites dengan fake
+  in-memory tanpa DB, konsisten dengan pola `attendanceRepository`/
+  `leaveRepository`/`studentRepository` di modul lain (CLAUDE.md: "Test:
+  minimal service-level test untuk aturan bisnis")
+- ✅ Import Dapodik (`internal/student/dapodik.go`): parser adaptor toleran
+  header by NAMA (case/spasi-insensitive, buang tanda titik, sinonim: "Nama
+  Peserta Didik"/"Nama Siswa"→nama, "No. Induk"/"Nomor Induk Sekolah"→nis,
+  "JK"/"Jenis Kelamin"→jenis_kelamin terima L/P/Laki-laki/Perempuan berbagai
+  variasi spasi-hubung, "Tanggal Lahir"/"Tgl Lahir" terima 4 format tambahan
+  di luar yang sudah didukung parser template, "Rombongan Belajar"/"Kelas"→
+  rombel) — matching by NISN DULU, fallback NIS (docs/03); baris tanpa NIS
+  DAN NISN = error baris; siswa BARU (bukan update) tanpa NIS = error baris
+  tersendiri (kolom `nis` NOT NULL di DB, keputusan sendiri: NISN sendirian
+  tidak cukup utk membuat baris baru). Hasil parse adalah `[]studentImportRow`
+  — TIPE YANG SAMA dipakai pipeline import Excel/CSV template NouSchool
+  (docs/03: "Feed ke pipeline ImportRows existing") — `POST
+  /api/import/dapodik` (preview, parser+lookup KHUSUS) + `POST
+  /api/import/dapodik/commit` (handler KHUSUS tapi memanggil
+  `Service.CommitStudentImport` YANG SAMA dengan commit siswa biasa —
+  `ImportStore` tidak membedakan asal file)
+- ✅ Export Excel (excelize, sudah dependency sejak awal) — dua modul, pola
+  dua-lapis di keduanya (fungsi MURNI penyusun struktur data + fungsi MURNI
+  penyusun workbook, dipisah dari I/O supaya dites tanpa DB/HTTP):
+  - `GET /api/attendance/export?month=YYYY-MM&class_id=` (perm
+    `attendance:report`, `internal/attendance/export.go`): query SQL baru
+    `MonthlyAttendanceRecords` (LEFT JOIN sessions/records supaya siswa TETAP
+    muncul walau belum ada sesi absen bulan itu) →
+    `buildMonthlyMatrices` (kelompokkan per rombel/siswa/tanggal) →
+    `renderMonthlyXLSX` (satu sheet per rombel — atau satu sheet saja bila
+    `class_id` diisi — kolom tanggal 1..N hari dalam bulan berisi kode
+    H/T/I/S/A, 5 kolom ringkasan total per status di ujung kanan, header
+    bold, freeze pane kolom NIS+Nama & baris header via
+    `excelize.Panes{Freeze:true}`)
+  - `GET /api/leave/export?from=&to=` (perm `leave:manage` atau
+    `kepala_sekolah`, sama gerbang dgn `Summary`, `internal/leave/export.go`):
+    query SQL baru `ListLeaveRequestsInRange` (SEMUA status, rentang
+    beririsan — beda dari `LeaveSummaryByRange` yg hanya approved) →
+    `renderLeaveXLSX` langsung dari `[]Request` (shape yg SAMA dipakai `GET
+    /api/leave/requests`, sudah lengkap steps/approver — tidak perlu query
+    tambahan) — kolom guru/jenis/tanggal mulai-selesai/jumlah hari/status/
+    approver (nama approver TERAKHIR yang memutuskan, atau "-" bila masih
+    menunggu)
+  - Kedua export: `Content-Disposition: attachment` nama file jelas
+    (`"Absensi {rombel|Semua Kelas} {bulan Indonesia} {tahun}.xlsx"` /
+    `"Izin {from}_{to}.xlsx"`)
+- ✅ Registrasi minat sekolah (landing page, `internal/tenant/interest.go`):
+  `POST /api/public/interest` (PUBLIK, host platform, rate-limit 3/jam per
+  IP — `interestRateLimiter` kecil duplikat MINIMAL dari pola
+  `identity.RateLimiter`, sengaja TIDAK diimpor lintas modul karena identity
+  adalah modul bisnis bukan `platform/`) → `GET /api/admin/interest` (super
+  admin, host platform, daftar SEMUA lead lintas sekolah — tanpa `school_id`)
+- ✅ Config baru `SERVER_IP` (`internal/platform/config`, env `SERVER_IP`,
+  didokumentasikan `.env.example`) — dipakai `DomainService` verifikasi DNS
+- ✅ Test baru: parser Dapodik (variasi header incl. "No. Induk"/"JK"/
+  "Rombongan Belajar", 5 format JK, 5 format tanggal, tanpa NIS+NISN = error,
+  matching NISN-dulu-fallback-NIS, siswa baru tanpa NIS = error), manifest
+  dinamis tenant vs platform (fungsi murni `manifestForBranding`/
+  `defaultManifest`), branding publik (`brandingPublicViewFor`/
+  `brandingLogoURLFor`), custom domain (format hostname, unik 409 lintas
+  sekolah, resave domain sendiri diizinkan, verify TANPA `SERVER_IP` gagal
+  jelas TANPA memanggil `lookupHost`, verify IP cocok/tidak cocok, delete),
+  export absensi (matrix builder dari data palsu + baca-balik sel xlsx via
+  `excelize.OpenReader`), export izin (approver dari step terakhir
+  diputuskan, isi sel dari data palsu), rate limit interest (3/jam per IP,
+  IP lain tidak terpengaruh) — `go build/vet/test ./...` hijau
+- ✅ `scripts/backup.sh` (pg_dump via `docker compose exec -T db`, gzip,
+  retensi 14 file terakhir) + `scripts/restore.sh` (baca file arg → psql,
+  PERINGATAN menimpa + konfirmasi ketik "ya" wajib, TIDAK dijalankan sesuai
+  batasan tugas) — README seksi "Operasional" (cara backup manual, saran
+  cron VPS harian, cara restore + peringatan, catatan `SERVER_IP` produksi)
+- ⬜ UI landing page nouschool.id, klien branding dinamis (CSS variables,
+  `<meta theme-color>`), form pengaturan custom domain, form registrasi minat
+  (`web/` — di luar scope backend sesi ini, sesuai batasan tugas "jangan
+  sentuh web/")
 
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
 - Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; WebSocket realtime TV; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.

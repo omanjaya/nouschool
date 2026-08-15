@@ -124,6 +124,24 @@ func (h *HostResolver) storeCache(host string, e cacheEntry) {
 	h.mu.Unlock()
 }
 
+// Invalidate menghapus satu host dari cache resolusi (Fase 11, docs/01-tenant.md
+// "Custom domain & Caddy": perubahan domain TIDAK butuh restart Caddy/server).
+// Dipanggil DomainService setelah domain baru diverifikasi atau dihapus,
+// supaya perubahan langsung berlaku tanpa menunggu TTL 60 detik — baik untuk
+// hasil "not found" yang sempat di-cache (domain baru diverifikasi) maupun
+// hasil resolusi lama yang sekarang sudah tidak berlaku (domain dihapus).
+// host kosong diabaikan (no-op) — dipanggil pemanggil dengan nilai yang
+// mungkin kosong (mis. sekolah belum pernah punya pending/custom domain).
+func (h *HostResolver) Invalidate(host string) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return
+	}
+	h.mu.Lock()
+	delete(h.cache, host)
+	h.mu.Unlock()
+}
+
 // Middleware memasang hasil resolusi ke request context. Tidak ketemu -> 404 JSON.
 // Ini middleware PERTAMA setelah Recover/Logger/SecurityHeaders (lihat cmd/server/main.go).
 func (h *HostResolver) Middleware(next http.Handler) http.Handler {

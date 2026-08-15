@@ -38,13 +38,14 @@ func mapNoRows(err error) error {
 
 func schoolFromDB(s tenantdb.School) School {
 	return School{
-		ID:           s.ID,
-		Name:         s.Name,
-		Slug:         s.Slug,
-		CustomDomain: s.CustomDomain.String,
-		Timezone:     s.Timezone,
-		Status:       s.Status,
-		CreatedAt:    s.CreatedAt.Time,
+		ID:            s.ID,
+		Name:          s.Name,
+		Slug:          s.Slug,
+		CustomDomain:  s.CustomDomain.String,
+		PendingDomain: s.PendingDomain.String,
+		Timezone:      s.Timezone,
+		Status:        s.Status,
+		CreatedAt:     s.CreatedAt.Time,
 	}
 }
 
@@ -237,4 +238,91 @@ func (r *Repository) PutSetting(ctx context.Context, schoolID int64, module stri
 		UpdatedBy: by,
 	})
 	return err
+}
+
+// -- custom domain (Fase 11) --
+
+// DomainUsedByOtherSchool melaporkan apakah domain sudah dipakai (aktif
+// ATAU masih pending) sekolah LAIN (excludeSchoolID dikecualikan supaya
+// sekolah boleh menyimpan ulang domain miliknya sendiri).
+func (r *Repository) DomainUsedByOtherSchool(ctx context.Context, domain string, excludeSchoolID int64) (bool, error) {
+	return r.q.ExistsDomainUsedByOtherSchool(ctx, tenantdb.ExistsDomainUsedByOtherSchoolParams{
+		ExcludeID: excludeSchoolID, Domain: domain,
+	})
+}
+
+func (r *Repository) SetPendingDomain(ctx context.Context, schoolID int64, domain string) (School, error) {
+	row, err := r.q.SetPendingDomain(ctx, tenantdb.SetPendingDomainParams{ID: schoolID, Domain: domain})
+	if err != nil {
+		return School{}, mapNoRows(err)
+	}
+	return schoolFromDB(row), nil
+}
+
+func (r *Repository) VerifyPendingDomain(ctx context.Context, schoolID int64) (School, error) {
+	row, err := r.q.VerifyPendingDomain(ctx, schoolID)
+	if err != nil {
+		return School{}, mapNoRows(err)
+	}
+	return schoolFromDB(row), nil
+}
+
+func (r *Repository) ClearDomain(ctx context.Context, schoolID int64) (School, error) {
+	row, err := r.q.ClearDomain(ctx, schoolID)
+	if err != nil {
+		return School{}, mapNoRows(err)
+	}
+	return schoolFromDB(row), nil
+}
+
+// -- registrasi minat sekolah (Fase 11) --
+
+// InterestLead adalah representasi domain satu baris interest_leads
+// (platform-level, TANPA school_id — lihat migrations/00012).
+type InterestLead struct {
+	ID          int64     `json:"id"`
+	SchoolName  string    `json:"school_name"`
+	ContactName string    `json:"contact_name"`
+	Phone       string    `json:"phone"`
+	Email       string    `json:"email,omitempty"`
+	Note        string    `json:"note,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+func interestLeadFromDB(l tenantdb.InterestLead) InterestLead {
+	return InterestLead{
+		ID: l.ID, SchoolName: l.SchoolName, ContactName: l.ContactName, Phone: l.Phone,
+		Email: l.Email.String, Note: l.Note.String, CreatedAt: l.CreatedAt.Time,
+	}
+}
+
+type CreateInterestLeadInput struct {
+	SchoolName  string
+	ContactName string
+	Phone       string
+	Email       string
+	Note        string
+}
+
+func (r *Repository) CreateInterestLead(ctx context.Context, in CreateInterestLeadInput) (InterestLead, error) {
+	row, err := r.q.CreateInterestLead(ctx, tenantdb.CreateInterestLeadParams{
+		SchoolName: in.SchoolName, ContactName: in.ContactName, Phone: in.Phone,
+		Email: textOrNil(in.Email), Note: textOrNil(in.Note),
+	})
+	if err != nil {
+		return InterestLead{}, err
+	}
+	return interestLeadFromDB(row), nil
+}
+
+func (r *Repository) ListInterestLeads(ctx context.Context) ([]InterestLead, error) {
+	rows, err := r.q.ListInterestLeads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]InterestLead, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, interestLeadFromDB(row))
+	}
+	return out, nil
 }

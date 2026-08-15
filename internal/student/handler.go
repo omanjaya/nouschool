@@ -551,6 +551,43 @@ func (h *Handler) PreviewTeacherImport(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, preview)
 }
 
+// PreviewDapodikImport — POST /api/import/dapodik (Fase 11, docs/03-student.md
+// "2. File export Dapodik"). Sama bentuk request dengan PreviewStudentImport
+// (multipart field "file", .xlsx/.csv) — parser & lookup beda (dapodik.go).
+func (h *Handler) PreviewDapodikImport(w http.ResponseWriter, r *http.Request) {
+	filename, content, err := readUploadedFile(r)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	preview, err := h.svc.PreviewDapodikImport(r.Context(), reqctx.SchoolID(r.Context()), filename, content)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, preview)
+}
+
+// CommitDapodikImport — POST /api/import/dapodik/commit. Commit dapodik
+// memakai JALUR YANG SAMA dengan commit siswa biasa (CommitStudentImport) —
+// ImportStore tidak membedakan asal file (template NouSchool vs Dapodik),
+// hanya baris yang sudah divalidasi (docs/03: "Feed ke pipeline ImportRows
+// existing (preview→commit sama)").
+func (h *Handler) CommitDapodikImport(w http.ResponseWriter, r *http.Request) {
+	var req importCommitRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	created, updated, skipped, err := h.svc.CommitStudentImport(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), req.UploadID)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"created": created, "updated": updated, "skipped": skipped})
+}
+
 // CommitTeacherImport — POST /api/import/teachers/commit.
 func (h *Handler) CommitTeacherImport(w http.ResponseWriter, r *http.Request) {
 	var req importCommitRequest

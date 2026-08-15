@@ -671,6 +671,80 @@ func (q *Queries) ListSessionRecords(ctx context.Context, sessionID int64) ([]Li
 	return items, nil
 }
 
+const monthlyAttendanceRecords = `-- name: MonthlyAttendanceRecords :many
+SELECT
+    c.id AS class_id, c.name AS class_name,
+    s2.id AS student_id, s2.name AS student_name, s2.nis AS student_nis,
+    ses.date AS date, r.status AS status
+FROM classes c
+JOIN enrollments e ON e.class_id = c.id
+JOIN students s2 ON s2.id = e.student_id
+LEFT JOIN attendance_sessions ses
+    ON ses.class_id = c.id AND ses.type = 'daily' AND ses.school_id = $1::bigint
+   AND ses.date >= $2::date AND ses.date <= $3::date
+LEFT JOIN attendance_records r ON r.session_id = ses.id AND r.student_id = s2.id
+WHERE c.school_id = $1::bigint AND c.academic_year_id = $4::bigint
+  AND ($5::bigint IS NULL OR c.id = $5::bigint)
+ORDER BY c.name, s2.name, ses.date
+`
+
+type MonthlyAttendanceRecordsParams struct {
+	SchoolID       int64       `json:"school_id"`
+	FromDate       pgtype.Date `json:"from_date"`
+	ToDate         pgtype.Date `json:"to_date"`
+	AcademicYearID int64       `json:"academic_year_id"`
+	ClassID        pgtype.Int8 `json:"class_id"`
+}
+
+type MonthlyAttendanceRecordsRow struct {
+	ClassID     int64       `json:"class_id"`
+	ClassName   string      `json:"class_name"`
+	StudentID   int64       `json:"student_id"`
+	StudentName string      `json:"student_name"`
+	StudentNis  string      `json:"student_nis"`
+	Date        pgtype.Date `json:"date"`
+	Status      pgtype.Text `json:"status"`
+}
+
+// Dipakai export Excel bulanan (Fase 11, GET /api/attendance/export): satu
+// baris per (siswa, tanggal sesi daily) dalam rentang [from_date,to_date].
+// LEFT JOIN sessions/records (bukan INNER) supaya siswa TETAP muncul sekali
+// walau sekolah belum pernah buka sesi absen sama sekali bulan itu (date/status
+// akan NULL, ditangani di Go — lihat internal/attendance/export.go).
+func (q *Queries) MonthlyAttendanceRecords(ctx context.Context, arg MonthlyAttendanceRecordsParams) ([]MonthlyAttendanceRecordsRow, error) {
+	rows, err := q.db.Query(ctx, monthlyAttendanceRecords,
+		arg.SchoolID,
+		arg.FromDate,
+		arg.ToDate,
+		arg.AcademicYearID,
+		arg.ClassID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MonthlyAttendanceRecordsRow
+	for rows.Next() {
+		var i MonthlyAttendanceRecordsRow
+		if err := rows.Scan(
+			&i.ClassID,
+			&i.ClassName,
+			&i.StudentID,
+			&i.StudentName,
+			&i.StudentNis,
+			&i.Date,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeActiveQRToken = `-- name: RevokeActiveQRToken :exec
 UPDATE student_qr_tokens SET revoked_at = now()
 WHERE student_id = $1 AND school_id = $2 AND revoked_at IS NULL

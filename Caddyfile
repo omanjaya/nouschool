@@ -24,6 +24,11 @@ localhost {
 # 	handle /api/* {
 # 		reverse_proxy localhost:8080
 # 	}
+# 	# manifest.webmanifest & /api/public/* (Fase 11) dilayani BACKEND (branding
+# 	# dinamis per tenant / context publik) — bukan file statis web/dist.
+# 	handle /manifest.webmanifest {
+# 		reverse_proxy localhost:8080
+# 	}
 # 	handle {
 # 		root * /srv/nouschool/web/dist
 # 		try_files {path} /index.html
@@ -36,6 +41,11 @@ localhost {
 # 		on_demand
 # 	}
 # 	handle /api/* {
+# 		reverse_proxy localhost:8080
+# 	}
+# 	# Sama seperti blok *.nouschool.id di atas — custom domain sekolah juga
+# 	# butuh manifest dinamis (Fase 11, docs/01-tenant.md "PWA manifest dinamis").
+# 	handle /manifest.webmanifest {
 # 		reverse_proxy localhost:8080
 # 	}
 # 	handle {

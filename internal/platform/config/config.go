@@ -13,6 +13,12 @@ type Config struct {
 	DatabaseURL string
 	BaseDomain  string // domain utama platform, mis. "nouschool.id"
 
+	// ServerIP — IP publik VPS produksi (Fase 11, docs/01-tenant.md "Custom
+	// domain & Caddy"). Dipakai DomainService membandingkan hasil resolve DNS
+	// domain custom sekolah. Kosong (default dev) = verifikasi custom domain
+	// SELALU gagal dengan pesan jelas (lihat internal/tenant/domain.go).
+	ServerIP string
+
 	// -- notification (fase 9, docs/08-notification.md) — semua opsional:
 	// kosong = channel dianggap tidak dikonfigurasi (lihat
 	// internal/notification Provider.Configured).
@@ -40,6 +46,7 @@ func Load() (Config, error) {
 		Port:        getenv("PORT", "8080"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		BaseDomain:  getenv("BASE_DOMAIN", "localhost"),
+		ServerIP:    os.Getenv("SERVER_IP"),
 
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),

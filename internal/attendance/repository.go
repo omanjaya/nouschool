@@ -45,6 +45,7 @@ type attendanceRepository interface {
 	CountRecordsForSession(ctx context.Context, sessionID int64) (int64, error)
 
 	SummaryByDate(ctx context.Context, schoolID, academicYearID int64, date time.Time, classID int64) ([]SummaryRow, error)
+	MonthlyAttendanceRecords(ctx context.Context, schoolID, academicYearID int64, from, to time.Time, classID int64) ([]MonthlyRecordRow, error)
 	StudentHistory(ctx context.Context, schoolID, studentID int64, from, to time.Time) ([]HistoryRow, error)
 	StudentCounts(ctx context.Context, schoolID, studentID int64, from, to time.Time) (Counts, error)
 
@@ -420,6 +421,38 @@ func (r *Repository) SummaryByDate(ctx context.Context, schoolID, academicYearID
 			ClassID: row.ClassID, ClassName: row.ClassName, Total: row.Total,
 			Hadir: row.Hadir, Terlambat: row.Terlambat, Izin: row.Izin, Sakit: row.Sakit, Alpa: row.Alpa,
 			SessionStatus: row.SessionStatus,
+		})
+	}
+	return out, nil
+}
+
+// MonthlyRecordRow — satu baris hasil MonthlyAttendanceRecords (Fase 11,
+// dipakai export.go menyusun matriks Excel). Date/Status kosong ("") berarti
+// siswa itu TIDAK punya sesi/record pada tanggal manapun di rentang ini
+// (LEFT JOIN, lihat catatan query).
+type MonthlyRecordRow struct {
+	ClassID     int64
+	ClassName   string
+	StudentID   int64
+	StudentName string
+	StudentNIS  string
+	Date        time.Time // zero bila tidak ada sesi
+	Status      string    // "" bila tidak ada record
+}
+
+func (r *Repository) MonthlyAttendanceRecords(ctx context.Context, schoolID, academicYearID int64, from, to time.Time, classID int64) ([]MonthlyRecordRow, error) {
+	rows, err := r.q.MonthlyAttendanceRecords(ctx, attendancedb.MonthlyAttendanceRecordsParams{
+		SchoolID: schoolID, AcademicYearID: academicYearID, FromDate: dateOf(from), ToDate: dateOf(to), ClassID: int8OrNil(classID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MonthlyRecordRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, MonthlyRecordRow{
+			ClassID: row.ClassID, ClassName: row.ClassName,
+			StudentID: row.StudentID, StudentName: row.StudentName, StudentNIS: row.StudentNis,
+			Date: row.Date.Time, Status: row.Status.String,
 		})
 	}
 	return out, nil

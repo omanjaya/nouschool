@@ -63,14 +63,23 @@ func main() {
 		identitySvc := identity.NewService(identityRepo, loginRateLimiter, cookieSecure)
 		identityHandler := identity.NewHandler(identitySvc)
 
-		// --- modul tenant (sekolah, domain, tahun ajaran, settings) ---
+		// --- modul tenant (sekolah, domain, tahun ajaran, settings, branding,
+		// custom domain, registrasi minat — Fase 1 & Fase 11) ---
 		tenantRepo := tenant.NewRepository(pool)
 		// identitySvc mengimplementasikan tenant.AuditLogger secara struktural
 		// (method Log) — tenant TIDAK mengimpor identity untuk tipe apa pun.
 		tenantSvc := tenant.NewService(tenantRepo, identitySvc)
 		settingsSvc := tenant.NewSettingsService(tenantRepo, identitySvc)
 		hostResolver := tenant.NewHostResolver(tenantRepo, cfg.BaseDomain)
-		tenantHandler := tenant.NewHandler(tenantSvc, settingsSvc, hostResolver)
+		// domainSvc (Fase 11): custom domain end-to-end — dipakai bersama
+		// hostResolver (invalidate cache setelah verify/hapus, lihat
+		// internal/tenant/domain.go) & cfg.ServerIP (kosong di dev = verifikasi
+		// selalu gagal dengan pesan jelas, sesuai scope tugas).
+		domainSvc := tenant.NewDomainService(tenantRepo, hostResolver, identitySvc, cfg.ServerIP, cfg.BaseDomain)
+		// interestSvc (Fase 11): registrasi minat sekolah dari landing page
+		// (host platform, publik, rate-limit 3/jam per IP).
+		interestSvc := tenant.NewInterestService(tenantRepo, clock.System{})
+		tenantHandler := tenant.NewHandler(tenantSvc, settingsSvc, hostResolver, domainSvc, interestSvc, storage.FromEnv())
 
 		// --- modul student (siswa, rombel, enrollment, wali, guru, mapel, import, undangan) ---
 		// identitySvc & tenantSvc memenuhi student.IdentityGateway /

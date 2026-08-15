@@ -94,6 +94,16 @@ type Guardian struct {
 	Relation  string `json:"relation"`
 }
 
+type InterestLead struct {
+	ID          int64              `json:"id"`
+	SchoolName  string             `json:"school_name"`
+	ContactName string             `json:"contact_name"`
+	Phone       string             `json:"phone"`
+	Email       pgtype.Text        `json:"email"`
+	Note        pgtype.Text        `json:"note"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type Invitation struct {
 	ID        int64              `json:"id"`
 	SchoolID  int64              `json:"school_id"`
@@ -260,13 +270,14 @@ type ScheduleSlot struct {
 }
 
 type School struct {
-	ID           int64              `json:"id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	CustomDomain pgtype.Text        `json:"custom_domain"`
-	Timezone     string             `json:"timezone"`
-	Status       string             `json:"status"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID            int64              `json:"id"`
+	Name          string             `json:"name"`
+	Slug          string             `json:"slug"`
+	CustomDomain  pgtype.Text        `json:"custom_domain"`
+	Timezone      string             `json:"timezone"`
+	Status        string             `json:"status"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	PendingDomain pgtype.Text        `json:"pending_domain"`
 }
 
 type SchoolSetting struct {

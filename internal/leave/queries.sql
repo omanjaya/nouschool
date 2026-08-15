@@ -95,6 +95,17 @@ WHERE s.school_id = sqlc.arg(school_id)::bigint
   )
 ORDER BY lr.created_at;
 
+-- name: ListLeaveRequestsInRange :many
+-- Dipakai export Excel (Fase 11, GET /api/leave/export?from=&to=): SEMUA
+-- status (bukan hanya approved seperti LeaveSummaryByRange), request yang
+-- rentangnya beririsan [from,to].
+SELECT lr.*, u.name AS teacher_name
+FROM leave_requests lr
+JOIN users u ON u.id = lr.teacher_id
+WHERE lr.school_id = sqlc.arg(school_id)::bigint
+  AND lr.date_start <= sqlc.arg(to_date)::date AND lr.date_end >= sqlc.arg(from_date)::date
+ORDER BY lr.date_start, u.name;
+
 -- name: LeaveSummaryByRange :many
 -- Rekap per guru per tipe dari request approved yang beririsan [from,to] —
 -- hari dihitung terpotong (clipped) ke rentang query.

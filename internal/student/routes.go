@@ -61,4 +61,9 @@ func RegisterRoutes(
 	mux.Handle("GET /api/import/teachers/template", manage(h.TeacherImportTemplate))
 	mux.Handle("POST /api/import/teachers", manage(h.PreviewTeacherImport))
 	mux.Handle("POST /api/import/teachers/commit", manage(h.CommitTeacherImport))
+	// Import Dapodik (Fase 11, docs/03-student.md) — commit memakai handler
+	// KHUSUS (CommitDapodikImport) tapi memanggil service yang SAMA
+	// (CommitStudentImport) dengan endpoint /api/import/students/commit.
+	mux.Handle("POST /api/import/dapodik", manage(h.PreviewDapodikImport))
+	mux.Handle("POST /api/import/dapodik/commit", manage(h.CommitDapodikImport))
 }

@@ -35,6 +35,8 @@ func RegisterRoutes(
 	// PUT /api/settings/{module} biasa (docs/08-notification.md).
 	mux.Handle("GET /api/admin/schools/{id}/settings/{module}", adminOnly(h.AdminGetSettings))
 	mux.Handle("PUT /api/admin/schools/{id}/settings/{module}", adminOnly(h.AdminPutSettings))
+	// Registrasi minat sekolah (Fase 11, landing page) — daftar lintas sekolah, super admin saja.
+	mux.Handle("GET /api/admin/interest", adminOnly(h.AdminListInterest))
 
 	// Daftar tahun ajaran sekolah sendiri (host tenant, siapa saja yang login) — untuk filter UI.
 	mux.Handle("GET /api/academic-years", requireAuth(http.HandlerFunc(h.ListAcademicYearsForSchool)))
@@ -42,4 +44,20 @@ func RegisterRoutes(
 	// Settings tenant — GET siapa saja yang login di sekolah itu, PUT butuh settings:manage.
 	mux.Handle("GET /api/settings/{module}", requireAuth(http.HandlerFunc(h.GetSettings)))
 	mux.Handle("PUT /api/settings/{module}", requireAuth(requirePerm("settings:manage")(http.HandlerFunc(h.PutSettings))))
+	// Upload logo branding (Fase 11) — settings:manage sama seperti PUT settings module lain.
+	mux.Handle("POST /api/settings/branding/logo", requireAuth(requirePerm("settings:manage")(http.HandlerFunc(h.UploadBrandingLogo))))
+
+	// Custom domain (Fase 11, docs/01-tenant.md "Custom domain & Caddy") — settings:manage.
+	domainManage := func(hf http.HandlerFunc) http.Handler { return requireAuth(requirePerm("settings:manage")(hf)) }
+	mux.Handle("GET /api/custom-domain", domainManage(h.GetCustomDomain))
+	mux.Handle("PUT /api/custom-domain", domainManage(h.PutCustomDomain))
+	mux.Handle("POST /api/custom-domain/verify", domainManage(h.VerifyCustomDomain))
+	mux.Handle("DELETE /api/custom-domain", domainManage(h.DeleteCustomDomain))
+
+	// -- endpoint publik (TANPA auth, Fase 11) --
+	mux.HandleFunc("GET /api/public/context", h.PublicContext)
+	mux.HandleFunc("GET /api/public/branding/logo", h.PublicBrandingLogo)
+	mux.HandleFunc("GET /manifest.webmanifest", h.ManifestWebmanifest)
+	// Registrasi minat sekolah — publik, dipakai landing page host platform (rate-limit di service).
+	mux.HandleFunc("POST /api/public/interest", h.SubmitInterest)
 }

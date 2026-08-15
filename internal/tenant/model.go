@@ -33,13 +33,16 @@ func (d *Date) UnmarshalJSON(b []byte) error {
 
 // School adalah representasi domain dari baris tabel schools.
 type School struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	Slug         string    `json:"slug"`
-	CustomDomain string    `json:"custom_domain,omitempty"` // "" bila belum pakai custom domain
-	Timezone     string    `json:"timezone"`
-	Status       string    `json:"status"` // active|suspended
-	CreatedAt    time.Time `json:"created_at"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Slug         string `json:"slug"`
+	CustomDomain string `json:"custom_domain,omitempty"` // "" bila belum pakai custom domain
+	// PendingDomain — domain yang sudah diisi admin tapi belum lolos
+	// verifikasi DNS (Fase 11, docs/01-tenant.md "Custom domain & Caddy").
+	PendingDomain string    `json:"pending_domain,omitempty"`
+	Timezone      string    `json:"timezone"`
+	Status        string    `json:"status"` // active|suspended
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // AcademicYear adalah representasi domain dari academic_years.

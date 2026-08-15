@@ -31,6 +31,9 @@ func RegisterRoutes(
 	// Summary sengaja hanya requireAuth: leave:manage ATAU role kepala_sekolah
 	// — ditegakkan di Service.Summary.
 	mux.Handle("GET /api/leave/summary", auth(h.Summary))
+	// Export Excel (Fase 11) — sengaja hanya requireAuth: otorisasi (leave:manage
+	// ATAU kepala_sekolah) sepenuhnya di Service.ExportXLSX (sama pola Summary).
+	mux.Handle("GET /api/leave/export", auth(h.ExportXLSX))
 	// File lampiran: otorisasi (pengaju/approver-di-chain/leave:manage) penuh
 	// di Service.GetAttachment — sama pola dengan attendance.StudentAttendance.
 	mux.Handle("GET /api/files/leave/{id}/attachment", auth(h.Attachment))

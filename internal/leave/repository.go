@@ -31,6 +31,7 @@ type leaveRepository interface {
 	SubmitRequest(ctx context.Context, in SubmitRequestParams) (RequestRecord, []StepRecord, error)
 	GetRequestByID(ctx context.Context, schoolID, id int64) (RequestRecord, error)
 	ListRequests(ctx context.Context, schoolID int64, teacherID int64, status string) ([]RequestRecord, error)
+	ListRequestsInRange(ctx context.Context, schoolID int64, from, to time.Time) ([]RequestRecord, error)
 	ListStepsForRequest(ctx context.Context, requestID int64) ([]StepRecord, error)
 	ListStepsForRequests(ctx context.Context, requestIDs []int64) ([]StepRecord, error)
 
@@ -273,6 +274,23 @@ func (r *Repository) GetRequestByID(ctx context.Context, schoolID, id int64) (Re
 func (r *Repository) ListRequests(ctx context.Context, schoolID int64, teacherID int64, status string) ([]RequestRecord, error) {
 	rows, err := r.q.ListLeaveRequests(ctx, leavedb.ListLeaveRequestsParams{
 		SchoolID: schoolID, TeacherID: int8OrNil(teacherID), Status: textOrNil(status),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RequestRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, requestFromRow(row.ID, row.SchoolID, row.TeacherID, row.TeacherName, row.Type, row.DateStart, row.DateEnd,
+			row.Reason, row.Attachment, row.AttachmentName, row.AttachmentMime, row.Status, row.CreatedAt))
+	}
+	return out, nil
+}
+
+// ListRequestsInRange — dipakai export Excel (Fase 11): SEMUA status, request
+// yang rentangnya beririsan [from,to].
+func (r *Repository) ListRequestsInRange(ctx context.Context, schoolID int64, from, to time.Time) ([]RequestRecord, error) {
+	rows, err := r.q.ListLeaveRequestsInRange(ctx, leavedb.ListLeaveRequestsInRangeParams{
+		SchoolID: schoolID, FromDate: dateOf(from), ToDate: dateOf(to),
 	})
 	if err != nil {
 		return nil, err

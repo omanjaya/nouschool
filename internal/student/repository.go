@@ -22,6 +22,7 @@ type studentRepository interface {
 	ListStudents(ctx context.Context, f ListStudentsFilter) ([]StudentRecord, int64, error)
 	GetStudent(ctx context.Context, schoolID, academicYearID, id int64) (StudentRecord, error)
 	GetStudentByNIS(ctx context.Context, schoolID int64, nis string) (StudentRecord, error)
+	GetStudentByNISN(ctx context.Context, schoolID int64, nisn string) (StudentRecord, error)
 	GetStudentByUserID(ctx context.Context, schoolID, academicYearID, userID int64) (StudentRecord, error)
 	ListStudentsByIDs(ctx context.Context, schoolID int64, ids []int64) ([]StudentRecord, error)
 	CreateStudent(ctx context.Context, in CreateStudentInput) (StudentRecord, error)
@@ -190,6 +191,16 @@ func (r *Repository) GetStudent(ctx context.Context, schoolID, academicYearID, i
 
 func (r *Repository) GetStudentByNIS(ctx context.Context, schoolID int64, nis string) (StudentRecord, error) {
 	row, err := r.q.GetStudentByNIS(ctx, studentdb.GetStudentByNISParams{SchoolID: schoolID, Nis: nis})
+	if err != nil {
+		return StudentRecord{}, mapNoRows(err)
+	}
+	return studentFromDB(row), nil
+}
+
+// GetStudentByNISN — dipakai parser import Dapodik (Fase 11): matching by
+// NISN dulu, fallback NIS.
+func (r *Repository) GetStudentByNISN(ctx context.Context, schoolID int64, nisn string) (StudentRecord, error) {
+	row, err := r.q.GetStudentByNISN(ctx, studentdb.GetStudentByNISNParams{SchoolID: schoolID, Nisn: textOrNil(nisn)})
 	if err != nil {
 		return StudentRecord{}, mapNoRows(err)
 	}

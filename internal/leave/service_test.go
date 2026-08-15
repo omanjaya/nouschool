@@ -72,6 +72,22 @@ func (f *fakeRepo) SubmitRequest(ctx context.Context, in SubmitRequestParams) (R
 	return rec, stepRecs, nil
 }
 
+// ListRequestsInRange — Fase 11 export: SEMUA status, rentang beririsan.
+func (f *fakeRepo) ListRequestsInRange(ctx context.Context, schoolID int64, from, to time.Time) ([]RequestRecord, error) {
+	var out []RequestRecord
+	for id := int64(1); id <= f.nextReq; id++ {
+		rec, ok := f.requests[id]
+		if !ok || rec.SchoolID != schoolID {
+			continue
+		}
+		if rec.DateStart.After(to) || rec.DateEnd.Before(from) {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
 func (f *fakeRepo) GetRequestByID(ctx context.Context, schoolID, id int64) (RequestRecord, error) {
 	rec, ok := f.requests[id]
 	if !ok || rec.SchoolID != schoolID {

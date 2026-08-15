@@ -152,6 +152,20 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, items)
 }
 
+// ExportXLSX — GET /api/leave/export?from=&to= (Fase 11).
+func (h *Handler) ExportXLSX(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	filename, data, err := h.svc.ExportXLSX(ctx, reqctx.SchoolID(ctx), q.Get("from"), q.Get("to"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(filename)+`"`)
+	_, _ = w.Write(data)
+}
+
 // Attachment — GET /api/files/leave/{id}/attachment.
 func (h *Handler) Attachment(w http.ResponseWriter, r *http.Request) {
 	id, err := pathInt64(r, "id")

@@ -402,6 +402,36 @@ func (q *Queries) GetStudentByNIS(ctx context.Context, arg GetStudentByNISParams
 	return i, err
 }
 
+const getStudentByNISN = `-- name: GetStudentByNISN :one
+SELECT id, school_id, nis, nisn, name, gender, birth_date, user_id, status, created_at FROM students WHERE school_id = $1 AND nisn = $2
+`
+
+type GetStudentByNISNParams struct {
+	SchoolID int64       `json:"school_id"`
+	Nisn     pgtype.Text `json:"nisn"`
+}
+
+// Dipakai parser import Dapodik (Fase 11, docs/03-student.md): matching by
+// NISN dulu, fallback NIS. nisn nullable — hanya dipanggil dengan nilai
+// non-kosong (lihat internal/student/dapodik.go).
+func (q *Queries) GetStudentByNISN(ctx context.Context, arg GetStudentByNISNParams) (Student, error) {
+	row := q.db.QueryRow(ctx, getStudentByNISN, arg.SchoolID, arg.Nisn)
+	var i Student
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.Nis,
+		&i.Nisn,
+		&i.Name,
+		&i.Gender,
+		&i.BirthDate,
+		&i.UserID,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getStudentByUserID = `-- name: GetStudentByUserID :one
 SELECT s.id, s.school_id, s.nis, s.nisn, s.name, s.gender, s.birth_date, s.user_id, s.status, s.created_at,
        c.id AS class_id, c.name AS class_name

@@ -42,6 +42,19 @@ func (f *fakeRepo) GetStudentByNIS(ctx context.Context, schoolID int64, nis stri
 	return StudentRecord{}, ErrNotFound
 }
 
+// GetStudentByNISN — dipakai parser import Dapodik (Fase 11).
+func (f *fakeRepo) GetStudentByNISN(ctx context.Context, schoolID int64, nisn string) (StudentRecord, error) {
+	if nisn == "" {
+		return StudentRecord{}, ErrNotFound
+	}
+	for _, r := range f.students {
+		if r.SchoolID == schoolID && r.NISN == nisn {
+			return r, nil
+		}
+	}
+	return StudentRecord{}, ErrNotFound
+}
+
 func (f *fakeRepo) GetStudentByUserID(ctx context.Context, schoolID, academicYearID, userID int64) (StudentRecord, error) {
 	for _, r := range f.students {
 		if r.SchoolID == schoolID && r.UserID == userID {

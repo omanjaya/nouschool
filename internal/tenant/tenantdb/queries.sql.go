@@ -35,6 +35,30 @@ func (q *Queries) ActivateAcademicYear(ctx context.Context, arg ActivateAcademic
 	return i, err
 }
 
+const clearDomain = `-- name: ClearDomain :one
+UPDATE schools SET custom_domain = NULL, pending_domain = NULL
+WHERE id = $1
+RETURNING id, name, slug, custom_domain, timezone, status, created_at, pending_domain
+`
+
+// DELETE /api/custom-domain: hapus baik custom_domain aktif maupun yang
+// masih pending sekaligus (satu aksi "lepas domain sendiri").
+func (q *Queries) ClearDomain(ctx context.Context, id int64) (School, error) {
+	row := q.db.QueryRow(ctx, clearDomain, id)
+	var i School
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.CustomDomain,
+		&i.Timezone,
+		&i.Status,
+		&i.CreatedAt,
+		&i.PendingDomain,
+	)
+	return i, err
+}
+
 const createAcademicYear = `-- name: CreateAcademicYear :one
 INSERT INTO academic_years (school_id, name, starts_on, ends_on, is_active)
 VALUES ($1, $2, $3, $4, $5)
@@ -69,10 +93,50 @@ func (q *Queries) CreateAcademicYear(ctx context.Context, arg CreateAcademicYear
 	return i, err
 }
 
+const createInterestLead = `-- name: CreateInterestLead :one
+
+INSERT INTO interest_leads (school_name, contact_name, phone, email, note)
+VALUES ($1::text, $2::text, $3::text,
+        $4::text, $5::text)
+RETURNING id, school_name, contact_name, phone, email, note, created_at
+`
+
+type CreateInterestLeadParams struct {
+	SchoolName  string      `json:"school_name"`
+	ContactName string      `json:"contact_name"`
+	Phone       string      `json:"phone"`
+	Email       pgtype.Text `json:"email"`
+	Note        pgtype.Text `json:"note"`
+}
+
+// -- registrasi minat sekolah (Fase 11, landing page host platform) --
+// interest_leads TANPA school_id (platform-level, calon sekolah belum jadi
+// tenant) — lihat catatan migrations/00012_branding_domain_interest.sql.
+func (q *Queries) CreateInterestLead(ctx context.Context, arg CreateInterestLeadParams) (InterestLead, error) {
+	row := q.db.QueryRow(ctx, createInterestLead,
+		arg.SchoolName,
+		arg.ContactName,
+		arg.Phone,
+		arg.Email,
+		arg.Note,
+	)
+	var i InterestLead
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolName,
+		&i.ContactName,
+		&i.Phone,
+		&i.Email,
+		&i.Note,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createSchool = `-- name: CreateSchool :one
 INSERT INTO schools (name, slug, timezone)
 VALUES ($1, $2, $3)
-RETURNING id, name, slug, custom_domain, timezone, status, created_at
+RETURNING id, name, slug, custom_domain, timezone, status, created_at, pending_domain
 `
 
 type CreateSchoolParams struct {
@@ -92,6 +156,7 @@ func (q *Queries) CreateSchool(ctx context.Context, arg CreateSchoolParams) (Sch
 		&i.Timezone,
 		&i.Status,
 		&i.CreatedAt,
+		&i.PendingDomain,
 	)
 	return i, err
 }
@@ -103,6 +168,31 @@ UPDATE academic_years SET is_active = false WHERE school_id = $1 AND is_active =
 func (q *Queries) DeactivateAcademicYears(ctx context.Context, schoolID int64) error {
 	_, err := q.db.Exec(ctx, deactivateAcademicYears, schoolID)
 	return err
+}
+
+const existsDomainUsedByOtherSchool = `-- name: ExistsDomainUsedByOtherSchool :one
+
+SELECT EXISTS (
+    SELECT 1 FROM schools
+    WHERE id != $1::bigint
+      AND (custom_domain = $2::text OR pending_domain = $2::text)
+) AS used
+`
+
+type ExistsDomainUsedByOtherSchoolParams struct {
+	ExcludeID int64  `json:"exclude_id"`
+	Domain    string `json:"domain"`
+}
+
+// -- custom domain (Fase 11, docs/01-tenant.md "Custom domain & Caddy") --
+// Unik LINTAS sekolah, menyilang custom_domain (aktif) dan pending_domain
+// (menunggu verifikasi) — partial unique index per kolom tidak bisa
+// menyilang dua kolom berbeda, jadi dicek di sini sebelum SetPendingDomain.
+func (q *Queries) ExistsDomainUsedByOtherSchool(ctx context.Context, arg ExistsDomainUsedByOtherSchoolParams) (bool, error) {
+	row := q.db.QueryRow(ctx, existsDomainUsedByOtherSchool, arg.ExcludeID, arg.Domain)
+	var used bool
+	err := row.Scan(&used)
+	return used, err
 }
 
 const getAcademicYear = `-- name: GetAcademicYear :one
@@ -147,7 +237,7 @@ func (q *Queries) GetActiveAcademicYear(ctx context.Context, schoolID int64) (Ac
 }
 
 const getSchoolByCustomDomain = `-- name: GetSchoolByCustomDomain :one
-SELECT id, name, slug, custom_domain, timezone, status, created_at FROM schools WHERE custom_domain = $1 AND status = 'active'
+SELECT id, name, slug, custom_domain, timezone, status, created_at, pending_domain FROM schools WHERE custom_domain = $1 AND status = 'active'
 `
 
 func (q *Queries) GetSchoolByCustomDomain(ctx context.Context, customDomain pgtype.Text) (School, error) {
@@ -161,12 +251,13 @@ func (q *Queries) GetSchoolByCustomDomain(ctx context.Context, customDomain pgty
 		&i.Timezone,
 		&i.Status,
 		&i.CreatedAt,
+		&i.PendingDomain,
 	)
 	return i, err
 }
 
 const getSchoolByID = `-- name: GetSchoolByID :one
-SELECT id, name, slug, custom_domain, timezone, status, created_at FROM schools WHERE id = $1
+SELECT id, name, slug, custom_domain, timezone, status, created_at, pending_domain FROM schools WHERE id = $1
 `
 
 func (q *Queries) GetSchoolByID(ctx context.Context, id int64) (School, error) {
@@ -180,13 +271,14 @@ func (q *Queries) GetSchoolByID(ctx context.Context, id int64) (School, error) {
 		&i.Timezone,
 		&i.Status,
 		&i.CreatedAt,
+		&i.PendingDomain,
 	)
 	return i, err
 }
 
 const getSchoolBySlug = `-- name: GetSchoolBySlug :one
 
-SELECT id, name, slug, custom_domain, timezone, status, created_at FROM schools WHERE slug = $1 AND status = 'active'
+SELECT id, name, slug, custom_domain, timezone, status, created_at, pending_domain FROM schools WHERE slug = $1 AND status = 'active'
 `
 
 // Query modul tenant (sqlc). Semua query tenant-scoped WAJIB filter school_id.
@@ -201,12 +293,13 @@ func (q *Queries) GetSchoolBySlug(ctx context.Context, slug string) (School, err
 		&i.Timezone,
 		&i.Status,
 		&i.CreatedAt,
+		&i.PendingDomain,
 	)
 	return i, err
 }
 
 const getSchoolBySlugAny = `-- name: GetSchoolBySlugAny :one
-SELECT id, name, slug, custom_domain, timezone, status, created_at FROM schools WHERE slug = $1
+SELECT id, name, slug, custom_domain, timezone, status, created_at, pending_domain FROM schools WHERE slug = $1
 `
 
 // Dipakai admin/bootstrap: tanpa filter status (untuk cek idempoten & manajemen).
@@ -221,6 +314,7 @@ func (q *Queries) GetSchoolBySlugAny(ctx context.Context, slug string) (School, 
 		&i.Timezone,
 		&i.Status,
 		&i.CreatedAt,
+		&i.PendingDomain,
 	)
 	return i, err
 }
@@ -278,8 +372,40 @@ func (q *Queries) ListAcademicYears(ctx context.Context, schoolID int64) ([]Acad
 	return items, nil
 }
 
+const listInterestLeads = `-- name: ListInterestLeads :many
+SELECT id, school_name, contact_name, phone, email, note, created_at FROM interest_leads ORDER BY created_at DESC
+`
+
+func (q *Queries) ListInterestLeads(ctx context.Context) ([]InterestLead, error) {
+	rows, err := q.db.Query(ctx, listInterestLeads)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InterestLead
+	for rows.Next() {
+		var i InterestLead
+		if err := rows.Scan(
+			&i.ID,
+			&i.SchoolName,
+			&i.ContactName,
+			&i.Phone,
+			&i.Email,
+			&i.Note,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSchools = `-- name: ListSchools :many
-SELECT id, name, slug, custom_domain, timezone, status, created_at FROM schools ORDER BY created_at DESC
+SELECT id, name, slug, custom_domain, timezone, status, created_at, pending_domain FROM schools ORDER BY created_at DESC
 `
 
 func (q *Queries) ListSchools(ctx context.Context) ([]School, error) {
@@ -299,6 +425,7 @@ func (q *Queries) ListSchools(ctx context.Context) ([]School, error) {
 			&i.Timezone,
 			&i.Status,
 			&i.CreatedAt,
+			&i.PendingDomain,
 		); err != nil {
 			return nil, err
 		}
@@ -310,6 +437,32 @@ func (q *Queries) ListSchools(ctx context.Context) ([]School, error) {
 	return items, nil
 }
 
+const setPendingDomain = `-- name: SetPendingDomain :one
+UPDATE schools SET pending_domain = $1::text WHERE id = $2::bigint
+RETURNING id, name, slug, custom_domain, timezone, status, created_at, pending_domain
+`
+
+type SetPendingDomainParams struct {
+	Domain string `json:"domain"`
+	ID     int64  `json:"id"`
+}
+
+func (q *Queries) SetPendingDomain(ctx context.Context, arg SetPendingDomainParams) (School, error) {
+	row := q.db.QueryRow(ctx, setPendingDomain, arg.Domain, arg.ID)
+	var i School
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.CustomDomain,
+		&i.Timezone,
+		&i.Status,
+		&i.CreatedAt,
+		&i.PendingDomain,
+	)
+	return i, err
+}
+
 const updateSchool = `-- name: UpdateSchool :one
 UPDATE schools SET
     name          = COALESCE($1, name),
@@ -317,7 +470,7 @@ UPDATE schools SET
     timezone      = COALESCE($3, timezone),
     status        = COALESCE($4, status)
 WHERE id = $5
-RETURNING id, name, slug, custom_domain, timezone, status, created_at
+RETURNING id, name, slug, custom_domain, timezone, status, created_at, pending_domain
 `
 
 type UpdateSchoolParams struct {
@@ -345,6 +498,7 @@ func (q *Queries) UpdateSchool(ctx context.Context, arg UpdateSchoolParams) (Sch
 		&i.Timezone,
 		&i.Status,
 		&i.CreatedAt,
+		&i.PendingDomain,
 	)
 	return i, err
 }
@@ -378,6 +532,29 @@ func (q *Queries) UpsertSchoolSetting(ctx context.Context, arg UpsertSchoolSetti
 		&i.Settings,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const verifyPendingDomain = `-- name: VerifyPendingDomain :one
+UPDATE schools SET custom_domain = pending_domain, pending_domain = NULL
+WHERE id = $1
+RETURNING id, name, slug, custom_domain, timezone, status, created_at, pending_domain
+`
+
+// Verifikasi sukses: pending_domain pindah jadi custom_domain aktif.
+func (q *Queries) VerifyPendingDomain(ctx context.Context, id int64) (School, error) {
+	row := q.db.QueryRow(ctx, verifyPendingDomain, id)
+	var i School
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.CustomDomain,
+		&i.Timezone,
+		&i.Status,
+		&i.CreatedAt,
+		&i.PendingDomain,
 	)
 	return i, err
 }

@@ -26,3 +26,6 @@ Thumbs.db
 
 # Uploads (data runtime, bukan kode)
 /uploads/
+
+# Backup database (data runtime, bukan kode — lihat scripts/backup.sh)
+/backups/

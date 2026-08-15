@@ -453,6 +453,74 @@ func (q *Queries) ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsPa
 	return items, nil
 }
 
+const listLeaveRequestsInRange = `-- name: ListLeaveRequestsInRange :many
+SELECT lr.id, lr.school_id, lr.teacher_id, lr.type, lr.date_start, lr.date_end, lr.reason, lr.attachment, lr.attachment_name, lr.attachment_mime, lr.status, lr.created_at, u.name AS teacher_name
+FROM leave_requests lr
+JOIN users u ON u.id = lr.teacher_id
+WHERE lr.school_id = $1::bigint
+  AND lr.date_start <= $2::date AND lr.date_end >= $3::date
+ORDER BY lr.date_start, u.name
+`
+
+type ListLeaveRequestsInRangeParams struct {
+	SchoolID int64       `json:"school_id"`
+	ToDate   pgtype.Date `json:"to_date"`
+	FromDate pgtype.Date `json:"from_date"`
+}
+
+type ListLeaveRequestsInRangeRow struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	TeacherID      int64              `json:"teacher_id"`
+	Type           string             `json:"type"`
+	DateStart      pgtype.Date        `json:"date_start"`
+	DateEnd        pgtype.Date        `json:"date_end"`
+	Reason         string             `json:"reason"`
+	Attachment     pgtype.Text        `json:"attachment"`
+	AttachmentName pgtype.Text        `json:"attachment_name"`
+	AttachmentMime pgtype.Text        `json:"attachment_mime"`
+	Status         string             `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	TeacherName    string             `json:"teacher_name"`
+}
+
+// Dipakai export Excel (Fase 11, GET /api/leave/export?from=&to=): SEMUA
+// status (bukan hanya approved seperti LeaveSummaryByRange), request yang
+// rentangnya beririsan [from,to].
+func (q *Queries) ListLeaveRequestsInRange(ctx context.Context, arg ListLeaveRequestsInRangeParams) ([]ListLeaveRequestsInRangeRow, error) {
+	rows, err := q.db.Query(ctx, listLeaveRequestsInRange, arg.SchoolID, arg.ToDate, arg.FromDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLeaveRequestsInRangeRow
+	for rows.Next() {
+		var i ListLeaveRequestsInRangeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SchoolID,
+			&i.TeacherID,
+			&i.Type,
+			&i.DateStart,
+			&i.DateEnd,
+			&i.Reason,
+			&i.Attachment,
+			&i.AttachmentName,
+			&i.AttachmentMime,
+			&i.Status,
+			&i.CreatedAt,
+			&i.TeacherName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLeaveStepsByRequestIDs = `-- name: ListLeaveStepsByRequestIDs :many
 SELECT s.id, s.school_id, s.leave_request_id, s.step_order, s.approver_role, s.approver_user_id, s.decided_by, s.decision, s.decided_at, s.comment, u.name AS decided_by_name
 FROM leave_approval_steps s

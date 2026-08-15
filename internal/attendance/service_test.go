@@ -175,6 +175,13 @@ func (f *fakeRepo) SummaryByDate(ctx context.Context, schoolID, academicYearID i
 	return nil, nil
 }
 
+// MonthlyAttendanceRecords — Fase 11 export; dites langsung lewat
+// buildMonthlyMatrices/renderMonthlyXLSX (fungsi murni, lihat export_test.go),
+// jadi fake ini tidak perlu mensimulasikan data sungguhan.
+func (f *fakeRepo) MonthlyAttendanceRecords(ctx context.Context, schoolID, academicYearID int64, from, to time.Time, classID int64) ([]MonthlyRecordRow, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) StudentHistory(ctx context.Context, schoolID, studentID int64, from, to time.Time) ([]HistoryRow, error) {
 	return nil, nil
 }

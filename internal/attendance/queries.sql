@@ -118,6 +118,27 @@ WHERE r.student_id = sqlc.arg(student_id)::bigint AND r.school_id = sqlc.arg(sch
 ORDER BY s.date DESC
 LIMIT 200;
 
+-- name: MonthlyAttendanceRecords :many
+-- Dipakai export Excel bulanan (Fase 11, GET /api/attendance/export): satu
+-- baris per (siswa, tanggal sesi daily) dalam rentang [from_date,to_date].
+-- LEFT JOIN sessions/records (bukan INNER) supaya siswa TETAP muncul sekali
+-- walau sekolah belum pernah buka sesi absen sama sekali bulan itu (date/status
+-- akan NULL, ditangani di Go — lihat internal/attendance/export.go).
+SELECT
+    c.id AS class_id, c.name AS class_name,
+    s2.id AS student_id, s2.name AS student_name, s2.nis AS student_nis,
+    ses.date AS date, r.status AS status
+FROM classes c
+JOIN enrollments e ON e.class_id = c.id
+JOIN students s2 ON s2.id = e.student_id
+LEFT JOIN attendance_sessions ses
+    ON ses.class_id = c.id AND ses.type = 'daily' AND ses.school_id = sqlc.arg(school_id)::bigint
+   AND ses.date >= sqlc.arg(from_date)::date AND ses.date <= sqlc.arg(to_date)::date
+LEFT JOIN attendance_records r ON r.session_id = ses.id AND r.student_id = s2.id
+WHERE c.school_id = sqlc.arg(school_id)::bigint AND c.academic_year_id = sqlc.arg(academic_year_id)::bigint
+  AND (sqlc.narg(class_id)::bigint IS NULL OR c.id = sqlc.narg(class_id)::bigint)
+ORDER BY c.name, s2.name, ses.date;
+
 -- name: StudentAttendanceCounts :one
 SELECT
     COUNT(*) FILTER (WHERE r.status = 'hadir')     AS hadir,
