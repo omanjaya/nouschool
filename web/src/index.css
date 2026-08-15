@@ -1,0 +1,59 @@
+@import "tailwindcss";
+@import "./styles/tokens.css";
+
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-primary-soft: var(--primary-soft);
+
+  --color-st-hadir: var(--st-hadir);
+  --color-st-hadir-line: var(--st-hadir-line);
+  --color-st-terlambat: var(--st-terlambat);
+  --color-st-terlambat-line: var(--st-terlambat-line);
+  --color-st-sakit: var(--st-sakit);
+  --color-st-sakit-line: var(--st-sakit-line);
+  --color-st-izin: var(--st-izin);
+  --color-st-izin-line: var(--st-izin-line);
+  --color-st-alpa: var(--st-alpa);
+  --color-st-alpa-line: var(--st-alpa-line);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+}
+
+/* Angka berjajar (jam, NIS, rekap, tabel) — docs/10-design-system.md #2 */
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

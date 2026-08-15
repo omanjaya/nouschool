@@ -1,0 +1,23 @@
+:root {
+  /* Netral (bias biru-tinta, bukan abu murni) */
+  --bg:        #FFFFFF;
+  --surface:   #FFFFFF;
+  --surface-2: #F5F7FA;   /* latar sekunder: header tabel, hover */
+  --ink:       #17233A;   /* teks utama — navy tinta, bukan hitam murni */
+  --muted:     #64708A;   /* teks sekunder */
+  --line:      #E5E8EE;   /* hairline — SATU-satunya warna border pemisah */
+
+  /* Aksen = warna brand sekolah (dari school_settings.branding), default hijau tua */
+  --primary:      #0E6B4E;
+  --primary-ink:  #FFFFFF;   /* teks di atas primary; divalidasi kontras saat sekolah set warna */
+  --primary-soft: #E7F2ED;   /* tint latar: tag aktif, highlight — digenerate dari --primary */
+
+  /* Semantik status (TETAP — tidak ikut brand sekolah, supaya makna konsisten lintas sekolah) */
+  --st-hadir:     #0E6B4E;  --st-hadir-line:     #BFDCCF;
+  --st-terlambat: #A3620D;  --st-terlambat-line: #E4CFA8;
+  --st-sakit:     #A3620D;  --st-sakit-line:     #E4CFA8;
+  --st-izin:      #34567F;  --st-izin-line:      #C1D0E2;
+  --st-alpa:      #B3382A;  --st-alpa-line:      #E3BCB5;
+  --danger:       #B3382A;
+  --danger-soft:  #F9ECEA;
+}

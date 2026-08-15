@@ -2,13 +2,15 @@
 
 Status: ⬜ belum · 🚧 sedang dikerjakan · ✅ selesai. **Update file ini setiap menyelesaikan pekerjaan.** Setiap fase menghasilkan sesuatu yang bisa dipakai/didemokan.
 
-## Fase 0 — Fondasi teknis ⬜
-- ⬜ Scaffold repo: struktur folder sesuai CLAUDE.md, Makefile, .env.example, git init
-- ⬜ `platform/`: config, database (pgx pool), httpx (error & response), clock, middleware kosong
-- ⬜ Setup goose + migrasi 0001 (schools, academic_years, school_settings, users, memberships, sessions, invitations, audit_log)
-- ⬜ Setup sqlc + query pertama
-- ⬜ Scaffold `web/`: Vite + React + TS + Tailwind + TanStack Query + vite-plugin-pwa; layout mobile-first dasar
-- ⬜ Caddyfile dev & prod (on-demand TLS)
+## Fase 0 — Fondasi teknis ✅
+- ✅ Scaffold repo: struktur folder sesuai CLAUDE.md, Makefile, .env.example, git init + remote GitHub (omanjaya/nouschool)
+- ✅ `platform/`: config, database (pgx pool), httpx (error & response), clock, middleware (Recover, Logger, SecurityHeaders)
+- ✅ Setup goose + migrasi 00001 (schools, academic_years, school_settings, users, memberships, sessions, invitations, audit_log) — belum dijalankan ke DB (Postgres belum disiapkan di mesin dev)
+- ✅ Setup sqlc + query pertama (tenant) — generate via `make sqlc`
+- ✅ Scaffold `web/`: Vite + React 19 + TS + Tailwind v4 (token Rapor) + TanStack Query + vite-plugin-pwa + AppShell/Button/Card/ListRow/EmptyState/Skeleton; `npm run build` hijau
+- ✅ Caddyfile dev & prod (on-demand TLS, template)
+
+Catatan mesin dev (Windows): port 7929–8171 direserve Hyper-V → backend dev pakai PORT=8210; Vite proxy `/api` → 8210.
 
 ## Fase 1 — Tenant + Identity (tulang punggung) ⬜
 - ⬜ Middleware resolusi tenant (Host → school_id, cache) + `/internal/check-domain`
