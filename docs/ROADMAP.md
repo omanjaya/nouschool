@@ -588,7 +588,7 @@ dijalankan (sesuai batasan tugas — hanya dibuat & didokumentasikan).
   (`web/` — di luar scope backend sesi ini, sesuai batasan tugas "jangan
   sentuh web/")
 
-## Fase 12 — Realtime WebSocket 🚧 (diminta user 16 Agu 2026, backend ✅)
+## Fase 12 — Realtime WebSocket ✅ (diminta user 16 Agu 2026)
 Backend terverifikasi end-to-end di Docker dev (`demo.localhost`) lewat
 probe WebSocket sungguhan (`github.com/coder/websocket`, script sementara
 di scratchpad — lihat catatan di bawah, BUKAN bagian repo): login REST
