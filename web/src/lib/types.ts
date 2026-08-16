@@ -61,6 +61,18 @@ export interface Me {
   impersonated_by?: { name: string } | null;
 }
 
+/**
+ * Bentuk mentah SEMUA respons endpoint auth backend (login, `/api/me`,
+ * activate, impersonate mulai/berhenti — baik jenis super admin→sekolah
+ * maupun admin→user) — dibungkus `{user: ...}`, BEDA dari konvensi
+ * `{data: ...}` yang sudah di-unwrap generik oleh `lib/api.ts`. Jangan
+ * dipakai langsung sebagai tipe hasil hook — tiap call site meng-unwrap
+ * `.user` supaya konsumen (`useMe`, dsb) selalu menerima `Me` flat.
+ */
+export interface AuthResponse {
+  user: Me;
+}
+
 export interface Branding {
   app_name: string;
   primary_color: string;

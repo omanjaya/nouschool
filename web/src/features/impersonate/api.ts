@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { Me } from '../../lib/types';
+import type { AuthResponse } from '../../lib/types';
 import { ME_QUERY_KEY } from '../auth/api';
 
 /**
@@ -13,7 +13,10 @@ import { ME_QUERY_KEY } from '../auth/api';
 export function useImpersonate() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (token: string) => api.post<Me>('/auth/impersonate', { token }),
+    mutationFn: async (token: string) => {
+      const res = await api.post<AuthResponse>('/auth/impersonate', { token });
+      return res.user;
+    },
     onSuccess: (me) => {
       queryClient.setQueryData(ME_QUERY_KEY, me);
     },

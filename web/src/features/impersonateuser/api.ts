@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { Me } from '../../lib/types';
+import type { AuthResponse, Me } from '../../lib/types';
 import { ME_QUERY_KEY } from '../auth/api';
 
 /**
@@ -26,7 +26,10 @@ function replaceIdentity(queryClient: ReturnType<typeof useQueryClient>, me: Me)
 export function useImpersonateUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (userId: string) => api.post<Me>(`/users/${userId}/impersonate`),
+    mutationFn: async (userId: string) => {
+      const res = await api.post<AuthResponse>(`/users/${userId}/impersonate`);
+      return res.user;
+    },
     onSuccess: (me) => replaceIdentity(queryClient, me),
   });
 }
@@ -35,7 +38,10 @@ export function useImpersonateUser() {
 export function useStopImpersonation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<Me>('/auth/impersonation/stop'),
+    mutationFn: async () => {
+      const res = await api.post<AuthResponse>('/auth/impersonation/stop');
+      return res.user;
+    },
     onSuccess: (me) => replaceIdentity(queryClient, me),
   });
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../../lib/api';
-import type { Me } from '../../lib/types';
+import type { AuthResponse, Me } from '../../lib/types';
 
 export const ME_QUERY_KEY = ['me'] as const;
 
@@ -17,7 +17,12 @@ export function useMe() {
     queryKey: ME_QUERY_KEY,
     queryFn: async (): Promise<Me | null> => {
       try {
-        return await api.get<Me>('/me');
+        // Backend membungkus SEMUA respons auth dalam `{user: ...}` (kontrak
+        // terdokumentasi, beda dari konvensi `{data: ...}` yang sudah
+        // di-unwrap `lib/api.ts`) — unwrap `.user` di sini supaya query
+        // cache berisi `Me` flat, bukan `{user: Me}`.
+        const res = await api.get<AuthResponse>('/me');
+        return res.user;
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) return null;
         throw err;
@@ -36,7 +41,10 @@ interface LoginInput {
 export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: LoginInput) => api.post<Me>('/auth/login', input),
+    mutationFn: async (input: LoginInput) => {
+      const res = await api.post<AuthResponse>('/auth/login', input);
+      return res.user;
+    },
     onSuccess: (me) => {
       queryClient.setQueryData(ME_QUERY_KEY, me);
     },
