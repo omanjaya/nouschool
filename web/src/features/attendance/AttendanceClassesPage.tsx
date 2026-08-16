@@ -13,6 +13,7 @@ import { formatDateWithDay, formatTimeOfDay, todayISODate } from '../../lib/date
 import { useMe } from '../auth/api';
 import { useAttendanceClasses, useAttendanceSlotsToday, useOpenAttendanceSession, useOpenAttendanceSessionForSlot } from './api';
 import type { AttendanceClassListItem, AttendanceSlotToday } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 function SessionTag({ item }: { item: AttendanceClassListItem }) {
   if (!item.session) return <Tag variant="neutral">Belum diabsen</Tag>;
@@ -102,7 +103,7 @@ export function AttendanceClassesPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Absensi</p>

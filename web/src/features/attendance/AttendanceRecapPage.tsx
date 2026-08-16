@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Download, FileBarChart } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
+import { DataTable, type DataTableColumn } from '../../components/ui/DataTable';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Tag } from '../../components/ui/Tag';
 import { Input, Select } from '../../components/ui/Field';
+import { PAGE_WIDE } from '../../components/ui/page';
 import { currentISOMonth, todayISODate } from '../../lib/date';
 import { useMe } from '../auth/api';
 import { useClasses } from '../classes/api';
@@ -54,8 +56,30 @@ export function AttendanceRecapPage() {
     return <Navigate to="/" replace />;
   }
 
+  /** Kolom desktop (docs/10 §5) — mobile tetap `ListRow` di bawah. */
+  const columns: DataTableColumn<AttendanceClassSummary>[] = [
+    {
+      key: 'class_name',
+      header: 'Rombel',
+      sortable: true,
+      sortValue: (r) => r.class_name,
+      cell: (r) => <span className="font-medium text-ink">{r.class_name}</span>,
+    },
+    { key: 'hadir', header: 'Hadir', align: 'right', sortable: true, sortValue: (r) => r.hadir, cell: (r) => r.hadir },
+    { key: 'terlambat', header: 'Terlambat', align: 'right', sortable: true, sortValue: (r) => r.terlambat, cell: (r) => r.terlambat },
+    { key: 'izin', header: 'Izin', align: 'right', sortable: true, sortValue: (r) => r.izin, cell: (r) => r.izin },
+    { key: 'sakit', header: 'Sakit', align: 'right', sortable: true, sortValue: (r) => r.sakit, cell: (r) => r.sakit },
+    { key: 'alpa', header: 'Alpa', align: 'right', sortable: true, sortValue: (r) => r.alpa, cell: (r) => r.alpa },
+    { key: 'unmarked', header: 'Belum', align: 'right', sortable: true, sortValue: (r) => r.unmarked, cell: (r) => r.unmarked },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (r) => <SessionStatusTag status={r.session_status} />,
+    },
+  ];
+
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Absensi</p>
         <h1 className="text-[21px] font-semibold text-ink">Rekap Harian</h1>
@@ -76,21 +100,32 @@ export function AttendanceRecapPage() {
       ) : rows && rows.length === 0 ? (
         <EmptyState icon={FileBarChart} message="Belum ada sesi absensi pada tanggal ini." />
       ) : (
-        <div>
-          {rows?.map((row) => (
-            <ListRow
-              key={row.class_id}
-              title={row.class_name}
-              subtitle={`total ${row.total}`}
-              trailing={
-                <div className="flex items-center gap-3">
-                  <span className="num text-[13px] font-semibold text-ink">{formatCounts(row)}</span>
-                  <SessionStatusTag status={row.session_status} />
-                </div>
-              }
+        <>
+          <div className="lg:hidden">
+            {rows?.map((row) => (
+              <ListRow
+                key={row.class_id}
+                title={row.class_name}
+                subtitle={`total ${row.total}`}
+                trailing={
+                  <div className="flex items-center gap-3">
+                    <span className="num text-[13px] font-semibold text-ink">{formatCounts(row)}</span>
+                    <SessionStatusTag status={row.session_status} />
+                  </div>
+                }
+              />
+            ))}
+          </div>
+          <div className="hidden lg:block">
+            <DataTable
+              columns={columns}
+              data={rows ?? []}
+              keyField={(r) => r.class_id}
+              emptyIcon={FileBarChart}
+              emptyMessage="Belum ada sesi absensi pada tanggal ini."
             />
-          ))}
-        </div>
+          </div>
+        </>
       )}
 
       <div className="flex flex-col gap-3 border-t border-line pt-6">

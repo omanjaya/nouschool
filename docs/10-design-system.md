@@ -62,13 +62,17 @@ Warna brand per sekolah: `--primary` di-inject dari branding; `--primary-soft` d
 
 ## 5. Layout & navigasi
 
-- **Mobile-first.** Konten maks 640px di tengah untuk layar form/list; dashboard admin/kepsek desktop boleh 1120px.
-- **Bottom tab bar** di mobile (5 item maks), item aktif: warna `--primary` + underline 2px. Per role:
+- **Mobile-first.** Lebar konten diatur lewat dua helper di `web/src/components/ui/page.ts` — jangan menulis `mx-auto max-w-*` ad-hoc di fitur:
+  - `PAGE_NARROW` (`mx-auto w-full max-w-[720px] px-5 py-6`): **hanya** untuk layar form/detail personal — login, aktivasi, `/izin-saya`, `/nilai-saya`, `/profil`, `/checkin`, detail siswa, form/wizard (mis. tambah sekolah, import).
+  - `PAGE_WIDE` (`w-full px-6 lg:px-8 py-6`): **semua** halaman daftar/dashboard/rekap/tabel/pengaturan admin & super admin — lebar penuh mengikuti area konten `AppShell`, tanpa `mx-auto`/`max-w`, supaya tidak ada whitespace besar di kiri-kanan pada layar lebar. Grid `StatTile`/kartu ringkasan di halaman ini memakai kolom `repeat(auto-fit,minmax(220px,1fr))` supaya mengisi layar, bukan `grid-cols-N` tetap.
+- **Bottom tab bar** di mobile (5 item maks), item aktif: warna `--primary` + underline 2px. Per role (tidak berubah dari sebelumnya):
   - Guru: Beranda · Absensi · Izin · Notifikasi · Profil
   - Siswa: Beranda · Kehadiran · Jadwal · Notifikasi · Profil
   - Orang tua: Beranda · Anak · Notifikasi · Profil
-  - Admin/Kepsek di mobile: Beranda · Data · Laporan · Notifikasi · Profil
-- Desktop (≥1024px): tab bar berubah jadi **sidebar kiri** dengan item yang sama + item tambahan admin. Satu komponen `AppShell` menangani keduanya.
+  - Admin sekolah: Beranda · Data · Pengaturan · Notifikasi · Profil
+  - Super admin (host platform): Beranda · Sekolah · Outbox · Profil
+- **Desktop (≥1024px): tab bar berubah jadi sidebar kiri BERGRUP** — `lib/nav.ts#getSidebarNav(me): NavGroup[]` (`{title?, items[]}`), terpisah dari `getNavItems(me)` yang tetap dipakai untuk bottom tab mobile (≤5 item, tidak berubah). Sidebar desktop menampilkan menu lengkap per role (termasuk fitur yang sebelumnya hanya kartu di beranda), dikelompokkan dengan judul eyebrow 11px uppercase `letter-spacing 0.1em` warna `--muted`, dipisah hairline antargrup. Collapsed (ikon saja): judul grup disembunyikan, tooltip nama tetap muncul di hover. Satu komponen `AppShell` menangani mobile & desktop sekaligus lewat props `navItems` (mobile) + `sidebarGroups` (desktop).
+- **Sidebar & top bar desktop STICKY** (bug Fase 16, sudah diperbaiki): wrapper luar `lg:h-dvh lg:overflow-hidden lg:flex`; sidebar `lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto`; area konten `lg:h-dvh lg:flex-1 lg:overflow-y-auto lg:min-w-0` dengan `DesktopTopBar` di dalamnya dibungkus `sticky top-0 z-20 bg-bg` — jadi sidebar & top bar tetap terlihat saat konten discroll, bukan seluruh dokumen yang scroll. Mobile tidak berubah (bottom tab fixed seperti sebelumnya).
 - App bar halaman-dalam: tombol back (chevron-left) + judul 17px + subjudul 12px muted. Tanpa app bar berwarna.
 - TV dashboard (06): layout terpisah `/tv`, token sama, ukuran font digandakan — bukan design system lain.
 

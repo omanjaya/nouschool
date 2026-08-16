@@ -23,6 +23,7 @@ import {
 } from './api';
 import { DisciplineTypeFormDialog } from './DisciplineTypeFormDialog';
 import type { DisciplineSpSettings, DisciplineType } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 /** /kedisiplinan/pengaturan — master jenis pelanggaran + ambang Surat Peringatan (admin only). */
 export function DisciplineSettingsPage() {
@@ -31,7 +32,7 @@ export function DisciplineSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto flex max-w-[640px] flex-col gap-4 px-5 py-6">
+      <div className={`${PAGE_WIDE} flex flex-col gap-4`}>
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-52 w-full" />
       </div>
@@ -45,7 +46,7 @@ export function DisciplineSettingsPage() {
   return (
     <div className="flex min-h-dvh flex-col">
       <AppBar title="Pengaturan Kedisiplinan" onBack={() => navigate('/kedisiplinan')} />
-      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-8 px-5 py-6">
+      <div className={`${PAGE_WIDE} flex flex-col gap-8`}>
         <DisciplineTypesSection />
         <div className="border-t border-line pt-6">
           <SpSettingsSection />

@@ -11,6 +11,7 @@ import { isoDateDaysAgo, startOfMonthISODate, todayISODate } from '../../lib/dat
 import { useMe } from '../auth/api';
 import { useLeaveSummary, useLeaveTypes } from './api';
 import type { LeaveSummaryRow } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 type RangeOption = 'month' | 'semester';
 
@@ -49,7 +50,7 @@ export function LeaveRecapPage() {
     <div className="flex min-h-dvh flex-col">
       <AppBar title="Rekap Izin" subtitle="Izin" onBack={() => navigate('/izin')} />
 
-      <div className="mx-auto flex w-full max-w-[640px] flex-1 flex-col gap-5 px-5 py-5">
+      <div className={`${PAGE_WIDE} flex flex-1 flex-col gap-5`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <SegmentedControl options={RANGE_OPTIONS} value={range} onChange={setRange} />
           <a

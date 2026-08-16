@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BookOpen, Plus } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
+import { DataTable, type DataTableColumn } from '../../components/ui/DataTable';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
@@ -23,6 +24,12 @@ export function SubjectsListPage() {
     setEditing(undefined);
     setDialogOpen(true);
   }
+
+  /** Kolom desktop (docs/10 §5) — mobile tetap `ListRow` di bawah. */
+  const columns: DataTableColumn<Subject>[] = [
+    { key: 'name', header: 'Nama', sortable: true, sortValue: (s) => s.name, cell: (s) => <span className="font-medium text-ink">{s.name}</span> },
+    { key: 'code', header: 'Kode', sortable: true, sortValue: (s) => s.code, cell: (s) => s.code },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
@@ -52,11 +59,23 @@ export function SubjectsListPage() {
           }
         />
       ) : (
-        <div>
-          {subjects?.map((s) => (
-            <ListRow key={s.id} title={s.name} subtitle={s.code} onClick={() => openEdit(s)} />
-          ))}
-        </div>
+        <>
+          <div className="lg:hidden">
+            {subjects?.map((s) => (
+              <ListRow key={s.id} title={s.name} subtitle={s.code} onClick={() => openEdit(s)} />
+            ))}
+          </div>
+          <div className="hidden lg:block">
+            <DataTable
+              columns={columns}
+              data={subjects ?? []}
+              keyField={(s) => s.id}
+              onRowClick={(s) => openEdit(s)}
+              emptyIcon={BookOpen}
+              emptyMessage="Belum ada mata pelajaran."
+            />
+          </div>
+        </>
       )}
 
       <SubjectFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} subject={editing} />

@@ -12,6 +12,7 @@ import { useSubjects } from '../subjects/api';
 import { useScheduleSlots } from '../schedule/api';
 import { useGradingStatus } from './api';
 import type { ClassRef, ScheduleSlotSubjectRef } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 export interface GradingContext {
   classId: string;
@@ -113,7 +114,7 @@ export function GradingPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-5 px-5 pt-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-5`}>
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Penilaian</p>
         <h1 className="text-[21px] font-semibold text-ink">Nilai</h1>

@@ -1,6 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { useMe } from '../auth/api';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 const ADMIN_TABS: TabItem[] = [
   { to: '/izin-siswa', label: 'Surat Izin', end: true },
@@ -26,7 +27,7 @@ export function StudentLeaveAdminLayout() {
   const isStaffAdmin = me?.role === 'admin_sekolah' || me?.role === 'kepala_sekolah';
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-5 px-5 pt-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-5`}>
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Izin</p>
         <h1 className="text-[21px] font-semibold text-ink">Izin Siswa</h1>

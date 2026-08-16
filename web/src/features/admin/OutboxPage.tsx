@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Inbox, RefreshCw, ShieldAlert } from 'lucide-react';
-import { Card } from '../../components/ui/Card';
-import { ListRow } from '../../components/ui/ListRow';
+import { DataTable, type DataTableColumn } from '../../components/ui/DataTable';
 import { Tag } from '../../components/ui/Tag';
 import { Button } from '../../components/ui/Button';
 import { Field, Select } from '../../components/ui/Field';
+import { PAGE_WIDE } from '../../components/ui/page';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -16,7 +16,7 @@ import { useMe } from '../auth/api';
 import { useOutbox, useRetryAllOutbox, useRetryOutboxItem, useSchools } from './api';
 import { ApiError } from '../../lib/api';
 import { formatRelativeTime } from '../../lib/date';
-import type { NotificationChannel, OutboxStatus } from '../../lib/types';
+import type { NotificationChannel, OutboxItem, OutboxStatus } from '../../lib/types';
 
 const STATUS_OPTIONS: { value: OutboxStatus; label: string }[] = [
   { value: 'dead', label: 'Dead' },
@@ -94,8 +94,24 @@ export function OutboxPage() {
   const canRetry = status !== 'pending';
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PER_PAGE)) : 1;
 
+  /** Kolom desktop (docs/10 §5). */
+  const columns: DataTableColumn<OutboxItem>[] = [
+    { key: 'event', header: 'Event', sortable: true, sortValue: (i) => i.event, cell: (i) => <span className="font-medium text-ink">{i.event}</span> },
+    { key: 'school', header: 'Sekolah', sortable: true, sortValue: (i) => i.school_name, cell: (i) => i.school_name },
+    { key: 'user', header: 'Pengguna', cell: (i) => i.user_name ?? <span className="text-muted">—</span> },
+    { key: 'channel', header: 'Channel', cell: (i) => <Tag variant="neutral">{CHANNEL_LABEL[i.channel] ?? i.channel}</Tag> },
+    { key: 'attempts', header: 'Percobaan', align: 'right', sortable: true, sortValue: (i) => i.attempts, cell: (i) => `${i.attempts}x` },
+    {
+      key: 'created_at',
+      header: 'Dibuat',
+      sortable: true,
+      sortValue: (i) => i.created_at,
+      cell: (i) => formatRelativeTime(i.created_at),
+    },
+  ];
+
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Platform</p>
@@ -132,37 +148,18 @@ export function OutboxPage() {
       ) : data.items.length === 0 ? (
         <EmptyState icon={Inbox} message={`Tidak ada pesan ${status}.`} />
       ) : (
-        <Card variant="plain">
-          <div>
-            {data.items.map((item) => (
-              <ListRow
-                key={item.id}
-                title={item.event}
-                subtitle={
-                  <>
-                    {item.school_name} · {item.user_name ?? '—'} ·{' '}
-                    <span className="num">{item.attempts}x</span> · {formatRelativeTime(item.created_at)}
-                  </>
-                }
-                trailing={
-                  <div className="flex items-center gap-2">
-                    <Tag variant="neutral">{CHANNEL_LABEL[item.channel] ?? item.channel}</Tag>
-                    {canRetry && (
-                      <Button
-                        variant="ghost"
-                        loading={retryItem.isPending && retryItem.variables === item.id}
-                        onClick={() => handleRetryItem(item.id)}
-                      >
-                        <RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
-                        Retry
-                      </Button>
-                    )}
-                  </div>
-                }
-              />
-            ))}
-          </div>
-        </Card>
+        <DataTable
+          columns={columns}
+          data={data.items}
+          keyField={(i) => i.id}
+          emptyIcon={Inbox}
+          emptyMessage={`Tidak ada pesan ${status}.`}
+          actions={
+            canRetry
+              ? (i) => [{ label: 'Retry', icon: RefreshCw, onClick: () => handleRetryItem(i.id) }]
+              : undefined
+          }
+        />
       )}
 
       {data && data.items.length > 0 && totalPages > 1 && (

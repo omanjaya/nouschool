@@ -6,6 +6,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { formatRelativeTime } from '../../lib/date';
 import { useMe } from '../auth/api';
 import { useInterestLeads } from './api';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 /** /admin/minat — daftar minat sekolah dari form landing page (super admin). */
 export function InterestLeadsPage() {
@@ -14,14 +15,14 @@ export function InterestLeadsPage() {
 
   if (me && !me.is_super_admin) {
     return (
-      <div className="mx-auto max-w-[640px] px-5 py-6">
+      <div className={PAGE_WIDE}>
         <EmptyState icon={ShieldAlert} message="Anda tidak memiliki akses ke halaman ini." />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div>
         <Link
           to="/admin/sekolah"

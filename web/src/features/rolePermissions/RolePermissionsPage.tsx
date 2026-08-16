@@ -11,6 +11,7 @@ import { ApiError } from '../../lib/api';
 import { ROLE_LABEL } from '../../lib/roles';
 import { useRolePermissions, useUpdateRolePermissions } from './api';
 import type { RolePermissionOverridesInput, RolePermissionOverrideValue } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 /** Role terkunci server (selalu punya semua hak akses) — kolomnya tampil read-only, tidak pernah dikirim di payload. */
 const LOCKED_ROLE = 'admin_sekolah';
@@ -63,7 +64,7 @@ export function RolePermissionsPage() {
 
   if (meLoading) {
     return (
-      <div className="mx-auto flex max-w-[640px] flex-col gap-4 px-5 py-6">
+      <div className={`${PAGE_WIDE} flex flex-col gap-4`}>
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-52 w-full" />
       </div>
@@ -72,7 +73,7 @@ export function RolePermissionsPage() {
 
   if (!me || me.role !== 'admin_sekolah') {
     return (
-      <div className="mx-auto max-w-[640px] px-5 py-6">
+      <div className={PAGE_WIDE}>
         <EmptyState icon={ShieldAlert} message="Anda tidak memiliki akses ke halaman ini." />
       </div>
     );
@@ -128,7 +129,7 @@ export function RolePermissionsPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div>
         <Link
           to="/pengaturan"

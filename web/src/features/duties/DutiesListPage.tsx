@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Trash2, UsersRound } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
+import { DataTable, type DataTableColumn } from '../../components/ui/DataTable';
 import { Tag } from '../../components/ui/Tag';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
@@ -85,6 +86,25 @@ export function DutiesListPage() {
     );
   }
 
+  /** Kolom desktop (docs/10 §5) — mobile tetap `ListRow` di bawah. */
+  const columns: DataTableColumn<Duty>[] = [
+    {
+      key: 'name',
+      header: 'Nama',
+      sortable: true,
+      sortValue: (d) => d.name,
+      cell: (d) => (
+        <span className="flex items-center gap-2">
+          <span className="font-medium text-ink">{d.name}</span>
+          {!d.active && <Tag variant="done">Nonaktif</Tag>}
+        </span>
+      ),
+    },
+    { key: 'for_role', header: 'Untuk', sortable: true, sortValue: (d) => FOR_ROLE_LABEL[d.for_role], cell: (d) => FOR_ROLE_LABEL[d.for_role] },
+    { key: 'flags', header: 'Kapabilitas', align: 'right', sortable: true, sortValue: (d) => d.flags.length, cell: (d) => d.flags.length },
+    { key: 'assignees', header: 'Petugas', align: 'right', sortable: true, sortValue: (d) => d.assignee_count, cell: (d) => d.assignee_count },
+  ];
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -112,42 +132,59 @@ export function DutiesListPage() {
           }
         />
       ) : (
-        <div>
-          {duties.map((d) => (
-            <ListRow
-              key={d.id}
-              title={d.name}
-              subtitle={`${FOR_ROLE_LABEL[d.for_role]} · ${d.flags.length} kapabilitas · ${d.assignee_count} petugas`}
-              onClick={() => openEdit(d)}
-              trailing={
-                <div className="flex items-center gap-1.5">
-                  {!d.active && <Tag variant="done">Nonaktif</Tag>}
-                  <Button
-                    variant="secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setManaging(d);
-                    }}
-                  >
-                    <UsersRound size={16} strokeWidth={2} aria-hidden="true" />
-                    Kelola Petugas
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openDelete(d);
-                    }}
-                    aria-label={`Hapus ${d.name}`}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-danger"
-                  >
-                    <Trash2 size={16} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                </div>
-              }
+        <>
+          <div className="lg:hidden">
+            {duties.map((d) => (
+              <ListRow
+                key={d.id}
+                title={d.name}
+                subtitle={`${FOR_ROLE_LABEL[d.for_role]} · ${d.flags.length} kapabilitas · ${d.assignee_count} petugas`}
+                onClick={() => openEdit(d)}
+                trailing={
+                  <div className="flex items-center gap-1.5">
+                    {!d.active && <Tag variant="done">Nonaktif</Tag>}
+                    <Button
+                      variant="secondary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setManaging(d);
+                      }}
+                    >
+                      <UsersRound size={16} strokeWidth={2} aria-hidden="true" />
+                      Kelola Petugas
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDelete(d);
+                      }}
+                      aria-label={`Hapus ${d.name}`}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-danger"
+                    >
+                      <Trash2 size={16} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </div>
+                }
+              />
+            ))}
+          </div>
+          <div className="hidden lg:block">
+            <DataTable
+              columns={columns}
+              data={duties}
+              keyField={(d) => d.id}
+              onRowClick={(d) => openEdit(d)}
+              emptyIcon={UsersRound}
+              emptyMessage="Belum ada tugas tambahan."
+              actions={(d) => [
+                { label: 'Ubah', icon: UsersRound, onClick: () => openEdit(d) },
+                { label: 'Kelola Petugas', icon: UsersRound, onClick: () => setManaging(d) },
+                { label: 'Hapus', icon: Trash2, onClick: () => openDelete(d), variant: 'danger' },
+              ]}
             />
-          ))}
-        </div>
+          </div>
+        </>
       )}
 
       <DutyFormDialog open={formOpen} onClose={() => setFormOpen(false)} duty={editing} />

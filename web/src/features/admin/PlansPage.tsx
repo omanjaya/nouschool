@@ -14,6 +14,7 @@ import { useMe } from '../auth/api';
 import { featureLabel } from '../billing/featureLabels';
 import { usePlans, useUpdatePlan } from './api';
 import type { Plan, PlanPrice } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 function PlanCard({ plan }: { plan: Plan }) {
   const update = useUpdatePlan();
@@ -120,14 +121,14 @@ export function PlansPage() {
 
   if (me && !me.is_super_admin) {
     return (
-      <div className="mx-auto max-w-[640px] px-5 py-6">
+      <div className={PAGE_WIDE}>
         <EmptyState icon={ShieldAlert} message="Anda tidak memiliki akses ke halaman ini." />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[900px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div>
         <Link
           to="/admin/sekolah"

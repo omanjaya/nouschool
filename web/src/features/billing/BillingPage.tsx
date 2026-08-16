@@ -17,6 +17,7 @@ import { UploadProofDialog } from './UploadProofDialog';
 import { FEATURE_LABELS, featureLabel } from './featureLabels';
 import { INVOICE_STATUS_LABEL, INVOICE_STATUS_TAG_VARIANT, SUBSCRIPTION_STATUS_LABEL, SUBSCRIPTION_STATUS_TAG_VARIANT } from './format';
 import type { BillingSubscription, Invoice } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 /** Kartu ringkasan langganan — nama plan, status, periode, harga, pemakaian siswa, daftar fitur. */
 function SubscriptionCard({ subscription }: { subscription: BillingSubscription }) {
@@ -140,7 +141,7 @@ export function BillingPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Sekolah</p>
         <h1 className="text-[21px] font-semibold text-ink">Tagihan & Langganan</h1>

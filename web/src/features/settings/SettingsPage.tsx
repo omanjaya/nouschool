@@ -19,6 +19,7 @@ import { GradingSettingsSection } from '../grading/GradingSettingsSection';
 import { CustomDomainSection } from './CustomDomainSection';
 import { LettersSettingsSection } from './LettersSettingsSection';
 import { SecuritySettingsSection } from './SecuritySettingsSection';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -46,7 +47,7 @@ export function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto flex max-w-[640px] flex-col gap-4 px-5 py-6">
+      <div className={`${PAGE_WIDE} flex flex-col gap-4`}>
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-52 w-full" />
       </div>
@@ -55,14 +56,14 @@ export function SettingsPage() {
 
   if (!me || me.role !== 'admin_sekolah') {
     return (
-      <div className="mx-auto max-w-[640px] px-5 py-6">
+      <div className={PAGE_WIDE}>
         <EmptyState icon={ShieldAlert} message="Anda tidak memiliki akses ke halaman ini." />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[640px] px-5 py-6 lg:max-w-[960px] lg:grid lg:grid-cols-[200px_1fr] lg:items-start lg:gap-8">
+    <div className={`${PAGE_WIDE} lg:grid lg:grid-cols-[220px_1fr] lg:items-start lg:gap-8`}>
       <nav aria-label="Bagian pengaturan" className="hidden lg:sticky lg:top-6 lg:flex lg:flex-col lg:gap-1">
         {SETTINGS_SECTIONS.map((section) => (
           <a

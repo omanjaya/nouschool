@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { LogIn, Pencil, Plus, UserCheck, UserCog, UserX } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
+import { DataTable, type DataTableColumn } from '../../components/ui/DataTable';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
+import { Tag } from '../../components/ui/Tag';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
 import { useMe } from '../auth/api';
@@ -33,6 +35,25 @@ export function EmployeesListPage() {
     setEditing(undefined);
     setDialogOpen(true);
   }
+
+  /** Kolom desktop (docs/10 §5) — mobile tetap `ListRow` di bawah. */
+  const columns: DataTableColumn<Employee>[] = [
+    { key: 'name', header: 'Nama', sortable: true, sortValue: (e) => e.name, cell: (e) => <span className="font-medium text-ink">{e.name}</span> },
+    {
+      key: 'contact',
+      header: 'Email/Username',
+      sortable: true,
+      sortValue: (e) => e.email ?? e.username ?? '',
+      cell: (e) => e.email ?? e.username ?? <span className="text-muted">—</span>,
+    },
+    { key: 'nip', header: 'NIP', sortable: true, sortValue: (e) => e.nip ?? '', cell: (e) => e.nip ?? <span className="text-muted">—</span> },
+    {
+      key: 'status',
+      header: 'Status Akun',
+      cell: (e) =>
+        e.membership_status === 'inactive' ? <Tag variant="danger">Nonaktif</Tag> : <Tag variant="success">Aktif</Tag>,
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
@@ -62,51 +83,76 @@ export function EmployeesListPage() {
           }
         />
       ) : (
-        <div>
-          {employees?.map((e) => (
-            <ListRow
-              key={e.id}
-              title={e.name}
-              subtitle={[e.nip, e.email ?? e.username].filter(Boolean).join(' · ') || undefined}
-              trailing={
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(e)}
-                    aria-label={`Ubah ${e.name}`}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
-                  >
-                    <Pencil size={16} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                  {canImpersonate && (
+        <>
+          <div className="lg:hidden">
+            {employees?.map((e) => (
+              <ListRow
+                key={e.id}
+                title={e.name}
+                subtitle={[e.nip, e.email ?? e.username].filter(Boolean).join(' · ') || undefined}
+                trailing={
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => setImpersonating(e)}
-                      aria-label={`Masuk sebagai ${e.name}`}
+                      onClick={() => openEdit(e)}
+                      aria-label={`Ubah ${e.name}`}
                       className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
                     >
-                      <LogIn size={16} strokeWidth={2} aria-hidden="true" />
+                      <Pencil size={16} strokeWidth={2} aria-hidden="true" />
                     </button>
-                  )}
-                  {me?.role === 'admin_sekolah' && (
-                    <button
-                      type="button"
-                      onClick={() => setStatusTarget(e)}
-                      aria-label={e.membership_status === 'inactive' ? `Aktifkan ${e.name}` : `Nonaktifkan ${e.name}`}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
-                    >
-                      {e.membership_status === 'inactive' ? (
-                        <UserCheck size={16} strokeWidth={2} aria-hidden="true" />
-                      ) : (
-                        <UserX size={16} strokeWidth={2} aria-hidden="true" />
-                      )}
-                    </button>
-                  )}
-                </div>
-              }
+                    {canImpersonate && (
+                      <button
+                        type="button"
+                        onClick={() => setImpersonating(e)}
+                        aria-label={`Masuk sebagai ${e.name}`}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+                      >
+                        <LogIn size={16} strokeWidth={2} aria-hidden="true" />
+                      </button>
+                    )}
+                    {me?.role === 'admin_sekolah' && (
+                      <button
+                        type="button"
+                        onClick={() => setStatusTarget(e)}
+                        aria-label={e.membership_status === 'inactive' ? `Aktifkan ${e.name}` : `Nonaktifkan ${e.name}`}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+                      >
+                        {e.membership_status === 'inactive' ? (
+                          <UserCheck size={16} strokeWidth={2} aria-hidden="true" />
+                        ) : (
+                          <UserX size={16} strokeWidth={2} aria-hidden="true" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                }
+              />
+            ))}
+          </div>
+          <div className="hidden lg:block">
+            <DataTable
+              columns={columns}
+              data={employees ?? []}
+              keyField={(e) => e.id}
+              emptyIcon={UserCog}
+              emptyMessage="Belum ada pegawai."
+              actions={(e) => [
+                { label: 'Ubah', icon: Pencil, onClick: () => openEdit(e) },
+                ...(canImpersonate ? [{ label: 'Masuk Sebagai', icon: LogIn, onClick: () => setImpersonating(e) }] : []),
+                ...(me?.role === 'admin_sekolah'
+                  ? [
+                      {
+                        label: e.membership_status === 'inactive' ? 'Aktifkan' : 'Nonaktifkan',
+                        icon: e.membership_status === 'inactive' ? UserCheck : UserX,
+                        onClick: () => setStatusTarget(e),
+                        variant: e.membership_status === 'inactive' ? ('default' as const) : ('danger' as const),
+                      },
+                    ]
+                  : []),
+              ]}
             />
-          ))}
-        </div>
+          </div>
+        </>
       )}
 
       <EmployeeFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} employee={editing} />

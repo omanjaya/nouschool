@@ -25,7 +25,7 @@ import { useLogout, useMe, ME_QUERY_KEY } from './features/auth/api';
 import { LoginPage } from './features/auth/LoginPage';
 import { RequireLogin } from './features/auth/RequireLogin';
 import { AppShell } from './components/ui/AppShell';
-import { getNavItems } from './lib/nav';
+import { getNavItems, getSidebarNav } from './lib/nav';
 import { getGreeting } from './lib/greeting';
 import { Card } from './components/ui/Card';
 import { DashboardAdminPage } from './features/admin/DashboardAdminPage';
@@ -132,6 +132,7 @@ import { ANNOUNCEMENTS_QUERY_KEY, useAnnouncements } from './features/announceme
 import { TvPage } from './features/tv/TvPage';
 import { TV_BOARD_QUERY_KEY } from './features/tv/api';
 import { KepsekHomePage } from './features/dashboard/KepsekHomePage';
+import { AdminHomePage } from './features/dashboard/AdminHomePage';
 import { NotificationsPage } from './features/notifications/NotificationsPage';
 import { PushPromptBanner } from './features/notifications/PushPromptBanner';
 import { useUnreadNotificationCount, NOTIFICATIONS_QUERY_KEY } from './features/notifications/api';
@@ -927,6 +928,7 @@ function AuthenticatedShell() {
   // dihitung dari `me` yang mungkin belum ada, baru cabang render (return
   // null / <Navigate>) di bawah setelah semua hook dipanggil.
   const navItems = me ? getNavItems(me) : [];
+  const sidebarGroups = me ? getSidebarNav(me) : [];
   // role `display` (dashboard TV) dialihkan ke /tv di bawah tanpa pernah
   // merender AppShell — jangan ikut memicu fetch unread count untuknya.
   const hasNotificationsNav = me?.role !== 'display' && navItems.some((item) => item.to === '/notifikasi');
@@ -969,7 +971,13 @@ function AuthenticatedShell() {
   // via allowlist ErrTenantOnlyEndpoint), jadi jangan pernah dirender.
   if (isPlatformAdmin) {
     return (
-      <AppShell navItems={navItems} userName={me.name} roleLabel={roleLabel} onLogout={handleLogout}>
+      <AppShell
+        navItems={navItems}
+        sidebarGroups={sidebarGroups}
+        userName={me.name}
+        roleLabel={roleLabel}
+        onLogout={handleLogout}
+      >
         <Routes>
           <Route path="/admin" element={<DashboardAdminPage />} />
           <Route path="/admin/sekolah" element={<SchoolsListPage />} />
@@ -990,6 +998,7 @@ function AuthenticatedShell() {
   return (
     <AppShell
       navItems={navItems}
+      sidebarGroups={sidebarGroups}
       userName={me.name}
       roleLabel={roleLabel}
       onLogout={handleLogout}
@@ -1009,6 +1018,8 @@ function AuthenticatedShell() {
               <Navigate to="/admin" replace />
             ) : me.role === 'kepala_sekolah' ? (
               <KepsekHomePage me={me} />
+            ) : me.role === 'admin_sekolah' ? (
+              <AdminHomePage me={me} />
             ) : (
               <BerandaPage me={me} />
             )

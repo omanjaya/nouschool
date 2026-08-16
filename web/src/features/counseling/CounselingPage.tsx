@@ -13,6 +13,7 @@ import { ApiError } from '../../lib/api';
 import { formatRelativeTime } from '../../lib/date';
 import { useMe } from '../auth/api';
 import { useStudents } from '../students/api';
+import { PAGE_WIDE } from '../../components/ui/page';
 import { counselingReportUrl, useCounselingSessions, useDeleteCounseling } from './api';
 import { RecordCounselingDialog } from './RecordCounselingDialog';
 import type { CounselingSession } from '../../lib/types';
@@ -89,7 +90,7 @@ export function CounselingPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-5 px-5 py-6 lg:max-w-[720px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-5`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Bimbingan Konseling</p>

@@ -15,6 +15,7 @@ import { useMe } from '../auth/api';
 import { useDeletePlatformAnnouncement, usePlatformAnnouncements } from './api';
 import { PlatformAnnouncementFormDialog } from './PlatformAnnouncementFormDialog';
 import type { PlatformAnnouncement } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 function isActiveToday(a: PlatformAnnouncement): boolean {
   const today = todayISODate();
@@ -37,7 +38,7 @@ export function PlatformAnnouncementsPage() {
 
   if (me && !me.is_super_admin) {
     return (
-      <div className="mx-auto max-w-[640px] px-5 py-6">
+      <div className={PAGE_WIDE}>
         <EmptyState icon={ShieldAlert} message="Anda tidak memiliki akses ke halaman ini." />
       </div>
     );
@@ -64,7 +65,7 @@ export function PlatformAnnouncementsPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link

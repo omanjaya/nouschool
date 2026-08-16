@@ -15,6 +15,7 @@ import { useMe } from '../auth/api';
 import { useAnnouncements, useDeleteAnnouncement } from './api';
 import { AnnouncementFormDialog } from './AnnouncementFormDialog';
 import type { Announcement } from '../../lib/types';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 function isActiveToday(a: Announcement): boolean {
   const today = todayISODate();
@@ -57,7 +58,7 @@ export function AnnouncementsPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Mengajar</p>

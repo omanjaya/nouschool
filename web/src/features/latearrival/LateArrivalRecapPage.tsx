@@ -8,6 +8,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { currentISOMonth, formatDateTime } from '../../lib/date';
 import { useLateArrivalSummary } from './api';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 /** /izin-siswa/terlambat/rekap — rekap jumlah keterlambatan per siswa dalam satu bulan (`GET /api/late-arrivals/summary?month=`). */
 export function LateArrivalRecapPage() {
@@ -15,7 +16,7 @@ export function LateArrivalRecapPage() {
   const { data: rows, isLoading, isError, refetch } = useLateArrivalSummary(month);
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div className="flex items-center gap-3">
         <Link
           to="/izin-siswa/terlambat"

@@ -13,6 +13,7 @@ import { formatClock } from '../schedule/format';
 import { todayISODate } from '../../lib/date';
 import { useMe } from '../auth/api';
 import { PresenceSummary } from '../presence/PresenceSummary';
+import { PAGE_WIDE } from '../../components/ui/page';
 import { useTeachingStatus } from './api';
 import type { TeachingStatus, TeachingStatusItem } from '../../lib/types';
 
@@ -95,7 +96,7 @@ export function MonitoringPage() {
   const isToday = date === todayISODate();
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       {/* Fase 15 GAP 6b — dipasang di TOP halaman ini (satu-satunya pemakai,
           `canView` di atas sudah menggating admin_sekolah/kepala_sekolah). */}
       <PresenceSummary />
@@ -122,7 +123,7 @@ export function MonitoringPage() {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-3 gap-4 border-b border-line pb-6 sm:grid-cols-5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4 border-b border-line pb-6">
           <StatTile label="Mengajar" value={summary.mengajar} variant="success" />
           <StatTile label="Belum Masuk" value={summary.belum_masuk} variant="danger" />
           <StatTile label="Izin" value={summary.izin} variant="info" />

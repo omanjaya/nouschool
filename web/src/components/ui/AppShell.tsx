@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Bell, LogOut, PanelLeft, User } from 'lucide-react';
-import type { NavItemDef } from '../../lib/nav';
+import type { NavGroup, NavItemDef } from '../../lib/nav';
 import { getBreadcrumbItems } from '../../lib/breadcrumb';
 import { Breadcrumb } from './Breadcrumb';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './Tooltip';
@@ -10,6 +10,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 interface AppShellProps {
   children: ReactNode;
   navItems: NavItemDef[];
+  /** Grup nav lengkap untuk sidebar desktop (Fase 16, `lib/nav.ts#getSidebarNav`) — mobile tetap pakai `navItems` (≤5 tab). Kalau tidak diisi, sidebar jatuh ke `navItems` tanpa grup. */
+  sidebarGroups?: NavGroup[];
   userName?: string;
   /** Label peran di bawah nama (blok user sidebar desktop), mis. "Admin Sekolah" — lihat `lib/roles.ts`. */
   roleLabel?: string;
@@ -145,6 +147,7 @@ function DesktopTopBar({
 export function AppShell({
   children,
   navItems,
+  sidebarGroups,
   userName,
   roleLabel,
   onLogout,
@@ -153,6 +156,7 @@ export function AppShell({
   logoUrl = null,
 }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(readStoredCollapsed);
+  const groups: NavGroup[] = sidebarGroups ?? [{ items: navItems }];
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
@@ -160,9 +164,9 @@ export function AppShell({
 
   return (
     <TooltipProvider>
-      <div className="min-h-dvh bg-bg text-ink lg:flex">
+      <div className="min-h-dvh bg-bg text-ink lg:flex lg:h-dvh lg:overflow-hidden">
         <aside
-          className={`hidden lg:flex lg:h-dvh lg:shrink-0 lg:flex-col lg:border-r lg:border-line lg:py-6 print:hidden ${
+          className={`hidden lg:sticky lg:top-0 lg:flex lg:h-dvh lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:border-r lg:border-line lg:py-6 print:hidden ${
             collapsed ? 'lg:w-[68px]' : 'lg:w-60'
           }`}
         >
@@ -190,42 +194,56 @@ export function AppShell({
               <PanelLeft size={18} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
-          <nav className={`flex flex-col gap-1 ${collapsed ? 'items-center px-2' : 'px-3'}`}>
-            {navItems.map((item) => {
-              const badgeCount = badgeCounts?.[item.to] ?? 0;
-              const link = (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end ?? item.to === '/'}
-                  aria-label={collapsed ? item.label : undefined}
-                  className={({ isActive }) =>
-                    `relative flex min-h-11 items-center gap-3 rounded-lg text-[14px] font-medium transition-colors duration-150 ${
-                      collapsed ? 'w-11 justify-center' : 'w-full px-3'
-                    } ${isActive ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2 hover:text-ink'}`
-                  }
-                >
-                  <item.icon size={20} strokeWidth={2} aria-hidden="true" />
-                  {collapsed ? (
-                    <NavBadgeDot count={badgeCount} />
-                  ) : (
-                    <>
-                      {item.label}
-                      <NavBadge count={badgeCount} />
-                    </>
-                  )}
-                </NavLink>
-              );
+          <nav className={`flex flex-col gap-4 ${collapsed ? 'items-center px-2' : 'px-3'}`}>
+            {groups.map((group, groupIndex) => (
+              <div
+                key={group.title ?? `group-${groupIndex}`}
+                className={`flex flex-col gap-1 ${
+                  groupIndex > 0 ? (collapsed ? 'border-t border-line pt-4' : 'border-t border-line pt-4') : ''
+                }`}
+              >
+                {group.title && !collapsed && (
+                  <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                    {group.title}
+                  </p>
+                )}
+                {group.items.map((item) => {
+                  const badgeCount = badgeCounts?.[item.to] ?? 0;
+                  const link = (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.end ?? item.to === '/'}
+                      aria-label={collapsed ? item.label : undefined}
+                      className={({ isActive }) =>
+                        `relative flex min-h-11 items-center gap-3 rounded-lg text-[14px] font-medium transition-colors duration-150 ${
+                          collapsed ? 'w-11 justify-center' : 'w-full px-3'
+                        } ${isActive ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2 hover:text-ink'}`
+                      }
+                    >
+                      <item.icon size={20} strokeWidth={2} aria-hidden="true" />
+                      {collapsed ? (
+                        <NavBadgeDot count={badgeCount} />
+                      ) : (
+                        <>
+                          {item.label}
+                          <NavBadge count={badgeCount} />
+                        </>
+                      )}
+                    </NavLink>
+                  );
 
-              if (!collapsed) return link;
+                  if (!collapsed) return link;
 
-              return (
-                <Tooltip key={item.to}>
-                  <TooltipTrigger asChild>{link}</TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
-                </Tooltip>
-              );
-            })}
+                  return (
+                    <Tooltip key={item.to}>
+                      <TooltipTrigger asChild>{link}</TooltipTrigger>
+                      <TooltipContent side="right">{item.label}</TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
 
           {userName && (
@@ -254,14 +272,16 @@ export function AppShell({
           )}
         </aside>
 
-        <div className="flex min-h-dvh flex-1 flex-col lg:min-h-0">
-          <DesktopTopBar
-            navItems={navItems}
-            badgeCounts={badgeCounts}
-            userName={userName}
-            roleLabel={roleLabel}
-            onLogout={onLogout}
-          />
+        <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:min-w-0 lg:flex-1 lg:overflow-y-auto">
+          <div className="sticky top-0 z-20 hidden bg-bg lg:block">
+            <DesktopTopBar
+              navItems={navItems}
+              badgeCounts={badgeCounts}
+              userName={userName}
+              roleLabel={roleLabel}
+              onLogout={onLogout}
+            />
+          </div>
           <main className="flex-1 pb-[68px] lg:pb-0 print:pb-0">{children}</main>
 
           <nav

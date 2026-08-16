@@ -3,13 +3,16 @@ import { Link } from 'react-router-dom';
 import { ChevronLeft, Download, ShieldAlert } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { StatTile } from '../../components/ui/StatTile';
+import { DataTable, type DataTableColumn } from '../../components/ui/DataTable';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Field, Select } from '../../components/ui/Field';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { PAGE_WIDE } from '../../components/ui/page';
 import { useMe } from '../auth/api';
 import { useAdminRevenue, usePlans } from './api';
 import { formatRupiah } from '../../lib/currency';
+import type { AdminRevenueByPlan, AdminRevenueMonth } from '../../lib/types';
 
 const MONTH_NAMES = [
   'Januari',
@@ -48,8 +51,21 @@ export function RevenuePage() {
 
   const planName = (code: string) => plans?.find((p) => p.code === code)?.name ?? code;
 
+  /** Kolom desktop (docs/10 §5). */
+  const monthColumns: DataTableColumn<AdminRevenueMonth>[] = [
+    { key: 'month', header: 'Bulan', cell: (m) => MONTH_NAMES[m.month - 1] ?? m.month },
+    { key: 'invoice_count', header: 'Invoice', align: 'right', sortable: true, sortValue: (m) => m.invoice_count, cell: (m) => m.invoice_count },
+    { key: 'paid_total', header: 'Pendapatan', align: 'right', sortable: true, sortValue: (m) => m.paid_total, cell: (m) => formatRupiah(m.paid_total) },
+  ];
+
+  const planColumns: DataTableColumn<AdminRevenueByPlan>[] = [
+    { key: 'plan_code', header: 'Plan', sortable: true, sortValue: (p) => planName(p.plan_code), cell: (p) => planName(p.plan_code) },
+    { key: 'invoice_count', header: 'Invoice', align: 'right', sortable: true, sortValue: (p) => p.invoice_count, cell: (p) => p.invoice_count },
+    { key: 'paid_total', header: 'Pendapatan', align: 'right', sortable: true, sortValue: (p) => p.paid_total, cell: (p) => formatRupiah(p.paid_total) },
+  ];
+
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+    <div className={`${PAGE_WIDE} flex flex-col gap-6`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
@@ -96,57 +112,17 @@ export function RevenuePage() {
 
           <div className="flex flex-col gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Per Bulan</p>
-            <Card variant="plain">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[420px] border-collapse text-[13px]">
-                  <thead>
-                    <tr className="bg-surface-2 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-muted">
-                      <th className="px-3 py-2">Bulan</th>
-                      <th className="px-3 py-2 text-right">Invoice</th>
-                      <th className="px-3 py-2 text-right">Pendapatan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.months.map((m) => {
-                      const isEmpty = m.invoice_count === 0;
-                      return (
-                        <tr key={m.month} className={`border-b border-line last:border-0 ${isEmpty ? 'text-muted' : 'text-ink'}`}>
-                          <td className="px-3 py-2">{MONTH_NAMES[m.month - 1] ?? m.month}</td>
-                          <td className="num px-3 py-2 text-right">{m.invoice_count}</td>
-                          <td className="num px-3 py-2 text-right">{formatRupiah(m.paid_total)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+            <DataTable columns={monthColumns} data={data.months} keyField={(m) => String(m.month)} />
           </div>
 
           <div className="flex flex-col gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Per Plan</p>
-            {data.by_plan.length === 0 ? (
-              <Card>
-                <p className="text-[14px] text-muted">Belum ada pendapatan tercatat tahun ini.</p>
-              </Card>
-            ) : (
-              <Card variant="plain">
-                <div>
-                  {data.by_plan.map((row) => (
-                    <div
-                      key={row.plan_code}
-                      className="flex items-center justify-between gap-3 border-b border-line py-3 last:border-0"
-                    >
-                      <div>
-                        <p className="text-[14px] text-ink">{planName(row.plan_code)}</p>
-                        <p className="num text-[12px] text-muted">{row.invoice_count} invoice</p>
-                      </div>
-                      <p className="num text-[14px] font-semibold text-ink">{formatRupiah(row.paid_total)}</p>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
+            <DataTable
+              columns={planColumns}
+              data={data.by_plan}
+              keyField={(p) => p.plan_code}
+              emptyMessage="Belum ada pendapatan tercatat tahun ini."
+            />
           </div>
         </>
       )}

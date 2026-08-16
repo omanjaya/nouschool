@@ -4,6 +4,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Tabs } from '../../components/ui/Tabs';
 import { useMe } from '../auth/api';
+import { PAGE_WIDE } from '../../components/ui/page';
 
 const TABS = [
   { to: '/data/siswa', label: 'Siswa' },
@@ -23,7 +24,7 @@ export function DataLayout() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto flex max-w-[640px] flex-col gap-4 px-5 py-6">
+      <div className={`${PAGE_WIDE} flex flex-col gap-4`}>
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-24 w-full" />
       </div>
@@ -32,14 +33,14 @@ export function DataLayout() {
 
   if (!me || me.role !== 'admin_sekolah') {
     return (
-      <div className="mx-auto max-w-[640px] px-5 py-6">
+      <div className={PAGE_WIDE}>
         <EmptyState icon={ShieldAlert} message="Anda tidak memiliki akses ke halaman ini." />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[640px] px-5 pt-6 lg:max-w-[900px]">
+    <div className={PAGE_WIDE}>
       <div className="mb-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Sekolah</p>
         <h1 className="text-[21px] font-semibold text-ink">Data</h1>
