@@ -1289,3 +1289,130 @@ export interface DisciplineSummaryRow {
   record_count: number;
   last_at: string | null;
 }
+
+/* ---- Tugas Tambahan & Pegawai (Fase 14 Gelombang B1, docs/12-sion-parity.md Gelombang B — fondasi otorisasi) ---- */
+
+export type DutyForRole = 'guru' | 'pegawai';
+
+/** GET /api/duties/flags — daftar capability flag yang bisa dipilih untuk sebuah tugas. */
+export interface DutyFlagOption {
+  key: string;
+  label: string;
+}
+
+/** GET/POST/PATCH /api/duties (admin) — tugas tambahan per TA aktif. */
+export interface Duty {
+  id: string;
+  name: string;
+  for_role: DutyForRole;
+  flags: string[];
+  active: boolean;
+  assignee_count: number;
+}
+
+export interface DutyInput {
+  name: string;
+  for_role: DutyForRole;
+  flags: string[];
+  active: boolean;
+}
+
+/** Satu baris `GET /api/duties/{id}/assignments` — array langsung (bukan dibungkus). */
+export interface DutyAssignee {
+  user_id: string;
+  name: string;
+  role: string;
+}
+
+/** GET/POST/PATCH /api/employees (admin) — profil pegawai non-guru (role `pegawai`). */
+export interface Employee {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string | null;
+  username: string | null;
+  nip: string | null;
+}
+
+export interface EmployeeInput {
+  name: string;
+  email?: string;
+  username?: string;
+  nip?: string;
+}
+
+/** POST /api/employees response — password sementara ditampilkan SEKALI (pola sama `ResetPasswordResult`). */
+export interface EmployeeCreateResult extends Employee {
+  temp_password: string;
+}
+
+/* ---- Izin Siswa / "izin terencana" (Fase 14 Gelombang B1, docs/12-sion-parity.md Gelombang B alur 1) ---- */
+
+export type StudentLeaveType = 'sakit' | 'izin';
+
+/** Dua tahap approval tetap: wali kelas lalu BK (berbeda dari `leave` guru yang punya rantai step dinamis). */
+export type StudentLeaveStatus = 'pending_homeroom' | 'pending_bk' | 'issued' | 'rejected' | 'canceled';
+
+export interface StudentLeaveStudentRef {
+  id: string;
+  name: string;
+  nis: string;
+  class_name: string;
+}
+
+/** Rincian satu tahap keputusan (wali kelas ATAU BK) — `null` selama tahap itu belum diputuskan. */
+export interface StudentLeaveStepInfo {
+  decided_by_name: string;
+  decided_at: string;
+  comment: string | null;
+}
+
+/** Satu baris `GET /api/student-leave?scope=mine|queue|all&status=` → `{items,total}`. */
+export interface StudentLeaveRequest {
+  id: string;
+  student: StudentLeaveStudentRef;
+  type: StudentLeaveType;
+  date_start: string;
+  date_end: string;
+  reason: string;
+  status: StudentLeaveStatus;
+  attachment_url: string | null;
+  letter_number: string | null;
+  verify_token: string | null;
+  homeroom: StudentLeaveStepInfo | null;
+  bk: StudentLeaveStepInfo | null;
+  created_at: string;
+}
+
+export interface StudentLeaveListResult {
+  items: StudentLeaveRequest[];
+  total: number;
+}
+
+/** POST /api/student-leave (multipart) — siswa untuk diri sendiri; ortu untuk anak (sertakan `student_id`). */
+export interface StudentLeaveCreateInput {
+  type: StudentLeaveType;
+  date_start: string;
+  date_end: string;
+  reason: string;
+  attachment?: File | null;
+  student_id?: string;
+}
+
+/** POST /api/student-leave/{id}/review (tahap wali kelas) & /issue (tahap BK) body. */
+export interface StudentLeaveDecideInput {
+  decision: 'approve' | 'reject';
+  comment?: string;
+}
+
+/** GET /api/public/leave-verify?token= — PUBLIK, tanpa auth (dibuka dari scan QR di surat PDF). */
+export interface StudentLeaveVerifyResult {
+  valid: boolean;
+  letter_number?: string;
+  student_name?: string;
+  class_name?: string;
+  type?: StudentLeaveType;
+  date_start?: string;
+  date_end?: string;
+  issued_at?: string;
+}

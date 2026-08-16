@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { Megaphone, MonitorPlay, QrCode, MapPin, ReceiptText, ShieldAlert } from 'lucide-react';
+import { Megaphone, MonitorPlay, QrCode, MapPin, ReceiptText, ShieldAlert, CalendarClock, CalendarDays } from 'lucide-react';
 import { formatTimeOfDay } from './lib/date';
 import { hasFeature } from './lib/features';
 import { useRealtimeConnection, useRealtimeEvents, useRealtimeState } from './lib/realtime';
@@ -64,6 +64,14 @@ import {
   DISCIPLINE_LETTERS_KEY,
   STUDENT_DISCIPLINE_KEY,
 } from './features/discipline/api';
+import { DutiesListPage } from './features/duties/DutiesListPage';
+import { EmployeesListPage } from './features/employees/EmployeesListPage';
+import { MyStudentLeavePage } from './features/studentleave/MyStudentLeavePage';
+import { StudentLeaveDetailPage } from './features/studentleave/StudentLeaveDetailPage';
+import { StudentLeaveQueuePage } from './features/studentleave/StudentLeaveQueuePage';
+import { StudentLeaveReviewDetailPage } from './features/studentleave/StudentLeaveReviewDetailPage';
+import { LeaveVerifyPage } from './features/studentleave/LeaveVerifyPage';
+import { STUDENT_LEAVE_KEY } from './features/studentleave/api';
 import { Button } from './components/ui/Button';
 import { PeriodsPage } from './features/schedule/PeriodsPage';
 import { RoomsPage } from './features/schedule/RoomsPage';
@@ -164,6 +172,11 @@ function BerandaPage({ me }: { me: Me }) {
   const canManageDiscipline = me.role === 'guru' || me.role === 'admin_sekolah';
   // Kartu "Poin Kedisiplinan" — siswa (miliknya sendiri) & orang tua (anak).
   const isSiswaOrOrtu = me.role === 'siswa' || me.role === 'orang_tua';
+  // Kartu "Izin Siswa" (Fase 14 Gelombang B1) — wali kelas & guru BK adalah
+  // GURU BIASA (bukan role terpisah, otorisasi lewat duty-capability flags di
+  // backend), jadi kartu ini selalu tampil untuk guru (antrian bisa kosong
+  // kalau guru ini tidak memegang tugas terkait) + admin_sekolah (tab "Semua").
+  const canReviewStudentLeave = me.role === 'guru' || me.role === 'admin_sekolah';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -275,6 +288,40 @@ function BerandaPage({ me }: { me: Me }) {
             <Button variant="secondary" onClick={() => navigate('/kedisiplinan')}>
               <ShieldAlert size={16} strokeWidth={2} aria-hidden="true" />
               Buka Kedisiplinan
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {canReviewStudentLeave && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Izin Siswa</p>
+            <p className="text-[12px] text-muted">Tinjau pengajuan izin terencana siswa yang menunggu keputusan Anda.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/izin-siswa')}>
+              <CalendarClock size={16} strokeWidth={2} aria-hidden="true" />
+              Buka Izin Siswa
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isSiswaOrOrtu && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">{me.role === 'siswa' ? 'Izin Saya' : 'Izin Anak'}</p>
+            <p className="text-[12px] text-muted">
+              {me.role === 'siswa'
+                ? 'Ajukan izin sakit/izin & lihat status pengajuan Anda.'
+                : 'Ajukan izin sakit/izin & lihat status pengajuan anak Anda.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/izin-saya')}>
+              <CalendarDays size={16} strokeWidth={2} aria-hidden="true" />
+              {me.role === 'siswa' ? 'Buka Izin Saya' : 'Buka Izin Anak'}
             </Button>
           </div>
         </Card>
@@ -416,6 +463,11 @@ function useRealtime(queryClient: QueryClient) {
       queryClient.invalidateQueries({ queryKey: [DISCIPLINE_SUMMARY_KEY] });
       queryClient.invalidateQueries({ queryKey: [DISCIPLINE_LETTERS_KEY] });
       queryClient.invalidateQueries({ queryKey: [STUDENT_DISCIPLINE_KEY] });
+    },
+    // {request_id} — Fase 14 Gelombang B1: daftar izin siswa (mine/queue/all)
+    // berubah status untuk /izin-saya (siswa/ortu) & /izin-siswa (guru/admin).
+    studentleave: () => {
+      queryClient.invalidateQueries({ queryKey: [STUDENT_LEAVE_KEY] });
     },
   });
 }
@@ -610,15 +662,24 @@ function AuthenticatedShell() {
         <Route path="/kedisiplinan/pengaturan" element={<DisciplineSettingsPage />} />
         <Route path="/pelanggaran-saya" element={<MyDisciplinePage />} />
 
+        {/* Fase 14 Gelombang B1 (docs/12-sion-parity.md Gelombang B alur 1) — izin
+            terencana siswa: /izin-saya (siswa/ortu) & /izin-siswa (review guru/admin). */}
+        <Route path="/izin-saya" element={<MyStudentLeavePage />} />
+        <Route path="/izin-saya/:id" element={<StudentLeaveDetailPage />} />
+        <Route path="/izin-siswa" element={<StudentLeaveQueuePage />} />
+        <Route path="/izin-siswa/:id" element={<StudentLeaveReviewDetailPage />} />
+
         <Route path="/data" element={<DataLayout />}>
           <Route index element={<Navigate to="siswa" replace />} />
           <Route path="siswa" element={<StudentsListPage />} />
           <Route path="rombel" element={<ClassesListPage />} />
           <Route path="guru" element={<TeachersListPage />} />
+          <Route path="pegawai" element={<EmployeesListPage />} />
           <Route path="mapel" element={<SubjectsListPage />} />
           <Route path="jadwal" element={<ScheduleBuilderPage />} />
           <Route path="jam" element={<PeriodsPage />} />
           <Route path="ruangan" element={<RoomsPage />} />
+          <Route path="tugas" element={<DutiesListPage />} />
         </Route>
         <Route path="/data/siswa/import" element={<ImportWizard entity="students" backTo="/data/siswa" />} />
         <Route
@@ -700,6 +761,10 @@ function App() {
           `/aktivasi`; publik karena backend mengesahkan lewat token sekali pakai,
           bukan sesi yang sudah login. */}
       <Route path="/impersonate" element={<ImpersonatePage />} />
+      {/* Fase 14 Gelombang B1 — layar penuh tanpa AppShell, sibling `/aktivasi`;
+          PUBLIK tanpa auth (dibuka dari scan QR di surat izin PDF, docs/12-sion-parity.md
+          Gelombang B alur 1). */}
+      <Route path="/verifikasi-surat" element={<LeaveVerifyPage />} />
       {/* Fullscreen, TANPA AppShell (docs/10-design-system.md #5: "layout terpisah /tv") — sibling
           rute, bukan lewat AuthenticatedShell, supaya sidebar/bottom-nav tidak pernah ikut render. */}
       <Route

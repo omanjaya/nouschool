@@ -9,10 +9,12 @@ const TABS = [
   { to: '/data/siswa', label: 'Siswa' },
   { to: '/data/rombel', label: 'Rombel' },
   { to: '/data/guru', label: 'Guru' },
+  { to: '/data/pegawai', label: 'Pegawai' },
   { to: '/data/mapel', label: 'Mapel' },
   { to: '/data/jadwal', label: 'Jadwal' },
   { to: '/data/jam', label: 'Jam' },
   { to: '/data/ruangan', label: 'Ruangan' },
+  { to: '/data/tugas', label: 'Tugas' },
 ];
 
 /** Hub /data — tab Siswa/Rombel/Guru/Mapel, hanya untuk admin_sekolah. */

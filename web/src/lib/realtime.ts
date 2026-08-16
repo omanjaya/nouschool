@@ -22,7 +22,8 @@ export type RealtimeEventType =
   | 'schedule'
   | 'billing'
   | 'students'
-  | 'discipline';
+  | 'discipline'
+  | 'studentleave';
 
 const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'attendance.session',
@@ -35,6 +36,7 @@ const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'billing',
   'students',
   'discipline',
+  'studentleave',
 ];
 
 /** Bentuk minimal `data` per tipe event, sesuai kontrak — dipakai hanya untuk keputusan kecil (mis. cocokkan `session_id`), bukan sumber tampilan. */
@@ -50,6 +52,8 @@ export interface RealtimeEventDataMap {
   students: Record<string, never>;
   /** Fase 14 Gelombang A (docs/12-sion-parity.md) — pelanggaran/surat peringatan berubah untuk satu siswa. */
   discipline: { student_id: string | number };
+  /** Fase 14 Gelombang B1 (docs/12-sion-parity.md Gelombang B) — pengajuan izin siswa berubah status. */
+  studentleave: { request_id: string | number };
 }
 
 export interface RealtimeEvent<T extends RealtimeEventType = RealtimeEventType> {
