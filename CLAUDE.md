@@ -89,4 +89,5 @@ Setiap modul berisi file seragam: `routes.go`, `handler.go`, `service.go`, `repo
 | `docs/09-billing.md` | Langganan tahunan: tier + bracket siswa, invoice, transfer manual + gateway, grace period |
 | `docs/10-design-system.md` | Design system "Rapor" FINAL: token, tipografi, shared components, aturan icon/no-emoji, copywriting |
 | `docs/11-superadmin.md` | Sistem super admin: fitur existing, impersonation, rencana P1-P6 |
+| `docs/12-sion-parity.md` | Acuan paritas fitur SION per-sekolah: gap analysis + gelombang A-D |
 | `docs/ROADMAP.md` | Urutan build & status per fitur — **update setiap selesai mengerjakan sesuatu** |

@@ -727,5 +727,11 @@ live sebagai bonus di atas cakupan minimum.
 - ⬜ P5 Pengumuman platform
 - ⬜ P6 Feature override per sekolah, laporan pendapatan
 
+## Fase 14 — Paritas SION per-sekolah ⬜ (acuan user: docs/12-sion-parity.md; MULAI SETELAH Fase 13 P2-P6 selesai)
+- ⬜ Gelombang A: Kedisiplinan (master pelanggaran+poin, catat pelanggaran, ambang SP1/2/3 per TA, surat peringatan snapshot+nomor unik+PDF, rekap/export, view siswa/ortu)
+- ⬜ Gelombang B: Izin siswa 3 alur + duties/capability flags + role pegawai + QR token guru + verifikasi surat publik + gate security
+- ⬜ Gelombang C: Penilaian (komponen berbobot+KKTP, normalisasi, publikasi, bintang kelas, konfigurasi rapor, toggle per sekolah)
+- ⬜ Gelombang D: Konseling BK, guru pengganti, period day overrides, kalender presensi siswa, admin impersonate user, template surat
+
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
 - Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.
