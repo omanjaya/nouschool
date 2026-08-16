@@ -37,7 +37,7 @@ function SlotSessionTag({ item }: { item: AttendanceSlotToday }) {
 export function AttendanceClassesPage() {
   const { data: me } = useMe();
   const today = todayISODate();
-  const { data: classes, isLoading, isError, refetch } = useAttendanceClasses(today);
+  const { data: classes, isLoading, isError, error, refetch } = useAttendanceClasses(today);
   const openSession = useOpenAttendanceSession();
   const [openingId, setOpeningId] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -160,7 +160,10 @@ export function AttendanceClassesPage() {
             <Skeleton className="h-14 w-full" />
           </div>
         ) : isError ? (
-          <ErrorState message="Gagal memuat daftar rombel." onRetry={() => refetch()} />
+          <ErrorState
+            message={error instanceof ApiError ? error.message : 'Gagal memuat daftar rombel.'}
+            onRetry={() => refetch()}
+          />
         ) : classes && classes.length === 0 ? (
           <EmptyState icon={ClipboardList} message="Belum ada rombel yang diajarkan hari ini." />
         ) : (

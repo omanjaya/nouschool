@@ -13,6 +13,28 @@ import (
 	"github.com/omanjaya/nouschool/internal/platform/reqctx"
 )
 
+// ErrTenantOnlyEndpoint — endpoint tenant dipanggil dari host platform.
+var ErrTenantOnlyEndpoint = &httpx.Error{
+	Status:  http.StatusNotFound,
+	Code:    "tenant_only_endpoint",
+	Message: "Endpoint ini hanya tersedia di domain sekolah.",
+}
+
+// platformPathAllowed — allowlist path yang SAH di host platform (super admin,
+// landing, auth, webhook). Selebihnya = endpoint tenant.
+func platformPathAllowed(path string) bool {
+	if path == "/api/health" || path == "/api/me" || path == "/manifest.webmanifest" {
+		return true
+	}
+	for _, p := range [...]string{"/api/auth/", "/api/admin/", "/api/public/", "/api/webhooks/", "/internal/"} {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	// Non-API (asset frontend, dsb) bukan urusan guard ini.
+	return !strings.HasPrefix(path, "/api/")
+}
+
 // ErrSchoolNotFound — host tidak cocok sekolah manapun (subdomain / custom domain).
 var ErrSchoolNotFound = &httpx.Error{
 	Status:  http.StatusNotFound,
@@ -155,6 +177,14 @@ func (h *HostResolver) Middleware(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 		if resolved.IsPlatform {
+			// Host platform hanya melayani endpoint platform (allowlist) —
+			// endpoint tenant (absensi, jadwal, dst) butuh konteks sekolah;
+			// tanpa guard ini mereka jalan dengan school_id=0 dan menghasilkan
+			// error menyesatkan ("tahun ajaran belum aktif", data kosong, dll).
+			if !platformPathAllowed(r.URL.Path) {
+				httpx.WriteError(w, ErrTenantOnlyEndpoint)
+				return
+			}
 			ctx = reqctx.WithPlatform(ctx)
 		} else {
 			ctx = reqctx.WithSchool(ctx, reqctx.School{

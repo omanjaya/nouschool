@@ -420,6 +420,24 @@ function AuthenticatedShell() {
     navigate('/login', { replace: true });
   }
 
+  // Super admin di HOST PLATFORM: hanya rute admin — rute tenant (absensi,
+  // jadwal, dst) tidak punya konteks sekolah di host ini (backend juga menolak
+  // via allowlist ErrTenantOnlyEndpoint), jadi jangan pernah dirender.
+  if (isPlatformAdmin) {
+    return (
+      <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout}>
+        <Routes>
+          <Route path="/admin" element={<SchoolsListPage />} />
+          <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
+          <Route path="/admin/plans" element={<PlansPage />} />
+          <Route path="/admin/minat" element={<InterestLeadsPage />} />
+          <Route path="/profil" element={<ProfilePage />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
+        </Routes>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       navItems={navItems}
