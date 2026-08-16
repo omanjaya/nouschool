@@ -587,13 +587,19 @@ export interface TeachingStatusResult {
 
 /* ---- Pengumuman / TV / dashboard kepsek (Fase 7, docs/06-teaching.md) ---- */
 
-/** GET /api/announcements(?active=1), POST/PATCH/DELETE (admin & kepsek). */
+/**
+ * GET /api/announcements(?active=1), POST/PATCH/DELETE (admin & kepsek).
+ * Fase 13 Gelombang 2 (P5, docs/11 P5): `is_platform` menandai pengumuman yang
+ * disuntikkan dari `/admin/platform-announcements` (super admin) — item ini
+ * tampil di sisi sekolah tapi tidak bisa diubah/dihapus dari sana.
+ */
 export interface Announcement {
   id: string;
   title: string;
   body: string;
   starts_at: string;
   ends_at: string;
+  is_platform: boolean;
 }
 
 export interface AnnouncementInput {
@@ -603,11 +609,15 @@ export interface AnnouncementInput {
   ends_at: string;
 }
 
-/** Bentuk ringkas pengumuman dalam payload `/api/tv/board` — tanpa rentang tanggal. */
+/**
+ * Bentuk ringkas pengumuman dalam payload `/api/tv/board` — tanpa rentang tanggal.
+ * `is_platform` (Fase 13 Gelombang 2 P5) — sama makna dengan `Announcement.is_platform`.
+ */
 export interface TvAnnouncement {
   id: string;
   title: string;
   body: string;
+  is_platform: boolean;
 }
 
 /** `now` di `/api/tv/board` — waktu dinding sekolah saat payload dibuat. */
@@ -878,6 +888,15 @@ export interface BillingSubscription {
   price: number;
   /** Snapshot kunci fitur aktif langganan ini — sama makna dengan `Me.features`. */
   features: string[];
+  /**
+   * Fase 13 Gelombang 2 (P6, docs/11 P6) — hanya terisi di panel super admin
+   * (`GET /api/admin/schools/{id}/billing`): override manual per kunci fitur
+   * (kill switch/unlock tanpa ganti plan) + union akhir kunci fitur aktif
+   * setelah merge override × fitur plan. Opsional karena `GET /api/billing`
+   * (tenant) belum tentu mengirim field ini.
+   */
+  feature_overrides?: Record<string, boolean>;
+  features_effective?: string[];
 }
 
 /** GET /api/billing (admin & kepsek, host tenant). */
@@ -1060,4 +1079,85 @@ export interface OutboxListResult {
 
 export interface OutboxRetryAllResult {
   retried: number;
+}
+
+/* ---- Onboarding wizard sekolah baru & admin sekolah (Fase 13 Gelombang 2 P2, docs/11 P2) ---- */
+
+/** GET /api/admin/schools/{id}/onboarding (super admin) — checklist status siap pakai. */
+export interface AdminSchoolOnboarding {
+  has_active_year: boolean;
+  has_admin: boolean;
+  has_subscription_active: boolean;
+  has_students: boolean;
+  has_schedule: boolean;
+  ready: boolean;
+}
+
+/** POST /api/admin/schools/{id}/admins {name, email?, username?} (super admin) — akun admin sekolah pertama. */
+export interface CreateSchoolAdminInput {
+  name: string;
+  email?: string;
+  username?: string;
+}
+
+/** Password sementara ditampilkan sekali (pola sama `ResetPasswordResult`). */
+export interface CreateSchoolAdminResult {
+  user_id: string;
+  temp_password: string;
+}
+
+/* ---- Pengumuman platform (Fase 13 Gelombang 2 P5, docs/11 P5) ---- */
+
+/** GET/POST/PATCH/DELETE /api/admin/platform-announcements[/{id}] (super admin) — shape sama `Announcement` sekolah, tanpa scope sekolah. */
+export interface PlatformAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface PlatformAnnouncementInput {
+  title: string;
+  body: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+/* ---- Feature override per sekolah (Fase 13 Gelombang 2 P6, docs/11 P6) ---- */
+
+/** PUT /api/admin/schools/{id}/feature-overrides body — `null` = ikut plan (hapus override). */
+export type FeatureOverridesInput = Record<string, boolean | null>;
+
+/**
+ * PUT /api/admin/schools/{id}/feature-overrides (super admin) → features efektif hasil merge
+ * override + plan. ASUMSI bentuk respons: echo `feature_overrides` (map key aktif override, key
+ * "ikut plan" tidak muncul) + `features_effective` (union akhir), konsisten dengan field yang
+ * sama pada `BillingSubscription` di bawah.
+ */
+export interface FeatureOverridesResult {
+  feature_overrides: Record<string, boolean>;
+  features_effective: string[];
+}
+
+/* ---- Laporan pendapatan platform (Fase 13 Gelombang 2 P6, docs/11 P6) ---- */
+
+export interface AdminRevenueMonth {
+  month: number;
+  paid_total: number;
+  invoice_count: number;
+}
+
+export interface AdminRevenueByPlan {
+  plan_code: string;
+  paid_total: number;
+  invoice_count: number;
+}
+
+/** GET /api/admin/revenue?year= (super admin). Export Excel: `GET /api/admin/revenue/export?year=`. */
+export interface AdminRevenueResult {
+  year: number;
+  total: number;
+  months: AdminRevenueMonth[];
+  by_plan: AdminRevenueByPlan[];
 }

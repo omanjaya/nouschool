@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/omanjaya/nouschool/internal/platform/httpx"
 )
 
 // -- fakeAdminResetRepo: implementasi adminResetRepo in-memory (tanpa DB) --
@@ -158,6 +160,134 @@ func TestGenerateTempPasswordCharsetAndLength(t *testing.T) {
 				t.Fatalf("karakter %q di luar charset yang diizinkan (pw=%q)", c, pw)
 			}
 		}
+	}
+}
+
+// -- createSchoolAdmin: P2.1 (fase 13 Gelombang 2) --
+
+// fakeCreateSchoolAdminRepo implementasi createSchoolAdminRepo in-memory.
+type fakeCreateSchoolAdminRepo struct {
+	byEmail     map[string]User
+	byUsername  map[string]User
+	nextID      int64
+	created     []CreateUserInput
+	memberships []Membership
+}
+
+func newFakeCreateSchoolAdminRepo() *fakeCreateSchoolAdminRepo {
+	return &fakeCreateSchoolAdminRepo{byEmail: map[string]User{}, byUsername: map[string]User{}}
+}
+
+func (f *fakeCreateSchoolAdminRepo) UserByEmail(ctx context.Context, email string) (User, error) {
+	u, ok := f.byEmail[email]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	return u, nil
+}
+
+func (f *fakeCreateSchoolAdminRepo) UserByUsername(ctx context.Context, username string) (User, error) {
+	u, ok := f.byUsername[username]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	return u, nil
+}
+
+func (f *fakeCreateSchoolAdminRepo) CreateUser(ctx context.Context, in CreateUserInput) (User, error) {
+	f.nextID++
+	f.created = append(f.created, in)
+	u := User{ID: f.nextID, Email: in.Email, Username: in.Username, Name: in.Name, PasswordHash: in.PasswordHash}
+	if in.Email != "" {
+		f.byEmail[in.Email] = u
+	}
+	if in.Username != "" {
+		f.byUsername[in.Username] = u
+	}
+	return u, nil
+}
+
+func (f *fakeCreateSchoolAdminRepo) CreateMembership(ctx context.Context, userID, schoolID int64, role string) (Membership, error) {
+	m := Membership{ID: int64(len(f.memberships) + 1), UserID: userID, SchoolID: schoolID, Role: role, Status: "active"}
+	f.memberships = append(f.memberships, m)
+	return m, nil
+}
+
+var _ createSchoolAdminRepo = (*fakeCreateSchoolAdminRepo)(nil)
+
+func TestCreateSchoolAdminSuccess(t *testing.T) {
+	repo := newFakeCreateSchoolAdminRepo()
+	audit := &fakeAudit{}
+
+	userID, tempPassword, err := createSchoolAdmin(context.Background(), repo, nil, audit, fakeGenFixed, fakeHash, 42, 7, "Budi", "budi@sekolah.test", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if userID != 1 {
+		t.Errorf("userID = %d, ingin 1", userID)
+	}
+	if tempPassword != "abfixed23g" {
+		t.Errorf("temp password = %q, ingin abfixed23g", tempPassword)
+	}
+	if len(repo.memberships) != 1 || repo.memberships[0].Role != RoleAdminSekolah || repo.memberships[0].SchoolID != 7 {
+		t.Fatalf("membership admin_sekolah tidak dibuat dengan benar: %+v", repo.memberships)
+	}
+	if len(audit.calls) != 1 || audit.calls[0].action != "admin.create_school_admin" {
+		t.Fatalf("audit admin.create_school_admin seharusnya tercatat, got %+v", audit.calls)
+	}
+	if *audit.calls[0].schoolID != 7 || *audit.calls[0].userID != 42 {
+		t.Errorf("audit school_id/user_id salah: %+v", audit.calls[0])
+	}
+}
+
+func TestCreateSchoolAdminRequiresName(t *testing.T) {
+	repo := newFakeCreateSchoolAdminRepo()
+	_, _, err := createSchoolAdmin(context.Background(), repo, nil, nil, fakeGenFixed, fakeHash, 42, 7, "  ", "budi@sekolah.test", "")
+	if err != errSchoolAdminNameRequired {
+		t.Fatalf("error = %v, ingin errSchoolAdminNameRequired", err)
+	}
+}
+
+func TestCreateSchoolAdminRequiresIdentifier(t *testing.T) {
+	repo := newFakeCreateSchoolAdminRepo()
+	_, _, err := createSchoolAdmin(context.Background(), repo, nil, nil, fakeGenFixed, fakeHash, 42, 7, "Budi", "", "")
+	if err != errSchoolAdminIdentifierRequired {
+		t.Fatalf("error = %v, ingin errSchoolAdminIdentifierRequired", err)
+	}
+}
+
+func TestCreateSchoolAdminRejectsDuplicateEmail(t *testing.T) {
+	repo := newFakeCreateSchoolAdminRepo()
+	repo.byEmail["budi@sekolah.test"] = User{ID: 99, Email: "budi@sekolah.test"}
+
+	_, _, err := createSchoolAdmin(context.Background(), repo, nil, nil, fakeGenFixed, fakeHash, 42, 7, "Budi", "budi@sekolah.test", "")
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 409 {
+		t.Fatalf("ingin error 409 conflict, got %v", err)
+	}
+	if len(repo.created) != 0 {
+		t.Error("TIDAK boleh membuat user baru saat email bentrok")
+	}
+}
+
+func TestCreateSchoolAdminRejectsDuplicateUsername(t *testing.T) {
+	repo := newFakeCreateSchoolAdminRepo()
+	repo.byUsername["budi"] = User{ID: 99, Username: "budi"}
+
+	_, _, err := createSchoolAdmin(context.Background(), repo, nil, nil, fakeGenFixed, fakeHash, 42, 7, "Budi", "", "budi")
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 409 {
+		t.Fatalf("ingin error 409 conflict, got %v", err)
+	}
+}
+
+func TestCreateSchoolAdminRejectsMissingSchool(t *testing.T) {
+	repo := newFakeCreateSchoolAdminRepo()
+	schools := fakeSchoolGateway{status: "", slug: "", found: false}
+
+	_, _, err := createSchoolAdmin(context.Background(), repo, schools, nil, fakeGenFixed, fakeHash, 42, 999, "Budi", "budi@sekolah.test", "")
+	if !errors.Is(err, error(httpx.ErrNotFound)) {
+		t.Fatalf("ingin httpx.ErrNotFound, got %v", err)
 	}
 }
 

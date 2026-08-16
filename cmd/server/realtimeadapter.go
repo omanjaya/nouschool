@@ -33,3 +33,12 @@ func (a realtimeForModules) Publish(schoolID int64, eventType string, data map[s
 func (a realtimeForModules) PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64) {
 	a.hub.Publish(schoolID, realtime.Event{Type: eventType, Data: data, Roles: roles, UserIDs: userIDs})
 }
+
+// PublishAll — broadcast LINTAS SEMUA sekolah (fase 13 Gelombang 2,
+// docs/11-superadmin.md P5 "Pengumuman platform") — memenuhi
+// platformadmin.PlatformRealtime secara struktural. Lihat catatan
+// Hub.PublishAll untuk kenapa hanya sekolah dengan koneksi aktif yang
+// dijangkau.
+func (a realtimeForModules) PublishAll(eventType string, data map[string]any) {
+	a.hub.PublishAll(realtime.Event{Type: eventType, Data: data})
+}

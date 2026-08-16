@@ -265,7 +265,15 @@ func main() {
 		// internal/identity/admin.go.
 		platformAdminRepo := platformadmin.NewRepository(pool)
 		platformAdminSvc := platformadmin.NewService(platformAdminRepo, identitySvc, storage.FromEnv(), clock.System{})
+		platformAdminSvc.SetRealtime(realtimeAdapter)
 		platformAdminHandler := platformadmin.NewHandler(platformAdminSvc)
+
+		// announcementSvc memenuhi P5 (docs/11-superadmin.md "Pengumuman
+		// platform"): pengumuman platform disuntikkan SETELAH platformAdminSvc
+		// ada, lewat adapter kecil (platformadminadapter.go) — announcement
+		// TIDAK mengimpor platformadmin untuk tipe apa pun (consumer-side
+		// interface, lihat internal/announcement/service.go).
+		announcementSvc.SetPlatformGateway(platformAdminForAnnouncement{svc: platformAdminSvc})
 
 		// TickOnce sekali saat startup (docs/09-billing.md "job harian ...
 		// idempoten") — supaya transisi grace/readonly yang seharusnya sudah

@@ -96,3 +96,95 @@ func (h *Handler) RetryAllOutbox(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, map[string]int{"retried": n})
 }
+
+// -- P2.2 (fase 13 Gelombang 2) --
+
+// Onboarding — GET /api/admin/schools/{id}/onboarding.
+func (h *Handler) Onboarding(w http.ResponseWriter, r *http.Request) {
+	schoolID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sekolah tidak valid."))
+		return
+	}
+	status, err := h.svc.Onboarding(r.Context(), schoolID)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, status)
+}
+
+// -- P5 (fase 13 Gelombang 2) --
+
+// ListPlatformAnnouncements — GET /api/admin/platform-announcements.
+func (h *Handler) ListPlatformAnnouncements(w http.ResponseWriter, r *http.Request) {
+	items, err := h.svc.ListPlatformAnnouncements(r.Context())
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+
+type platformAnnouncementRequest struct {
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	StartsAt string `json:"starts_at"`
+	EndsAt   string `json:"ends_at"`
+}
+
+// CreatePlatformAnnouncement — POST /api/admin/platform-announcements.
+func (h *Handler) CreatePlatformAnnouncement(w http.ResponseWriter, r *http.Request) {
+	var req platformAnnouncementRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	view, err := h.svc.CreatePlatformAnnouncement(ctx, reqctx.UserID(ctx), CreatePlatformAnnouncementInput{
+		Title: req.Title, Body: req.Body, StartsAt: req.StartsAt, EndsAt: req.EndsAt,
+	})
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, view)
+}
+
+// UpdatePlatformAnnouncement — PATCH /api/admin/platform-announcements/{id}.
+func (h *Handler) UpdatePlatformAnnouncement(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID pengumuman tidak valid."))
+		return
+	}
+	var req platformAnnouncementRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	view, err := h.svc.UpdatePlatformAnnouncement(ctx, reqctx.UserID(ctx), id, UpdatePlatformAnnouncementInput{
+		Title: req.Title, Body: req.Body, StartsAt: req.StartsAt, EndsAt: req.EndsAt,
+	})
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, view)
+}
+
+// DeletePlatformAnnouncement — DELETE /api/admin/platform-announcements/{id}.
+func (h *Handler) DeletePlatformAnnouncement(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID pengumuman tidak valid."))
+		return
+	}
+	ctx := r.Context()
+	if err := h.svc.DeletePlatformAnnouncement(ctx, reqctx.UserID(ctx), id); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}

@@ -2,6 +2,7 @@ package billing
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -293,4 +294,57 @@ func (h *Handler) AdminVoidInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, inv)
+}
+
+// -- admin: P6.1 feature overrides (fase 13 Gelombang 2) --
+
+type featureOverridesRequest struct {
+	Overrides map[string]*bool `json:"overrides"`
+}
+
+// AdminSetFeatureOverrides — PUT /api/admin/schools/{id}/feature-overrides.
+func (h *Handler) AdminSetFeatureOverrides(w http.ResponseWriter, r *http.Request) {
+	schoolID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sekolah tidak valid."))
+		return
+	}
+	var req featureOverridesRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	features, err := h.svc.SetFeatureOverrides(ctx, reqctx.UserID(ctx), schoolID, req.Overrides)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"features": features})
+}
+
+// -- admin: P6.3/P6.4 laporan pendapatan (fase 13 Gelombang 2) --
+
+// AdminRevenue — GET /api/admin/revenue?year=YYYY.
+func (h *Handler) AdminRevenue(w http.ResponseWriter, r *http.Request) {
+	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
+	report, err := h.svc.GetRevenueReport(r.Context(), year)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, report)
+}
+
+// AdminRevenueExport — GET /api/admin/revenue/export?year=YYYY.
+func (h *Handler) AdminRevenueExport(w http.ResponseWriter, r *http.Request) {
+	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
+	filename, data, err := h.svc.ExportRevenueXLSX(r.Context(), year)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	_, _ = w.Write(data)
 }

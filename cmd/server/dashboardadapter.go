@@ -101,7 +101,7 @@ func (a announcementForDashboard) ActiveOn(ctx context.Context, schoolID int64, 
 	}
 	out := make([]dashboard.AnnouncementItem, 0, len(items))
 	for _, it := range items {
-		out = append(out, dashboard.AnnouncementItem{ID: it.ID, Title: it.Title, Body: it.Body})
+		out = append(out, dashboard.AnnouncementItem{ID: it.ID, Title: it.Title, Body: it.Body, IsPlatform: it.IsPlatform})
 	}
 	return out, nil
 }

@@ -71,16 +71,21 @@ type PriceBracket struct {
 
 // SubscriptionRecord adalah representasi domain satu baris subscriptions —
 // SNAPSHOT plan_code/features/max_students saat subscribe/renew (docs/09).
+// FeatureOverrides (fase 13 Gelombang 2, docs/11-superadmin.md P6.1) — kill
+// switch/unlock fitur per sekolah TANPA ganti plan, di-MERGE dengan Features
+// (override MENANG) saat resolusi fitur efektif — lihat mergeFeatures &
+// snapshotFor.
 type SubscriptionRecord struct {
-	ID          int64
-	SchoolID    int64
-	PlanCode    string
-	Features    map[string]bool
-	MaxStudents int
-	Price       int64
-	StartsOn    time.Time
-	EndsOn      time.Time
-	Status      string
+	ID               int64
+	SchoolID         int64
+	PlanCode         string
+	Features         map[string]bool
+	FeatureOverrides map[string]bool
+	MaxStudents      int
+	Price            int64
+	StartsOn         time.Time
+	EndsOn           time.Time
+	Status           string
 }
 
 // GraceUntil deriva dari EndsOn + GracePeriodDays (TIDAK disimpan sebagai
@@ -127,17 +132,27 @@ type PaymentRecord struct {
 // Features adalah DAFTAR kunci yang AKTIF (bukan map) — sama makna/bentuk
 // dengan UserView.Features di /api/me (identity/model.go), supaya frontend
 // memakai satu bentuk konsisten `features.includes(key)` di mana pun.
+//
+// FeatureOverrides & FeaturesEffective (fase 13 Gelombang 2, docs/11-
+// superadmin.md P6.1/P6.2) — field TAMBAHAN SAJA, tidak mengubah Features
+// (frontend existing tetap jalan tanpa perubahan): FeatureOverrides adalah
+// override MENTAH tersimpan (key hanya ada bila di-set eksplisit true/false
+// oleh super admin), FeaturesEffective adalah Features di-MERGE dengan
+// FeatureOverrides (override menang) — sama persis dengan yang dipakai
+// /api/me, RequireFeature, notification whatsapp gate (lihat snapshotFor).
 type SubscriptionView struct {
-	PlanCode     string   `json:"plan_code"`
-	PlanName     string   `json:"plan_name"`
-	Status       string   `json:"status"`
-	StartsOn     string   `json:"starts_on"`
-	EndsOn       string   `json:"ends_on"`
-	GraceUntil   *string  `json:"grace_until"`
-	MaxStudents  int      `json:"max_students"`
-	StudentCount int      `json:"student_count"`
-	Price        int64    `json:"price"`
-	Features     []string `json:"features"`
+	PlanCode          string          `json:"plan_code"`
+	PlanName          string          `json:"plan_name"`
+	Status            string          `json:"status"`
+	StartsOn          string          `json:"starts_on"`
+	EndsOn            string          `json:"ends_on"`
+	GraceUntil        *string         `json:"grace_until"`
+	MaxStudents       int             `json:"max_students"`
+	StudentCount      int             `json:"student_count"`
+	Price             int64           `json:"price"`
+	Features          []string        `json:"features"`
+	FeatureOverrides  map[string]bool `json:"feature_overrides"`
+	FeaturesEffective []string        `json:"features_effective"`
 }
 
 // PaymentView adalah shape "payment" tersemat pada InvoiceView.
@@ -191,4 +206,40 @@ type AdminSubscriptionRow struct {
 	PlanCode   string `json:"plan_code"`
 	Status     string `json:"status"`
 	EndsOn     string `json:"ends_on"`
+}
+
+// -- P6.3/P6.4 (fase 13 Gelombang 2): GET /api/admin/revenue & /export --
+
+// RevenueInvoiceRow adalah satu baris invoice PAID (dipakai buildRevenueReport
+// & sheet "Invoice" export xlsx).
+type RevenueInvoiceRow struct {
+	Number     string
+	SchoolName string
+	PlanCode   string
+	Amount     int64
+	PaidAt     time.Time
+}
+
+// RevenueMonth adalah satu baris "months" GET /api/admin/revenue — SELALU 12
+// baris (Januari..Desember), termasuk bulan tanpa invoice paid (paid_total=0).
+type RevenueMonth struct {
+	Month        int   `json:"month"`
+	PaidTotal    int64 `json:"paid_total"`
+	InvoiceCount int   `json:"invoice_count"`
+}
+
+// RevenueByPlan adalah satu baris "by_plan" GET /api/admin/revenue — HANYA
+// plan yang muncul di invoice paid tahun itu, terurut plan_code.
+type RevenueByPlan struct {
+	PlanCode     string `json:"plan_code"`
+	PaidTotal    int64  `json:"paid_total"`
+	InvoiceCount int    `json:"invoice_count"`
+}
+
+// RevenueReport adalah shape lengkap GET /api/admin/revenue.
+type RevenueReport struct {
+	Year   int             `json:"year"`
+	Total  int64           `json:"total"`
+	Months []RevenueMonth  `json:"months"`
+	ByPlan []RevenueByPlan `json:"by_plan"`
 }

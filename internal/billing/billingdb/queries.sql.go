@@ -290,7 +290,7 @@ func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plan, error) 
 
 const getSubscriptionBySchool = `-- name: GetSubscriptionBySchool :one
 
-SELECT id, school_id, plan_code, features, max_students, price, starts_on, ends_on, status FROM subscriptions WHERE school_id = $1
+SELECT id, school_id, plan_code, features, max_students, price, starts_on, ends_on, status, feature_overrides FROM subscriptions WHERE school_id = $1
 `
 
 // -- subscriptions --
@@ -307,6 +307,7 @@ func (q *Queries) GetSubscriptionBySchool(ctx context.Context, schoolID int64) (
 		&i.StartsOn,
 		&i.EndsOn,
 		&i.Status,
+		&i.FeatureOverrides,
 	)
 	return i, err
 }
@@ -337,6 +338,55 @@ func (q *Queries) ListInvoicesForSchool(ctx context.Context, schoolID int64) ([]
 			&i.MaxStudents,
 			&i.CreatedBy,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPaidInvoicesInRange = `-- name: ListPaidInvoicesInRange :many
+SELECT i.number, s.name AS school_name, i.plan_code, i.amount, i.paid_at
+FROM invoices i
+JOIN schools s ON s.id = i.school_id
+WHERE i.status = 'paid' AND i.paid_at >= $1::timestamptz AND i.paid_at < $2::timestamptz
+ORDER BY i.paid_at
+`
+
+type ListPaidInvoicesInRangeParams struct {
+	FromAt pgtype.Timestamptz `json:"from_at"`
+	ToAt   pgtype.Timestamptz `json:"to_at"`
+}
+
+type ListPaidInvoicesInRangeRow struct {
+	Number     string             `json:"number"`
+	SchoolName string             `json:"school_name"`
+	PlanCode   string             `json:"plan_code"`
+	Amount     int64              `json:"amount"`
+	PaidAt     pgtype.Timestamptz `json:"paid_at"`
+}
+
+// Lintas-sekolah (panel super admin, P6.3/P6.4 laporan pendapatan) — pola
+// JOIN schools sama dengan ListSubscriptionsForAdmin di atas.
+func (q *Queries) ListPaidInvoicesInRange(ctx context.Context, arg ListPaidInvoicesInRangeParams) ([]ListPaidInvoicesInRangeRow, error) {
+	rows, err := q.db.Query(ctx, listPaidInvoicesInRange, arg.FromAt, arg.ToAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPaidInvoicesInRangeRow
+	for rows.Next() {
+		var i ListPaidInvoicesInRangeRow
+		if err := rows.Scan(
+			&i.Number,
+			&i.SchoolName,
+			&i.PlanCode,
+			&i.Amount,
+			&i.PaidAt,
 		); err != nil {
 			return nil, err
 		}
@@ -447,24 +497,25 @@ func (q *Queries) ListPlans(ctx context.Context) ([]Plan, error) {
 }
 
 const listSubscriptionsForAdmin = `-- name: ListSubscriptionsForAdmin :many
-SELECT s.id, s.school_id, s.plan_code, s.features, s.max_students, s.price, s.starts_on, s.ends_on, s.status, sc.name AS school_name, sc.slug AS school_slug
+SELECT s.id, s.school_id, s.plan_code, s.features, s.max_students, s.price, s.starts_on, s.ends_on, s.status, s.feature_overrides, sc.name AS school_name, sc.slug AS school_slug
 FROM subscriptions s
 JOIN schools sc ON sc.id = s.school_id
 ORDER BY sc.name
 `
 
 type ListSubscriptionsForAdminRow struct {
-	ID          int64       `json:"id"`
-	SchoolID    int64       `json:"school_id"`
-	PlanCode    string      `json:"plan_code"`
-	Features    []byte      `json:"features"`
-	MaxStudents int32       `json:"max_students"`
-	Price       int64       `json:"price"`
-	StartsOn    pgtype.Date `json:"starts_on"`
-	EndsOn      pgtype.Date `json:"ends_on"`
-	Status      string      `json:"status"`
-	SchoolName  string      `json:"school_name"`
-	SchoolSlug  string      `json:"school_slug"`
+	ID               int64       `json:"id"`
+	SchoolID         int64       `json:"school_id"`
+	PlanCode         string      `json:"plan_code"`
+	Features         []byte      `json:"features"`
+	MaxStudents      int32       `json:"max_students"`
+	Price            int64       `json:"price"`
+	StartsOn         pgtype.Date `json:"starts_on"`
+	EndsOn           pgtype.Date `json:"ends_on"`
+	Status           string      `json:"status"`
+	FeatureOverrides []byte      `json:"feature_overrides"`
+	SchoolName       string      `json:"school_name"`
+	SchoolSlug       string      `json:"school_slug"`
 }
 
 // Lintas-sekolah (panel super admin): daftar status semua sekolah.
@@ -487,6 +538,7 @@ func (q *Queries) ListSubscriptionsForAdmin(ctx context.Context) ([]ListSubscrip
 			&i.StartsOn,
 			&i.EndsOn,
 			&i.Status,
+			&i.FeatureOverrides,
 			&i.SchoolName,
 			&i.SchoolSlug,
 		); err != nil {
@@ -631,6 +683,40 @@ func (q *Queries) TransitionGraceToReadonly(ctx context.Context, arg TransitionG
 	return items, nil
 }
 
+const updateFeatureOverrides = `-- name: UpdateFeatureOverrides :one
+
+UPDATE subscriptions SET feature_overrides = $1::jsonb
+WHERE school_id = $2::bigint
+RETURNING id, school_id, plan_code, features, max_students, price, starts_on, ends_on, status, feature_overrides
+`
+
+type UpdateFeatureOverridesParams struct {
+	FeatureOverrides []byte `json:"feature_overrides"`
+	SchoolID         int64  `json:"school_id"`
+}
+
+// -- P6 (fase 13 Gelombang 2, docs/11-superadmin.md): feature override +
+// laporan pendapatan --
+// Ganti feature_overrides SAJA (kolom lain subscriptions TIDAK disentuh) —
+// 404 (no rows) bila sekolah belum punya subscription.
+func (q *Queries) UpdateFeatureOverrides(ctx context.Context, arg UpdateFeatureOverridesParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, updateFeatureOverrides, arg.FeatureOverrides, arg.SchoolID)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.PlanCode,
+		&i.Features,
+		&i.MaxStudents,
+		&i.Price,
+		&i.StartsOn,
+		&i.EndsOn,
+		&i.Status,
+		&i.FeatureOverrides,
+	)
+	return i, err
+}
+
 const updatePlanFeatures = `-- name: UpdatePlanFeatures :exec
 UPDATE plans SET features = $2 WHERE code = $1
 `
@@ -687,7 +773,7 @@ ON CONFLICT (school_id) DO UPDATE SET
     starts_on = EXCLUDED.starts_on,
     ends_on = EXCLUDED.ends_on,
     status = EXCLUDED.status
-RETURNING id, school_id, plan_code, features, max_students, price, starts_on, ends_on, status
+RETURNING id, school_id, plan_code, features, max_students, price, starts_on, ends_on, status, feature_overrides
 `
 
 type UpsertSubscriptionParams struct {
@@ -723,6 +809,7 @@ func (q *Queries) UpsertSubscription(ctx context.Context, arg UpsertSubscription
 		&i.StartsOn,
 		&i.EndsOn,
 		&i.Status,
+		&i.FeatureOverrides,
 	)
 	return i, err
 }

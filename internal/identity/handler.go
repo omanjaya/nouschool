@@ -100,11 +100,40 @@ func (h *Handler) AdminIssueImpersonation(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// -- fase 13, docs/11-superadmin.md P4 "Operasional" --
+// -- fase 13 Gelombang 2, docs/11-superadmin.md P2 "Onboarding" --
 
 func pathInt64(r *http.Request, name string) (int64, error) {
 	return strconv.ParseInt(r.PathValue(name), 10, 64)
 }
+
+type createSchoolAdminRequest struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+}
+
+// AdminCreateSchoolAdmin — POST /api/admin/schools/{id}/admins.
+func (h *Handler) AdminCreateSchoolAdmin(w http.ResponseWriter, r *http.Request) {
+	schoolID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sekolah tidak valid."))
+		return
+	}
+	var req createSchoolAdminRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	userID, tempPassword, err := h.svc.AdminCreateSchoolAdmin(ctx, reqctx.UserID(ctx), schoolID, req.Name, req.Email, req.Username)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, map[string]any{"user_id": userID, "temp_password": tempPassword})
+}
+
+// -- fase 13, docs/11-superadmin.md P4 "Operasional" --
 
 // AdminListMembers — GET /api/admin/schools/{id}/members.
 func (h *Handler) AdminListMembers(w http.ResponseWriter, r *http.Request) {

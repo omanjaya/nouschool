@@ -16,4 +16,13 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, requireAuth, requireSuperAdm
 	mux.Handle("GET /api/admin/outbox", admin(h.ListOutbox))
 	mux.Handle("POST /api/admin/outbox/{id}/retry", admin(h.RetryOutbox))
 	mux.Handle("POST /api/admin/outbox/retry-all", admin(h.RetryAllOutbox))
+
+	// Fase 13 Gelombang 2 (docs/11-superadmin.md P2 onboarding + P5 pengumuman
+	// platform).
+	mux.Handle("GET /api/admin/schools/{id}/onboarding", admin(h.Onboarding))
+
+	mux.Handle("GET /api/admin/platform-announcements", admin(h.ListPlatformAnnouncements))
+	mux.Handle("POST /api/admin/platform-announcements", admin(h.CreatePlatformAnnouncement))
+	mux.Handle("PATCH /api/admin/platform-announcements/{id}", admin(h.UpdatePlatformAnnouncement))
+	mux.Handle("DELETE /api/admin/platform-announcements/{id}", admin(h.DeletePlatformAnnouncement))
 }

@@ -56,6 +56,10 @@ type billingRepository interface {
 	LatestPaymentForInvoice(ctx context.Context, invoiceID int64) (PaymentRecord, bool, error)
 
 	CountActiveStudents(ctx context.Context, schoolID int64) (int, error)
+
+	// -- P6 (fase 13 Gelombang 2) --
+	UpdateFeatureOverrides(ctx context.Context, schoolID int64, overrides map[string]bool) (SubscriptionRecord, error)
+	ListPaidInvoicesInRange(ctx context.Context, from, to time.Time) ([]RevenueInvoiceRow, error)
 }
 
 var _ billingRepository = (*Repository)(nil)
@@ -231,7 +235,8 @@ func (r *Repository) SavePlanPrices(ctx context.Context, code string, prices []P
 func subFromDB(s billingdb.Subscription) SubscriptionRecord {
 	return SubscriptionRecord{
 		ID: s.ID, SchoolID: s.SchoolID, PlanCode: s.PlanCode, Features: unmarshalFeatures(s.Features),
-		MaxStudents: int(s.MaxStudents), Price: s.Price, StartsOn: s.StartsOn.Time, EndsOn: s.EndsOn.Time, Status: s.Status,
+		FeatureOverrides: unmarshalFeatures(s.FeatureOverrides),
+		MaxStudents:      int(s.MaxStudents), Price: s.Price, StartsOn: s.StartsOn.Time, EndsOn: s.EndsOn.Time, Status: s.Status,
 	}
 }
 
@@ -455,4 +460,34 @@ func (r *Repository) CountActiveStudents(ctx context.Context, schoolID int64) (i
 		return 0, err
 	}
 	return int(n), nil
+}
+
+// -- P6 (fase 13 Gelombang 2) --
+
+func (r *Repository) UpdateFeatureOverrides(ctx context.Context, schoolID int64, overrides map[string]bool) (SubscriptionRecord, error) {
+	raw, err := marshalFeatures(overrides)
+	if err != nil {
+		return SubscriptionRecord{}, err
+	}
+	row, err := r.q.UpdateFeatureOverrides(ctx, billingdb.UpdateFeatureOverridesParams{SchoolID: schoolID, FeatureOverrides: raw})
+	if err != nil {
+		return SubscriptionRecord{}, mapNoRows(err)
+	}
+	return subFromDB(row), nil
+}
+
+func (r *Repository) ListPaidInvoicesInRange(ctx context.Context, from, to time.Time) ([]RevenueInvoiceRow, error) {
+	rows, err := r.q.ListPaidInvoicesInRange(ctx, billingdb.ListPaidInvoicesInRangeParams{FromAt: tsOf(from), ToAt: tsOf(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RevenueInvoiceRow, 0, len(rows))
+	for _, row := range rows {
+		var paidAt time.Time
+		if row.PaidAt.Valid {
+			paidAt = row.PaidAt.Time
+		}
+		out = append(out, RevenueInvoiceRow{Number: row.Number, SchoolName: row.SchoolName, PlanCode: row.PlanCode, Amount: row.Amount, PaidAt: paidAt})
+	}
+	return out, nil
 }

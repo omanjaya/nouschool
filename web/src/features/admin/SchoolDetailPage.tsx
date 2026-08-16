@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import {
   Building2,
   CalendarRange,
+  Check,
   ChevronLeft,
   Copy,
   Eye,
@@ -13,6 +14,7 @@ import {
   Receipt,
   Search,
   Users,
+  X,
 } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -24,6 +26,7 @@ import { Tag } from '../../components/ui/Tag';
 import { Dialog } from '../../components/ui/Dialog';
 import { Button } from '../../components/ui/Button';
 import { Checkbox, Field, Input, Select } from '../../components/ui/Field';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { useToast } from '../../components/ui/Toast';
 import {
   ROLE_LABEL,
@@ -39,8 +42,10 @@ import {
   useSchoolAudit,
   useSchoolBilling,
   useSchoolMembers,
+  useSchoolOnboarding,
   useSchools,
   useSchoolStats,
+  useUpdateFeatureOverrides,
   useUpdateNotificationChannelSettings,
   useUpdateSchool,
   useVerifyInvoice,
@@ -50,13 +55,22 @@ import { TIMEZONES } from '../../lib/timezones';
 import { formatDate, formatRelativeTime } from '../../lib/date';
 import { formatRupiah } from '../../lib/currency';
 import { ApiError } from '../../lib/api';
+import { FEATURE_LABELS, featureLabel } from '../billing/featureLabels';
 import {
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TAG_VARIANT,
   SUBSCRIPTION_STATUS_LABEL,
   SUBSCRIPTION_STATUS_TAG_VARIANT,
 } from '../billing/format';
-import type { AdminInvoice, AdminAuditLogItem, AdminSchoolMember, NotificationChannel, School } from '../../lib/types';
+import type {
+  AdminInvoice,
+  AdminAuditLogItem,
+  AdminSchoolMember,
+  AdminSchoolOnboarding,
+  BillingSubscription,
+  NotificationChannel,
+  School,
+} from '../../lib/types';
 
 /**
  * Observer sekali-jalan (docs/11 P3: statistik "hanya agregat", tapi tetap
@@ -143,12 +157,15 @@ export function SchoolDetailPage() {
         <p className="text-[12px] text-muted">{school.slug}</p>
       </div>
 
+      <OnboardingSection schoolId={school.id} />
+
       <ImpersonateButton school={school} />
 
       <SchoolEditForm school={school} />
       <StatisticsSection schoolId={school.id} />
       <AcademicYearsSection schoolId={school.id} />
       <BillingSection schoolId={school.id} />
+      <FeatureOverridesSection schoolId={school.id} />
       <NotificationChannelsSection schoolId={school.id} />
       <MembersSection schoolId={school.id} />
       <AuditLogSection schoolId={school.id} />
@@ -191,6 +208,53 @@ function ImpersonateButton({ school }: { school: School }) {
       </Button>
       <p className="text-[11px] text-muted">Sesi support 2 jam · tercatat di audit log sekolah.</p>
     </div>
+  );
+}
+
+const ONBOARDING_ITEMS: { key: keyof Omit<AdminSchoolOnboarding, 'ready'>; label: string }[] = [
+  { key: 'has_active_year', label: 'Tahun ajaran aktif' },
+  { key: 'has_admin', label: 'Admin sekolah' },
+  { key: 'has_subscription_active', label: 'Langganan aktif' },
+  { key: 'has_students', label: 'Data siswa' },
+  { key: 'has_schedule', label: 'Jadwal' },
+];
+
+/**
+ * Card "Onboarding" (Fase 13 Gelombang 2 P2, docs/11 P2) — checklist 5 langkah siap pakai,
+ * ditaruh paling atas halaman detail sekolah supaya tidak terkubur kalau sekolah belum siap.
+ */
+function OnboardingSection({ schoolId }: { schoolId: string }) {
+  const { data, isLoading, isError, refetch } = useSchoolOnboarding(schoolId);
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[14px] font-semibold text-ink">Onboarding</p>
+        {data?.ready && <Tag variant="success">Siap dipakai</Tag>}
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-32 w-full" />
+      ) : isError || !data ? (
+        <ErrorState message="Gagal memuat status onboarding." onRetry={() => refetch()} />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {ONBOARDING_ITEMS.map((item) => {
+            const done = data[item.key];
+            return (
+              <div key={item.key} className="flex items-center gap-2 text-[14px]">
+                {done ? (
+                  <Check size={16} strokeWidth={2} className="text-st-hadir" aria-hidden="true" />
+                ) : (
+                  <X size={16} strokeWidth={2} className="text-muted" aria-hidden="true" />
+                )}
+                <span className={done ? 'text-ink' : 'text-muted'}>{item.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -673,6 +737,111 @@ function BillingSection({ schoolId }: { schoolId: string }) {
           </Button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+type FeatureOverrideChoice = 'inherit' | 'on' | 'off';
+
+const FEATURE_OVERRIDE_OPTIONS: { value: FeatureOverrideChoice; label: string }[] = [
+  { value: 'inherit', label: 'Ikut Plan' },
+  { value: 'on', label: 'Aktif' },
+  { value: 'off', label: 'Nonaktif' },
+];
+
+function overridesToChoices(overrides: Record<string, boolean> | undefined): Record<string, FeatureOverrideChoice> {
+  const result: Record<string, FeatureOverrideChoice> = {};
+  for (const key of Object.keys(FEATURE_LABELS)) {
+    const value = overrides?.[key];
+    result[key] = value === undefined ? 'inherit' : value ? 'on' : 'off';
+  }
+  return result;
+}
+
+/**
+ * Seksi "Feature Override" (Fase 13 Gelombang 2 P6, docs/11 P6) — kill switch/unlock fitur per
+ * sekolah tanpa ganti plan. Satu tombol Simpan mengirim map LENGKAP (key "Ikut Plan" = `null`,
+ * lihat kontrak PUT .../feature-overrides), supaya server tahu override mana yang harus dihapus.
+ * Nonaktif total kalau sekolah belum punya langganan (tidak ada plan dasar untuk di-override).
+ */
+function FeatureOverridesSection({ schoolId }: { schoolId: string }) {
+  const { data, isLoading, isError, refetch } = useSchoolBilling(schoolId);
+  const updateOverrides = useUpdateFeatureOverrides(schoolId);
+  const { showToast } = useToast();
+  const [choices, setChoices] = useState<Record<string, FeatureOverrideChoice>>({});
+
+  useEffect(() => {
+    setChoices(overridesToChoices(data?.subscription?.feature_overrides));
+  }, [data?.subscription]);
+
+  if (isLoading) {
+    return <Skeleton className="h-44 w-full" />;
+  }
+  if (isError || !data) {
+    return <ErrorState message="Gagal memuat feature override." onRetry={() => refetch()} />;
+  }
+
+  const subscription: BillingSubscription | null = data.subscription;
+  const effective = new Set(subscription?.features_effective ?? []);
+  const disabled = !subscription;
+
+  function handleSave() {
+    const overrides: Record<string, boolean | null> = {};
+    for (const key of Object.keys(FEATURE_LABELS)) {
+      const choice = choices[key] ?? 'inherit';
+      overrides[key] = choice === 'inherit' ? null : choice === 'on';
+    }
+    updateOverrides.mutate(overrides, {
+      onSuccess: () => showToast('Feature override disimpan.'),
+      onError: (err) => showToast(err instanceof ApiError ? err.message : 'Gagal menyimpan feature override.', 'error'),
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Feature Override</p>
+
+      <Card className="flex flex-col gap-4">
+        {disabled && (
+          <p className="text-[12px] text-muted">Sekolah ini belum punya langganan — feature override belum bisa diatur.</p>
+        )}
+
+        <div className="flex flex-col gap-3">
+          {Object.keys(FEATURE_LABELS).map((key) => (
+            <div key={key} className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3 last:border-0 last:pb-0">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="truncate text-[14px] text-ink">{featureLabel(key)}</span>
+                <Tag variant={effective.has(key) ? 'success' : 'done'}>{effective.has(key) ? 'Aktif' : 'Nonaktif'}</Tag>
+              </div>
+              <SegmentedControl
+                options={FEATURE_OVERRIDE_OPTIONS}
+                value={choices[key] ?? 'inherit'}
+                onChange={(value) => {
+                  if (disabled) return;
+                  setChoices((prev) => ({ ...prev, [key]: value }));
+                }}
+                className={disabled ? 'pointer-events-none opacity-50' : ''}
+              />
+            </div>
+          ))}
+        </div>
+
+        {updateOverrides.isError && (
+          <p className="text-[12px] text-danger">
+            {updateOverrides.error instanceof ApiError ? updateOverrides.error.message : 'Gagal menyimpan feature override.'}
+          </p>
+        )}
+
+        <Button
+          variant="secondary"
+          onClick={handleSave}
+          loading={updateOverrides.isPending}
+          disabled={disabled}
+          className="self-start"
+        >
+          Simpan Feature Override
+        </Button>
+      </Card>
     </div>
   );
 }

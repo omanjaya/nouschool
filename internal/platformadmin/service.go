@@ -2,7 +2,9 @@ package platformadmin
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/omanjaya/nouschool/internal/platform/clock"
@@ -30,13 +32,26 @@ const gracePeriodDays = 14
 
 const outboxPageSize = 50
 
+// PlatformRealtime adalah kebutuhan modul platformadmin dari modul realtime
+// (fase 13 Gelombang 2, P5 "Pengumuman platform") — consumer-side interface
+// kecil dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). BEDA dari interface
+// Realtime satu-sekolah dipakai modul lain (mis. announcement.Realtime):
+// pengumuman platform harus tampil di SEMUA sekolah sekaligus, jadi
+// method-nya PublishAll (broadcast lintas sekolah), bukan Publish/PublishTo
+// (satu sekolah). TIDAK dipenuhi *realtime.Hub secara langsung — dijembatani
+// adapter kecil di cmd/server (realtimeadapter.go).
+type PlatformRealtime interface {
+	PublishAll(eventType string, data map[string]any)
+}
+
 // Service berisi logika modul platformadmin: menyusun ulang & mengagregasi
 // data lintas modul untuk panel super admin (lihat catatan desain di model.go).
 type Service struct {
-	repo  platformAdminRepository
-	audit AuditLogger // opsional — nil = audit retry-all dilewati (lihat SetAudit atau constructor)
-	files *storage.Store
-	clock clock.Clock
+	repo     platformAdminRepository
+	audit    AuditLogger // opsional — nil = audit retry-all dilewati (lihat SetAudit atau constructor)
+	files    *storage.Store
+	clock    clock.Clock
+	realtime PlatformRealtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
 }
 
 func NewService(repo *Repository, audit AuditLogger, files *storage.Store, clk clock.Clock) *Service {
@@ -48,6 +63,10 @@ func NewService(repo *Repository, audit AuditLogger, files *storage.Store, clk c
 	}
 	return &Service{repo: repo, audit: audit, files: files, clock: clk}
 }
+
+// SetRealtime menyuntikkan PlatformRealtime SETELAH konstruksi (opsional,
+// disuntik main.go — pola yang sama dengan modul lain; nil aman/no-op).
+func (s *Service) SetRealtime(r PlatformRealtime) { s.realtime = r }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
 // tanpa DB) — dipakai test di package ini saja (pola sama billing.newServiceForTest).
@@ -289,4 +308,194 @@ func (s *Service) RetryAllOutbox(ctx context.Context, actorUserID, schoolID int6
 	s.logAudit(ctx, sidPtr, actorUserID, "admin.outbox_retry_all", "notification_outbox",
 		nil, map[string]any{"status": status, "school_id": schoolID, "retried": n})
 	return int(n), nil
+}
+
+// -- P2.2 (fase 13 Gelombang 2): GET /api/admin/schools/{id}/onboarding --
+
+// Onboarding — checklist status onboarding sekolah (docs/11-superadmin.md
+// P2 "Checklist status onboarding tampil di detail sekolah"). ready=true
+// hanya bila SEMUA checklist true.
+func (s *Service) Onboarding(ctx context.Context, schoolID int64) (OnboardingStatus, error) {
+	exists, err := s.repo.SchoolExists(ctx, schoolID)
+	if err != nil {
+		return OnboardingStatus{}, err
+	}
+	if !exists {
+		return OnboardingStatus{}, httpx.ErrNotFound
+	}
+	row, err := s.repo.SchoolOnboardingStatus(ctx, schoolID)
+	if err != nil {
+		return OnboardingStatus{}, err
+	}
+	ready := row.HasActiveYear && row.HasAdmin && row.HasSubscriptionActive && row.HasStudents && row.HasSchedule
+	return OnboardingStatus{
+		HasActiveYear: row.HasActiveYear, HasAdmin: row.HasAdmin, HasSubscriptionActive: row.HasSubscriptionActive,
+		HasStudents: row.HasStudents, HasSchedule: row.HasSchedule, Ready: ready,
+	}, nil
+}
+
+// -- P5 (fase 13 Gelombang 2): platform_announcements,
+// docs/11-superadmin.md "Pengumuman platform" --
+
+const platformDateLayout = "2006-01-02"
+
+// logPlatformAudit — SAMA seperti logAudit, tapi menyertakan entity_id (mis.
+// id pengumuman platform) dan school_id SELALU nil (pengumuman platform
+// tidak terikat satu sekolah). logAudit di atas TIDAK punya parameter
+// entity_id (hanya dipakai retry-all yang memang tidak punya satu entitas
+// spesifik) — makanya method terpisah, bukan menambah parameter ke logAudit
+// dan mengubah SEMUA call site yang sudah ada.
+func (s *Service) logPlatformAudit(ctx context.Context, actorUserID int64, action, entity string, entityID int64, oldValue, newValue any) {
+	if s.audit == nil {
+		return
+	}
+	uid, eid := actorUserID, entityID
+	_ = s.audit.Log(ctx, nil, &uid, action, entity, &eid, oldValue, newValue)
+}
+
+// emitPlatformAnnouncement memancarkan "announcement" {} ke SEMUA sekolah
+// (docs/11-superadmin.md P5 "Realtime: create/update/delete platform
+// announcement -> publish event announcement ke SEMUA sekolah") — dipanggil
+// SETELAH operasi sukses, best-effort (nil-safe). Data SENGAJA kosong —
+// klien selalu refetch GET /api/announcements (bus read-only, pola sama
+// announcement.Service.emitAnnouncement).
+func (s *Service) emitPlatformAnnouncement() {
+	if s.realtime == nil {
+		return
+	}
+	s.realtime.PublishAll("announcement", map[string]any{})
+}
+
+func parsePlatformAnnouncementDates(startsAtRaw, endsAtRaw string) (time.Time, time.Time, error) {
+	start, err := time.Parse(platformDateLayout, strings.TrimSpace(startsAtRaw))
+	if err != nil {
+		return time.Time{}, time.Time{}, httpx.Validation("Format starts_at harus YYYY-MM-DD.")
+	}
+	end, err := time.Parse(platformDateLayout, strings.TrimSpace(endsAtRaw))
+	if err != nil {
+		return time.Time{}, time.Time{}, httpx.Validation("Format ends_at harus YYYY-MM-DD.")
+	}
+	if start.After(end) {
+		return time.Time{}, time.Time{}, httpx.Validation("starts_at tidak boleh setelah ends_at.")
+	}
+	return start, end, nil
+}
+
+func platformAnnouncementView(r PlatformAnnouncementRecord) PlatformAnnouncementView {
+	return PlatformAnnouncementView{
+		ID: r.ID, Title: r.Title, Body: r.Body,
+		StartsAt: r.StartsAt.Format(platformDateLayout), EndsAt: r.EndsAt.Format(platformDateLayout),
+		CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt,
+	}
+}
+
+// ListPlatformAnnouncements — GET /api/admin/platform-announcements.
+func (s *Service) ListPlatformAnnouncements(ctx context.Context) ([]PlatformAnnouncementView, error) {
+	rows, err := s.repo.ListPlatformAnnouncements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformAnnouncementView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, platformAnnouncementView(r))
+	}
+	return out, nil
+}
+
+// CreatePlatformAnnouncementInput adalah parameter POST /api/admin/platform-announcements.
+type CreatePlatformAnnouncementInput struct {
+	Title    string
+	Body     string
+	StartsAt string
+	EndsAt   string
+}
+
+// CreatePlatformAnnouncement — POST /api/admin/platform-announcements.
+func (s *Service) CreatePlatformAnnouncement(ctx context.Context, actorUserID int64, in CreatePlatformAnnouncementInput) (PlatformAnnouncementView, error) {
+	title := strings.TrimSpace(in.Title)
+	body := strings.TrimSpace(in.Body)
+	if title == "" || body == "" {
+		return PlatformAnnouncementView{}, httpx.Validation("Judul dan isi pengumuman wajib diisi.")
+	}
+	start, end, err := parsePlatformAnnouncementDates(in.StartsAt, in.EndsAt)
+	if err != nil {
+		return PlatformAnnouncementView{}, err
+	}
+	rec, err := s.repo.InsertPlatformAnnouncement(ctx, title, body, start, end, actorUserID)
+	if err != nil {
+		return PlatformAnnouncementView{}, err
+	}
+	s.logPlatformAudit(ctx, actorUserID, "admin.platform_announcement_create", "platform_announcement", rec.ID, nil,
+		map[string]any{"title": title, "starts_at": start.Format(platformDateLayout), "ends_at": end.Format(platformDateLayout)})
+	s.emitPlatformAnnouncement()
+	return platformAnnouncementView(rec), nil
+}
+
+// UpdatePlatformAnnouncementInput adalah parameter PATCH /api/admin/platform-announcements/{id}.
+type UpdatePlatformAnnouncementInput struct {
+	Title    string
+	Body     string
+	StartsAt string
+	EndsAt   string
+}
+
+// UpdatePlatformAnnouncement — PATCH /api/admin/platform-announcements/{id}.
+func (s *Service) UpdatePlatformAnnouncement(ctx context.Context, actorUserID, id int64, in UpdatePlatformAnnouncementInput) (PlatformAnnouncementView, error) {
+	title := strings.TrimSpace(in.Title)
+	body := strings.TrimSpace(in.Body)
+	if title == "" || body == "" {
+		return PlatformAnnouncementView{}, httpx.Validation("Judul dan isi pengumuman wajib diisi.")
+	}
+	start, end, err := parsePlatformAnnouncementDates(in.StartsAt, in.EndsAt)
+	if err != nil {
+		return PlatformAnnouncementView{}, err
+	}
+	rec, err := s.repo.UpdatePlatformAnnouncement(ctx, id, title, body, start, end)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return PlatformAnnouncementView{}, httpx.ErrNotFound
+		}
+		return PlatformAnnouncementView{}, err
+	}
+	s.logPlatformAudit(ctx, actorUserID, "admin.platform_announcement_update", "platform_announcement", id, nil,
+		map[string]any{"title": title, "starts_at": start.Format(platformDateLayout), "ends_at": end.Format(platformDateLayout)})
+	s.emitPlatformAnnouncement()
+	return platformAnnouncementView(rec), nil
+}
+
+// DeletePlatformAnnouncement — DELETE /api/admin/platform-announcements/{id}.
+func (s *Service) DeletePlatformAnnouncement(ctx context.Context, actorUserID, id int64) error {
+	if err := s.repo.DeletePlatformAnnouncement(ctx, id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return httpx.ErrNotFound
+		}
+		return err
+	}
+	s.logPlatformAudit(ctx, actorUserID, "admin.platform_announcement_delete", "platform_announcement", id, nil, nil)
+	s.emitPlatformAnnouncement()
+	return nil
+}
+
+// ActivePlatformAnnouncements — pengumuman platform aktif pada tanggal
+// (YYYY-MM-DD) tertentu, TANPA gerbang permission (interface publik dipakai
+// modul announcement lewat consumer-side interface, lihat
+// cmd/server/platformadminadapter.go — pola sama
+// announcement.Service.ActiveOn dipakai modul dashboard).
+func (s *Service) ActivePlatformAnnouncements(ctx context.Context, dateStr string) ([]PlatformAnnouncementItem, error) {
+	d, err := time.Parse(platformDateLayout, strings.TrimSpace(dateStr))
+	if err != nil {
+		return nil, httpx.Validation("Format tanggal harus YYYY-MM-DD.")
+	}
+	rows, err := s.repo.ListActivePlatformAnnouncements(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformAnnouncementItem, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, PlatformAnnouncementItem{
+			ID: r.ID, Title: r.Title, Body: r.Body,
+			StartsAt: r.StartsAt.Format(platformDateLayout), EndsAt: r.EndsAt.Format(platformDateLayout), CreatedAt: r.CreatedAt,
+		})
+	}
+	return out, nil
 }

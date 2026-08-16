@@ -45,6 +45,17 @@ type platformAdminRepository interface {
 	GetOutboxStatus(ctx context.Context, id int64) (string, error)
 	RetryOutboxRow(ctx context.Context, id int64, now time.Time) error
 	RetryAllOutbox(ctx context.Context, status string, schoolID int64, now time.Time) (int64, error)
+
+	// -- P2.2 (fase 13 Gelombang 2) --
+	SchoolExists(ctx context.Context, schoolID int64) (bool, error)
+	SchoolOnboardingStatus(ctx context.Context, schoolID int64) (OnboardingRow, error)
+
+	// -- P5 (fase 13 Gelombang 2) --
+	InsertPlatformAnnouncement(ctx context.Context, title, body string, startsAt, endsAt time.Time, createdBy int64) (PlatformAnnouncementRecord, error)
+	ListPlatformAnnouncements(ctx context.Context) ([]PlatformAnnouncementRecord, error)
+	ListActivePlatformAnnouncements(ctx context.Context, date time.Time) ([]PlatformAnnouncementRecord, error)
+	UpdatePlatformAnnouncement(ctx context.Context, id int64, title, body string, startsAt, endsAt time.Time) (PlatformAnnouncementRecord, error)
+	DeletePlatformAnnouncement(ctx context.Context, id int64) error
 }
 
 var _ platformAdminRepository = (*Repository)(nil)
@@ -283,4 +294,92 @@ func (r *Repository) RetryOutboxRow(ctx context.Context, id int64, now time.Time
 
 func (r *Repository) RetryAllOutbox(ctx context.Context, status string, schoolID int64, now time.Time) (int64, error) {
 	return r.q.RetryAllOutbox(ctx, platformadmindb.RetryAllOutboxParams{Status: status, SchoolID: schoolID, Now: tsOf(now)})
+}
+
+// -- P2.2 (fase 13 Gelombang 2) --
+
+func (r *Repository) SchoolExists(ctx context.Context, schoolID int64) (bool, error) {
+	return r.q.SchoolExistsByID(ctx, schoolID)
+}
+
+func (r *Repository) SchoolOnboardingStatus(ctx context.Context, schoolID int64) (OnboardingRow, error) {
+	row, err := r.q.SchoolOnboardingStatus(ctx, schoolID)
+	if err != nil {
+		return OnboardingRow{}, err
+	}
+	return OnboardingRow{
+		HasActiveYear: row.HasActiveYear, HasAdmin: row.HasAdmin, HasSubscriptionActive: row.HasSubscriptionActive,
+		HasStudents: row.HasStudents, HasSchedule: row.HasSchedule,
+	}, nil
+}
+
+// -- P5 (fase 13 Gelombang 2) --
+
+func platformAnnouncementFromDB(a platformadmindb.PlatformAnnouncement) PlatformAnnouncementRecord {
+	var createdBy int64
+	if a.CreatedBy.Valid {
+		createdBy = a.CreatedBy.Int64
+	}
+	return PlatformAnnouncementRecord{
+		ID: a.ID, Title: a.Title, Body: a.Body, StartsAt: a.StartsAt.Time, EndsAt: a.EndsAt.Time,
+		CreatedBy: createdBy, CreatedAt: a.CreatedAt.Time,
+	}
+}
+
+func (r *Repository) InsertPlatformAnnouncement(ctx context.Context, title, body string, startsAt, endsAt time.Time, createdBy int64) (PlatformAnnouncementRecord, error) {
+	row, err := r.q.InsertPlatformAnnouncement(ctx, platformadmindb.InsertPlatformAnnouncementParams{
+		Title: title, Body: body, StartsAt: dateOf(startsAt), EndsAt: dateOf(endsAt), CreatedBy: createdBy,
+	})
+	if err != nil {
+		return PlatformAnnouncementRecord{}, err
+	}
+	return platformAnnouncementFromDB(row), nil
+}
+
+func (r *Repository) ListPlatformAnnouncements(ctx context.Context) ([]PlatformAnnouncementRecord, error) {
+	rows, err := r.q.ListPlatformAnnouncements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformAnnouncementRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, platformAnnouncementFromDB(row))
+	}
+	return out, nil
+}
+
+func (r *Repository) ListActivePlatformAnnouncements(ctx context.Context, date time.Time) ([]PlatformAnnouncementRecord, error) {
+	rows, err := r.q.ListActivePlatformAnnouncements(ctx, dateOf(date))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformAnnouncementRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, platformAnnouncementFromDB(row))
+	}
+	return out, nil
+}
+
+func (r *Repository) UpdatePlatformAnnouncement(ctx context.Context, id int64, title, body string, startsAt, endsAt time.Time) (PlatformAnnouncementRecord, error) {
+	row, err := r.q.UpdatePlatformAnnouncement(ctx, platformadmindb.UpdatePlatformAnnouncementParams{
+		ID: id, Title: title, Body: body, StartsAt: dateOf(startsAt), EndsAt: dateOf(endsAt),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PlatformAnnouncementRecord{}, ErrNotFound
+		}
+		return PlatformAnnouncementRecord{}, err
+	}
+	return platformAnnouncementFromDB(row), nil
+}
+
+func (r *Repository) DeletePlatformAnnouncement(ctx context.Context, id int64) error {
+	n, err := r.q.DeletePlatformAnnouncement(ctx, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

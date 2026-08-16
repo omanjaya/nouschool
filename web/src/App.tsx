@@ -15,8 +15,11 @@ import { Card } from './components/ui/Card';
 import { DashboardAdminPage } from './features/admin/DashboardAdminPage';
 import { SchoolsListPage } from './features/admin/SchoolsListPage';
 import { SchoolDetailPage } from './features/admin/SchoolDetailPage';
+import { SchoolOnboardingWizard } from './features/admin/SchoolOnboardingWizard';
 import { InterestLeadsPage } from './features/admin/InterestLeadsPage';
 import { OutboxPage } from './features/admin/OutboxPage';
+import { PlatformAnnouncementsPage } from './features/admin/PlatformAnnouncementsPage';
+import { RevenuePage } from './features/admin/RevenuePage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
 import { ActivationPage } from './features/activation/ActivationPage';
@@ -461,10 +464,13 @@ function AuthenticatedShell() {
         <Routes>
           <Route path="/admin" element={<DashboardAdminPage />} />
           <Route path="/admin/sekolah" element={<SchoolsListPage />} />
+          <Route path="/admin/sekolah/new" element={<SchoolOnboardingWizard />} />
           <Route path="/admin/sekolah/:id" element={<SchoolDetailPage />} />
           <Route path="/admin/outbox" element={<OutboxPage />} />
           <Route path="/admin/plans" element={<PlansPage />} />
           <Route path="/admin/minat" element={<InterestLeadsPage />} />
+          <Route path="/admin/pengumuman" element={<PlatformAnnouncementsPage />} />
+          <Route path="/admin/pendapatan" element={<RevenuePage />} />
           <Route path="/profil" element={<ProfilePage />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>

@@ -4,6 +4,8 @@ import {
   ChevronRight,
   Mail,
   MailWarning,
+  Megaphone,
+  ReceiptText,
   ShieldAlert,
   Tags,
 } from 'lucide-react';
@@ -95,6 +97,20 @@ export function DashboardAdminPage() {
                   subtitle="Notifikasi gagal/dead lintas sekolah."
                   trailing={<ChevronRight size={18} strokeWidth={2} className="text-muted" aria-hidden="true" />}
                   onClick={() => navigate('/admin/outbox')}
+                />
+                <ListRow
+                  leading={<Megaphone size={20} strokeWidth={2} aria-hidden="true" />}
+                  title="Pengumuman Platform"
+                  subtitle="Kelola pengumuman ke semua sekolah."
+                  trailing={<ChevronRight size={18} strokeWidth={2} className="text-muted" aria-hidden="true" />}
+                  onClick={() => navigate('/admin/pengumuman')}
+                />
+                <ListRow
+                  leading={<ReceiptText size={20} strokeWidth={2} aria-hidden="true" />}
+                  title="Pendapatan"
+                  subtitle="Laporan pendapatan per bulan & plan."
+                  trailing={<ChevronRight size={18} strokeWidth={2} className="text-muted" aria-hidden="true" />}
+                  onClick={() => navigate('/admin/pendapatan')}
                 />
               </div>
             </Card>

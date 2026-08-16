@@ -147,3 +147,28 @@ func (h *Hub) Publish(schoolID int64, ev Event) {
 		}
 	}
 }
+
+// PublishAll mengirim ev ke SEMUA sekolah yang punya SETIDAKNYA satu koneksi
+// terdaftar saat ini (fase 13 Gelombang 2, docs/11-superadmin.md P5
+// "Pengumuman platform ... publish event announcement ke SEMUA sekolah") —
+// dipakai broadcast LINTAS SEKOLAH (mis. pengumuman platform), beda dari
+// Publish (satu sekolah spesifik). Sengaja HANYA menjangkau sekolah dengan
+// koneksi aktif (bukan query daftar SEMUA sekolah dari DB) — Hub memang
+// sudah mengelompokkan koneksi per sekolah (lihat struct di atas), dan
+// sekolah TANPA koneksi aktif otomatis tidak butuh diberi tahu real-time:
+// klien akan mendapat data terbaru saat refetch normal (GET
+// /api/announcements) begitu terhubung. Ini pilihan paling sederhana yang
+// cocok dgn arsitektur Hub existing — TIDAK butuh dependency ke daftar
+// sekolah aktif dari modul tenant (lihat laporan keputusan tugas).
+func (h *Hub) PublishAll(ev Event) {
+	h.mu.RLock()
+	schoolIDs := make([]int64, 0, len(h.schools))
+	for id := range h.schools {
+		schoolIDs = append(schoolIDs, id)
+	}
+	h.mu.RUnlock()
+
+	for _, id := range schoolIDs {
+		h.Publish(id, ev)
+	}
+}

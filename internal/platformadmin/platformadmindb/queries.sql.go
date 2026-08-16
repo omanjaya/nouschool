@@ -158,6 +158,18 @@ func (q *Queries) CountTotalActiveStudents(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deletePlatformAnnouncement = `-- name: DeletePlatformAnnouncement :execrows
+DELETE FROM platform_announcements WHERE id = $1::bigint
+`
+
+func (q *Queries) DeletePlatformAnnouncement(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePlatformAnnouncement, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getOutboxByID = `-- name: GetOutboxByID :one
 SELECT id, school_id, event, user_id, channel, payload, status, attempts, next_retry_at, created_at, sent_at FROM notification_outbox WHERE id = $1
 `
@@ -179,6 +191,79 @@ func (q *Queries) GetOutboxByID(ctx context.Context, id int64) (NotificationOutb
 		&i.SentAt,
 	)
 	return i, err
+}
+
+const insertPlatformAnnouncement = `-- name: InsertPlatformAnnouncement :one
+
+INSERT INTO platform_announcements (title, body, starts_at, ends_at, created_by)
+VALUES ($1::text, $2::text, $3::date, $4::date, $5::bigint)
+RETURNING id, title, body, starts_at, ends_at, created_by, created_at
+`
+
+type InsertPlatformAnnouncementParams struct {
+	Title     string      `json:"title"`
+	Body      string      `json:"body"`
+	StartsAt  pgtype.Date `json:"starts_at"`
+	EndsAt    pgtype.Date `json:"ends_at"`
+	CreatedBy int64       `json:"created_by"`
+}
+
+// -- P5 (fase 13 Gelombang 2): platform_announcements, docs/11-superadmin.md
+// "Pengumuman platform" — TIDAK tenant-scoped (satu baris = tampil di SEMUA
+// sekolah), jadi TIDAK ada filter school_id (beda dari announcements
+// per-sekolah di internal/announcement).
+func (q *Queries) InsertPlatformAnnouncement(ctx context.Context, arg InsertPlatformAnnouncementParams) (PlatformAnnouncement, error) {
+	row := q.db.QueryRow(ctx, insertPlatformAnnouncement,
+		arg.Title,
+		arg.Body,
+		arg.StartsAt,
+		arg.EndsAt,
+		arg.CreatedBy,
+	)
+	var i PlatformAnnouncement
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Body,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listActivePlatformAnnouncements = `-- name: ListActivePlatformAnnouncements :many
+SELECT id, title, body, starts_at, ends_at, created_by, created_at FROM platform_announcements WHERE starts_at <= $1::date AND ends_at >= $1::date
+ORDER BY starts_at DESC, id DESC
+`
+
+func (q *Queries) ListActivePlatformAnnouncements(ctx context.Context, onDate pgtype.Date) ([]PlatformAnnouncement, error) {
+	rows, err := q.db.Query(ctx, listActivePlatformAnnouncements, onDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlatformAnnouncement
+	for rows.Next() {
+		var i PlatformAnnouncement
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Body,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.CreatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listInvoicesAwaitingVerification = `-- name: ListInvoicesAwaitingVerification :many
@@ -315,6 +400,38 @@ func (q *Queries) ListOutboxAdmin(ctx context.Context, arg ListOutboxAdminParams
 			&i.Status,
 			&i.Attempts,
 			&i.NextRetryAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPlatformAnnouncements = `-- name: ListPlatformAnnouncements :many
+SELECT id, title, body, starts_at, ends_at, created_by, created_at FROM platform_announcements ORDER BY starts_at DESC, id DESC
+`
+
+func (q *Queries) ListPlatformAnnouncements(ctx context.Context) ([]PlatformAnnouncement, error) {
+	rows, err := q.db.Query(ctx, listPlatformAnnouncements)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlatformAnnouncement
+	for rows.Next() {
+		var i PlatformAnnouncement
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Body,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.CreatedBy,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -537,6 +654,52 @@ func (q *Queries) RetryOutboxRow(ctx context.Context, arg RetryOutboxRowParams) 
 	return err
 }
 
+const schoolExistsByID = `-- name: SchoolExistsByID :one
+
+SELECT EXISTS(SELECT 1 FROM schools WHERE id = $1::bigint)
+`
+
+// -- P2.2 (fase 13 Gelombang 2): GET /api/admin/schools/{id}/onboarding --
+func (q *Queries) SchoolExistsByID(ctx context.Context, schoolID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, schoolExistsByID, schoolID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const schoolOnboardingStatus = `-- name: SchoolOnboardingStatus :one
+SELECT
+    EXISTS(SELECT 1 FROM academic_years WHERE school_id = $1::bigint AND is_active) AS has_active_year,
+    EXISTS(SELECT 1 FROM memberships WHERE school_id = $1::bigint AND role = 'admin_sekolah' AND status = 'active') AS has_admin,
+    EXISTS(SELECT 1 FROM subscriptions WHERE school_id = $1::bigint AND status = 'active') AS has_subscription_active,
+    EXISTS(SELECT 1 FROM students WHERE school_id = $1::bigint AND status = 'active') AS has_students,
+    EXISTS(SELECT 1 FROM schedule_slots WHERE school_id = $1::bigint) AS has_schedule
+`
+
+type SchoolOnboardingStatusRow struct {
+	HasActiveYear         bool `json:"has_active_year"`
+	HasAdmin              bool `json:"has_admin"`
+	HasSubscriptionActive bool `json:"has_subscription_active"`
+	HasStudents           bool `json:"has_students"`
+	HasSchedule           bool `json:"has_schedule"`
+}
+
+// Satu baris agregasi lintas modul (tenant/identity/billing/student/schedule)
+// — DIPERBOLEHKAN eksplisit utk modul agregator (lihat catatan desain
+// package doc), sama pola dengan ListSchoolsOverview di atas.
+func (q *Queries) SchoolOnboardingStatus(ctx context.Context, schoolID int64) (SchoolOnboardingStatusRow, error) {
+	row := q.db.QueryRow(ctx, schoolOnboardingStatus, schoolID)
+	var i SchoolOnboardingStatusRow
+	err := row.Scan(
+		&i.HasActiveYear,
+		&i.HasAdmin,
+		&i.HasSubscriptionActive,
+		&i.HasStudents,
+		&i.HasSchedule,
+	)
+	return i, err
+}
+
 const sumRevenueInRange = `-- name: SumRevenueInRange :one
 SELECT COALESCE(SUM(amount), 0)::bigint FROM invoices
 WHERE status = 'paid' AND paid_at >= $1::timestamptz AND paid_at < $2::timestamptz
@@ -552,4 +715,40 @@ func (q *Queries) SumRevenueInRange(ctx context.Context, arg SumRevenueInRangePa
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const updatePlatformAnnouncement = `-- name: UpdatePlatformAnnouncement :one
+UPDATE platform_announcements
+SET title = $1::text, body = $2::text, starts_at = $3::date, ends_at = $4::date
+WHERE id = $5::bigint
+RETURNING id, title, body, starts_at, ends_at, created_by, created_at
+`
+
+type UpdatePlatformAnnouncementParams struct {
+	Title    string      `json:"title"`
+	Body     string      `json:"body"`
+	StartsAt pgtype.Date `json:"starts_at"`
+	EndsAt   pgtype.Date `json:"ends_at"`
+	ID       int64       `json:"id"`
+}
+
+func (q *Queries) UpdatePlatformAnnouncement(ctx context.Context, arg UpdatePlatformAnnouncementParams) (PlatformAnnouncement, error) {
+	row := q.db.QueryRow(ctx, updatePlatformAnnouncement,
+		arg.Title,
+		arg.Body,
+		arg.StartsAt,
+		arg.EndsAt,
+		arg.ID,
+	)
+	var i PlatformAnnouncement
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Body,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
 }

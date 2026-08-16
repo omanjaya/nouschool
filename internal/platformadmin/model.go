@@ -169,3 +169,66 @@ type SchoolOverviewRow struct {
 	SubStatus    *string
 	SubEndsOn    *time.Time
 }
+
+// -- P2.2 (fase 13 Gelombang 2): GET /api/admin/schools/{id}/onboarding --
+
+// OnboardingRow adalah baris mentah dari SchoolOnboardingStatus (booleans
+// murni, TANPA field Ready — diderivasi Service.Onboarding).
+type OnboardingRow struct {
+	HasActiveYear         bool
+	HasAdmin              bool
+	HasSubscriptionActive bool
+	HasStudents           bool
+	HasSchedule           bool
+}
+
+// OnboardingStatus adalah shape response GET /api/admin/schools/{id}/onboarding.
+type OnboardingStatus struct {
+	HasActiveYear         bool `json:"has_active_year"`
+	HasAdmin              bool `json:"has_admin"`
+	HasSubscriptionActive bool `json:"has_subscription_active"`
+	HasStudents           bool `json:"has_students"`
+	HasSchedule           bool `json:"has_schedule"`
+	Ready                 bool `json:"ready"`
+}
+
+// -- P5 (fase 13 Gelombang 2): platform_announcements,
+// docs/11-superadmin.md "Pengumuman platform" --
+
+// PlatformAnnouncementRecord adalah representasi mentah satu baris
+// platform_announcements (dipetakan repository.go dari sqlc).
+type PlatformAnnouncementRecord struct {
+	ID        int64
+	Title     string
+	Body      string
+	StartsAt  time.Time
+	EndsAt    time.Time
+	CreatedBy int64
+	CreatedAt time.Time
+}
+
+// PlatformAnnouncementView adalah shape response CRUD
+// /api/admin/platform-announcements[/{id}].
+type PlatformAnnouncementView struct {
+	ID        int64     `json:"id"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	StartsAt  string    `json:"starts_at"`
+	EndsAt    string    `json:"ends_at"`
+	CreatedBy int64     `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PlatformAnnouncementItem — bentuk ringkas (primitif) dipakai konsumen
+// lintas modul (internal/announcement, via adapter cmd/server) untuk
+// menyisipkan pengumuman platform ke GET /api/announcements?active=1 dan
+// GET /api/tv/board (docs/11-superadmin.md P5 "tampil sebagai announcement
+// berlabel NouSchool di beranda/TV sekolah").
+type PlatformAnnouncementItem struct {
+	ID        int64
+	Title     string
+	Body      string
+	StartsAt  string // YYYY-MM-DD
+	EndsAt    string // YYYY-MM-DD
+	CreatedAt time.Time
+}

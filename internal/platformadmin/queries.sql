@@ -132,3 +132,45 @@ WHERE id = sqlc.arg(id)::bigint;
 UPDATE notification_outbox SET status = 'pending', next_retry_at = sqlc.arg(now)::timestamptz
 WHERE status = sqlc.arg(status)::text
   AND (sqlc.arg(school_id)::bigint = 0 OR school_id = sqlc.arg(school_id)::bigint);
+
+-- -- P2.2 (fase 13 Gelombang 2): GET /api/admin/schools/{id}/onboarding --
+
+-- name: SchoolExistsByID :one
+SELECT EXISTS(SELECT 1 FROM schools WHERE id = sqlc.arg(school_id)::bigint);
+
+-- name: SchoolOnboardingStatus :one
+-- Satu baris agregasi lintas modul (tenant/identity/billing/student/schedule)
+-- — DIPERBOLEHKAN eksplisit utk modul agregator (lihat catatan desain
+-- package doc), sama pola dengan ListSchoolsOverview di atas.
+SELECT
+    EXISTS(SELECT 1 FROM academic_years WHERE school_id = sqlc.arg(school_id)::bigint AND is_active) AS has_active_year,
+    EXISTS(SELECT 1 FROM memberships WHERE school_id = sqlc.arg(school_id)::bigint AND role = 'admin_sekolah' AND status = 'active') AS has_admin,
+    EXISTS(SELECT 1 FROM subscriptions WHERE school_id = sqlc.arg(school_id)::bigint AND status = 'active') AS has_subscription_active,
+    EXISTS(SELECT 1 FROM students WHERE school_id = sqlc.arg(school_id)::bigint AND status = 'active') AS has_students,
+    EXISTS(SELECT 1 FROM schedule_slots WHERE school_id = sqlc.arg(school_id)::bigint) AS has_schedule;
+
+-- -- P5 (fase 13 Gelombang 2): platform_announcements, docs/11-superadmin.md
+-- "Pengumuman platform" — TIDAK tenant-scoped (satu baris = tampil di SEMUA
+-- sekolah), jadi TIDAK ada filter school_id (beda dari announcements
+-- per-sekolah di internal/announcement).
+
+-- name: InsertPlatformAnnouncement :one
+INSERT INTO platform_announcements (title, body, starts_at, ends_at, created_by)
+VALUES (sqlc.arg(title)::text, sqlc.arg(body)::text, sqlc.arg(starts_at)::date, sqlc.arg(ends_at)::date, sqlc.arg(created_by)::bigint)
+RETURNING *;
+
+-- name: ListPlatformAnnouncements :many
+SELECT * FROM platform_announcements ORDER BY starts_at DESC, id DESC;
+
+-- name: ListActivePlatformAnnouncements :many
+SELECT * FROM platform_announcements WHERE starts_at <= sqlc.arg(on_date)::date AND ends_at >= sqlc.arg(on_date)::date
+ORDER BY starts_at DESC, id DESC;
+
+-- name: UpdatePlatformAnnouncement :one
+UPDATE platform_announcements
+SET title = sqlc.arg(title)::text, body = sqlc.arg(body)::text, starts_at = sqlc.arg(starts_at)::date, ends_at = sqlc.arg(ends_at)::date
+WHERE id = sqlc.arg(id)::bigint
+RETURNING *;
+
+-- name: DeletePlatformAnnouncement :execrows
+DELETE FROM platform_announcements WHERE id = sqlc.arg(id)::bigint;

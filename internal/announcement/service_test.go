@@ -387,3 +387,84 @@ func TestActiveOn(t *testing.T) {
 		t.Fatal("expected error format tanggal salah")
 	}
 }
+
+// -- Integrasi pengumuman platform (fase 13 Gelombang 2, docs/11-superadmin.md P5) --
+
+type fakePlatformAnnouncements struct {
+	items []PlatformAnnouncementItem
+	err   error
+}
+
+func (f *fakePlatformAnnouncements) ActiveOn(ctx context.Context, dateStr string) ([]PlatformAnnouncementItem, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.items, nil
+}
+
+func TestList_ActiveIncludesPlatformFirst(t *testing.T) {
+	repo := newFakeAnnouncementRepo()
+	repo.rows[1] = Record{
+		ID: 1, SchoolID: 1, Title: "Sekolah", Body: "Punya sekolah",
+		StartsAt: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+		EndsAt:   time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC),
+	}
+	repo.nextID = 1
+	fixed := clock.Fixed{T: time.Date(2026, 8, 15, 3, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fixed)
+	svc.SetPlatformGateway(&fakePlatformAnnouncements{items: []PlatformAnnouncementItem{
+		{ID: 100, Title: "Platform", Body: "Punya platform", StartsAt: "2026-08-01", EndsAt: "2026-08-31", CreatedAt: fixed.T},
+	}})
+	ctx := ctxAs("display", 1, "Asia/Jakarta")
+
+	items, err := svc.List(ctx, 1, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 item (platform+sekolah), got %d", len(items))
+	}
+	if !items[0].IsPlatform || items[0].ID != 100 {
+		t.Fatalf("item pertama seharusnya pengumuman platform, got %+v", items[0])
+	}
+	if items[1].IsPlatform || items[1].ID != 1 {
+		t.Fatalf("item kedua seharusnya pengumuman sekolah, got %+v", items[1])
+	}
+}
+
+func TestList_ActiveWithoutPlatformGateway(t *testing.T) {
+	repo := newFakeAnnouncementRepo()
+	fixed := clock.Fixed{T: time.Date(2026, 8, 15, 3, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fixed)
+	ctx := ctxAs("display", 1, "Asia/Jakarta")
+
+	items, err := svc.List(ctx, 1, true)
+	if err != nil {
+		t.Fatalf("unexpected error (platform gateway nil harus dilewati): %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected 0 item, got %d", len(items))
+	}
+}
+
+func TestActiveOn_IncludesPlatformFirst(t *testing.T) {
+	repo := newFakeAnnouncementRepo()
+	repo.rows[1] = Record{
+		ID: 1, SchoolID: 1, Title: "Sekolah", Body: "Punya sekolah",
+		StartsAt: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+		EndsAt:   time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC),
+	}
+	repo.nextID = 1
+	svc := newServiceForTest(repo, newFakeIdentity(), clock.System{})
+	svc.SetPlatformGateway(&fakePlatformAnnouncements{items: []PlatformAnnouncementItem{
+		{ID: 100, Title: "Platform", Body: "Punya platform", StartsAt: "2026-08-01", EndsAt: "2026-08-31"},
+	}})
+
+	items, err := svc.ActiveOn(context.Background(), 1, "2026-08-15")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 2 || !items[0].IsPlatform || items[1].IsPlatform {
+		t.Fatalf("expected [platform, sekolah], got %+v", items)
+	}
+}

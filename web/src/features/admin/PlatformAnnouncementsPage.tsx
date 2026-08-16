@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { Megaphone, Plus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ChevronLeft, Megaphone, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -12,28 +12,35 @@ import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
 import { formatDateRange, todayISODate } from '../../lib/date';
 import { useMe } from '../auth/api';
-import { useAnnouncements, useDeleteAnnouncement } from './api';
-import { AnnouncementFormDialog } from './AnnouncementFormDialog';
-import type { Announcement } from '../../lib/types';
+import { useDeletePlatformAnnouncement, usePlatformAnnouncements } from './api';
+import { PlatformAnnouncementFormDialog } from './PlatformAnnouncementFormDialog';
+import type { PlatformAnnouncement } from '../../lib/types';
 
-function isActiveToday(a: Announcement): boolean {
+function isActiveToday(a: PlatformAnnouncement): boolean {
   const today = todayISODate();
   return a.starts_at <= today && today <= a.ends_at;
 }
 
-/** /pengumuman — CRUD pengumuman ditampilkan di TV & dashboard (admin & kepsek, docs/06 #3). */
-export function AnnouncementsPage() {
+/**
+ * `/admin/pengumuman` — CRUD pengumuman platform (Fase 13 Gelombang 2 P5, docs/11 P5). Pola
+ * identik `AnnouncementsPage` sekolah; tampil di sisi sekolah berlabel "NouSchool", tidak bisa
+ * diubah/dihapus dari sana (lihat `features/announcements/AnnouncementsPage.tsx`).
+ */
+export function PlatformAnnouncementsPage() {
   const { data: me } = useMe();
-  const canManage = me?.role === 'admin_sekolah' || me?.role === 'kepala_sekolah';
-  const { data: announcements, isLoading, isError, refetch } = useAnnouncements(false, canManage);
+  const { data: announcements, isLoading, isError, refetch } = usePlatformAnnouncements();
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Announcement | undefined>();
-  const [deleting, setDeleting] = useState<Announcement | undefined>();
-  const deleteAnnouncement = useDeleteAnnouncement();
+  const [editing, setEditing] = useState<PlatformAnnouncement | undefined>();
+  const [deleting, setDeleting] = useState<PlatformAnnouncement | undefined>();
+  const deleteAnnouncement = useDeletePlatformAnnouncement();
   const { showToast } = useToast();
 
-  if (me && !canManage) {
-    return <Navigate to="/" replace />;
+  if (me && !me.is_super_admin) {
+    return (
+      <div className="mx-auto max-w-[640px] px-5 py-6">
+        <EmptyState icon={ShieldAlert} message="Anda tidak memiliki akses ke halaman ini." />
+      </div>
+    );
   }
 
   function openCreate() {
@@ -41,7 +48,7 @@ export function AnnouncementsPage() {
     setFormOpen(true);
   }
 
-  function openEdit(a: Announcement) {
+  function openEdit(a: PlatformAnnouncement) {
     setEditing(a);
     setFormOpen(true);
   }
@@ -60,9 +67,16 @@ export function AnnouncementsPage() {
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Mengajar</p>
-          <h1 className="text-[21px] font-semibold text-ink">Pengumuman</h1>
-          <p className="mt-1 text-[13px] text-muted">Tampil di dashboard TV & beranda selama rentang tanggal aktif.</p>
+          <Link
+            to="/admin"
+            className="mb-3 inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+          >
+            <ChevronLeft size={16} strokeWidth={2} aria-hidden="true" />
+            Beranda
+          </Link>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Platform</p>
+          <h1 className="text-[21px] font-semibold text-ink">Pengumuman Platform</h1>
+          <p className="mt-1 text-[13px] text-muted">Tampil sebagai pengumuman berlabel "NouSchool" di semua sekolah.</p>
         </div>
         <Button onClick={openCreate}>
           <Plus size={16} strokeWidth={2} aria-hidden="true" />
@@ -77,11 +91,11 @@ export function AnnouncementsPage() {
           <Skeleton className="h-14 w-full" />
         </div>
       ) : isError ? (
-        <ErrorState message="Gagal memuat pengumuman." onRetry={() => refetch()} />
+        <ErrorState message="Gagal memuat pengumuman platform." onRetry={() => refetch()} />
       ) : !announcements || announcements.length === 0 ? (
         <EmptyState
           icon={Megaphone}
-          message="Belum ada pengumuman."
+          message="Belum ada pengumuman platform."
           action={
             <Button variant="secondary" onClick={openCreate}>
               Tambah Pengumuman
@@ -96,24 +110,21 @@ export function AnnouncementsPage() {
               className="min-h-[56px]"
               title={a.title}
               subtitle={formatDateRange(a.starts_at, a.ends_at)}
-              onClick={a.is_platform ? undefined : () => openEdit(a)}
+              onClick={() => openEdit(a)}
               trailing={
                 <div className="flex items-center gap-2">
-                  {a.is_platform && <Tag variant="info">NouSchool</Tag>}
                   {isActiveToday(a) && <Tag variant="now">Aktif</Tag>}
-                  {!a.is_platform && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleting(a);
-                      }}
-                      aria-label={`Hapus ${a.title}`}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-danger"
-                    >
-                      <Trash2 size={16} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleting(a);
+                    }}
+                    aria-label={`Hapus ${a.title}`}
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-danger"
+                  >
+                    <Trash2 size={16} strokeWidth={2} aria-hidden="true" />
+                  </button>
                 </div>
               }
             />
@@ -121,7 +132,7 @@ export function AnnouncementsPage() {
         </div>
       )}
 
-      <AnnouncementFormDialog
+      <PlatformAnnouncementFormDialog
         open={formOpen}
         onClose={() => setFormOpen(false)}
         announcement={editing}
@@ -130,7 +141,7 @@ export function AnnouncementsPage() {
 
       <Dialog open={deleting !== undefined} onClose={() => setDeleting(undefined)} title="Hapus pengumuman?">
         <p className="text-[14px] text-ink">
-          Pengumuman &quot;{deleting?.title}&quot; akan dihapus dan tidak lagi tampil di TV maupun beranda.
+          Pengumuman &quot;{deleting?.title}&quot; akan dihapus dan tidak lagi tampil di semua sekolah.
         </p>
         {deleteAnnouncement.isError && (
           <p className="mt-3 text-[12px] text-danger">

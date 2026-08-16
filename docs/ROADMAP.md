@@ -718,14 +718,14 @@ live sebagai bonus di atas cakupan minimum.
   Fase 12 backend di atas connect LANGSUNG ke `localhost:8210`, bukan lewat
   Vite, sesuai batasan tugas "jangan sentuh web/")
 
-## Fase 13 — Super Admin 🚧 (rencana lengkap: docs/11-superadmin.md)
-- 🚧 Impersonation "Masuk sebagai Sekolah Ini" — ✅ backend (token sekali-pakai 2 mnt, `POST /api/admin/schools/{id}/impersonate` + `POST /api/auth/impersonate`, session support TTL 2 jam tanpa sliding renewal, audit `admin.impersonate_issued`/`_started`, `RequireSuperAdmin` sudah menolak konteks tenant); ⬜ banner "Mode support" di UI sekolah (frontend, belum dikerjakan)
-- ✅ P1 Dashboard platform /admin (overview + daftar perlu perhatian) — backend
-- ⬜ P2 Onboarding wizard sekolah baru (+ buat akun admin sekolah)
-- ✅ P3 Statistik kesehatan per sekolah — backend
-- ✅ P4 Reset password user, audit log viewer, outbox global — backend
-- ⬜ P5 Pengumuman platform
-- ⬜ P6 Feature override per sekolah, laporan pendapatan
+## Fase 13 — Super Admin ✅ (rencana lengkap: docs/11-superadmin.md; backend + frontend tuntas)
+- ✅ Impersonation "Masuk sebagai Sekolah Ini" — backend + frontend (tombol detail sekolah, /impersonate, banner Mode Support)
+- ✅ P1 Dashboard platform /admin (overview + daftar perlu perhatian) — backend + frontend
+- ✅ P2 Onboarding wizard sekolah baru (+ buat akun admin sekolah) — backend + frontend
+- ✅ P3 Statistik kesehatan per sekolah — backend + frontend
+- ✅ P4 Reset password user, audit log viewer, outbox global — backend + frontend
+- ✅ P5 Pengumuman platform — backend + frontend
+- ✅ P6 Feature override per sekolah, laporan pendapatan — backend + frontend
 
 **Fase 13 Gelombang 1 (P1+P3+P4 backend) ✅** — terverifikasi end-to-end di
 Docker dev (`localhost:8210`, host platform): login super admin
@@ -812,6 +812,143 @@ platform-wide, BUKAN bug). `go build/vet/test ./...` hijau.
   ditemukan; `generateTempPassword`: panjang 10 & charset tanpa 0/o/1/l lewat
   50 sampel; `listAuditLogPage`: pagination lintas halaman, filter prefix
   action, default & clamp page/per_page)
+
+**Fase 13 Gelombang 2 (P2+P5+P6 backend) ✅** — terverifikasi end-to-end di
+Docker dev (`localhost:8210`): login super admin (host `admin.localhost`) →
+`POST /api/admin/schools/2/admins {"name","email"}` ke ujibilling → dapat
+`user_id:15`+`temp_password` → ulangi dengan email SAMA → 409 `conflict` →
+login admin baru itu di host `ujibilling.localhost` → 200 (role
+`admin_sekolah`) → `GET /api/admin/schools/2/onboarding` →
+`has_admin:true, has_active_year:false, has_students:false,
+has_schedule:false, has_subscription_active:true, ready:false` →
+`POST /api/admin/platform-announcements` (aktif hari ini) → login admin demo
+(host `demo.localhost`, `admin`/`admin12345`) → `GET
+/api/announcements?active=1` → pengumuman platform muncul PERTAMA
+`is_platform:true`, pengumuman sekolah `is_platform:false` → `GET
+/api/tv/board` → `announcements` sama urutannya → `PATCH
+/api/admin/platform-announcements/1` (judul+rentang berubah) → tercermin di
+`GET /api/announcements?active=1` → `DELETE
+/api/admin/platform-announcements/1` → hilang dari kedua endpoint →
+`PUT /api/admin/schools/1/feature-overrides {"tv_dashboard":false}` → `GET
+/api/me` admin demo → `features` TANPA `tv_dashboard` (cache langsung
+ter-invalidate, TIDAK perlu tunggu TTL 60 dtk) → login kepsek demo
+(`kepsek`/`kepsek12345`) → `GET /api/tv/board` → 402 `feature_unavailable`
+(bukan 403 — mengikuti kode status EXISTING `billing.ErrFeatureUnavailable`,
+lihat guard.go) → `PUT .../feature-overrides {"tv_dashboard":null}` (hapus
+override) → `GET /api/tv/board` sebagai kepsek → 200 lagi → key tak dikenal
+(`fitur_ngasal`) → 422 `validation` → `GET /api/admin/revenue?year=2026` →
+`total:10000000` (3 invoice paid existing: 1 basic 2jt + 2 pro 8jt, SEMUA di
+Agustus) sesuai invoice paid seed data → `GET
+/api/admin/revenue/export?year=2026` → `Content-Type:
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, file
+terbaca `file(1)` sebagai "Microsoft Excel 2007+" valid. Dicek psql langsung:
+audit `admin.create_school_admin` (school_id=2, entity_id=15),
+`admin.platform_announcement_create/update/delete` (school_id NULL —
+platform-wide, BUKAN bug, entity_id=id pengumuman), `admin.feature_overrides`
+(school_id=1 x2 — set lalu hapus) SEMUA tercatat; `subscriptions.
+feature_overrides` sekolah 1&2 kembali `{}` bersih setelah test. `go
+build/vet/test ./...` hijau.
+- **Migrasi**: `migrations/00013_platform.sql` — tabel `platform_announcements`
+  (id/title/body/starts_at/ends_at/created_by/created_at, index
+  `(starts_at,ends_at)`) + `subscriptions.feature_overrides jsonb NOT NULL
+  DEFAULT '{}'` — SATU migrasi untuk P5+P6 sesuai instruksi tugas (gelombang
+  yang sama).
+- **Keputusan pembagian modul** (dilaporkan sesuai instruksi tugas):
+  1. **P2.1** (`POST /api/admin/schools/{id}/admins`) → `internal/identity`
+     (perluasan `admin.go`, pola SAMA P4.1/4.2/4.3 Gelombang 1) — hanya
+     menyentuh tabel identity sendiri (users/memberships). **P2.2** (`GET
+     .../onboarding`) → `internal/platformadmin` — checklist butuh JOIN
+     lintas modul (tenant academic_years, identity memberships, billing
+     subscriptions, student students, schedule schedule_slots), satu query
+     agregasi `SchoolOnboardingStatus` (5 `EXISTS` subquery, pola sama
+     `ListSchoolsOverview` Gelombang 1).
+  2. **P5** (CRUD pengumuman platform + integrasi tenant) → SELURUHNYA di
+     `internal/platformadmin` (CRUD, tabel `platform_announcements` bukan
+     milik modul lain) DENGAN **consumer-side interface baru**
+     `announcement.PlatformAnnouncements` (method `ActiveOn`) dideklarasikan
+     di `internal/announcement` (sisi pemakai) — DIPENUHI
+     `*platformadmin.Service` lewat adapter `cmd/server/
+     platformadminadapter.go` (pola SAMA `dashboardadapter.go`: producer
+     mengembalikan struct bernama beda, butuh adapter tipis). `announcement.
+     Service.List/ActiveOn` DIGABUNG dengan hasil gateway ini (platform DULU,
+     sekolah KEMUDIAN) — SATU tempat merge dipakai kedua endpoint
+     (`/api/announcements?active=1` DAN `/api/tv/board` via
+     `dashboard.AnnouncementGateway`, tidak ada duplikasi logika gabung).
+  3. **Realtime lintas sekolah** (P5): `Hub.PublishAll(ev)` (baru,
+     `internal/realtime/hub.go`) — iterasi SEMUA `school_id` yang PUNYA
+     koneksi terdaftar saat ini (bukan query daftar sekolah dari DB) lalu
+     panggil `Publish` per sekolah; dipilih KARENA Hub sudah mengelompokkan
+     koneksi per sekolah secara alami DAN sekolah tanpa koneksi aktif tidak
+     butuh notifikasi real-time (dapat data terbaru saat refetch normal).
+     Consumer-side interface baru `platformadmin.PlatformRealtime`
+     (`PublishAll(eventType, data)`) dipenuhi adapter `realtimeForModules`
+     (`cmd/server/realtimeadapter.go`) lewat method baru dengan nama sama.
+  4. **P6 SELURUHNYA di `internal/billing`** (BUKAN platformadmin) — feature
+     override menyentuh `subscriptions.feature_overrides` (kolom milik
+     billing), revenue report menyentuh `invoices` (tabel milik billing,
+     JOIN `schools` untuk nama — preseden SUDAH ada di
+     `ListSubscriptionsForAdmin` billing sendiri, Fase 10). Resolusi fitur
+     efektif (`mergeFeatures`) ditaruh di SATU tempat (`snapshotFor`, dipakai
+     `HasFeature`/`RequireFeature`/`SubscriptionForMe`/`/api/me`/notification
+     whatsapp gate) — TIDAK diduplikasi di tempat lain.
+- ✅ `internal/identity/admin.go`: `AdminCreateSchoolAdmin` — implementasi
+  murni testable `createSchoolAdmin` (nama wajib, minimal satu identifier,
+  409 `conflict` bila email/username sudah dipakai — pengecekan pre-insert
+  via `UserByEmail`/`UserByUsername`, SAMA pola dengan
+  `student.createTeacherAccount`; 404 bila sekolah tidak ada via
+  `SchoolGateway.SchoolStatusAndSlug` yang SUDAH ada dari fitur
+  impersonation; password sementara 10 char pola P4.2; audit
+  `admin.create_school_admin`). `httpx.Conflict(message)` (baru,
+  `platform/httpx`) — helper 409 generik dipakai di sini.
+- ✅ `internal/platformadmin/`: `Onboarding` (P2.2, 5 checklist +
+  `ready = AND semua`), CRUD `PlatformAnnouncement*` (P5: Create/Update/Delete
+  validasi title/body/rentang tanggal SAMA `internal/announcement`, audit
+  `admin.platform_announcement_create/update/delete` — `school_id` SELALU
+  NULL karena platform-wide, method `logPlatformAudit` terpisah dari
+  `logAudit` existing karena butuh `entity_id`), `ActivePlatformAnnouncements`
+  (tanpa gerbang permission, dipakai lintas modul), `SetRealtime`
+  (`PlatformRealtime`, emit `announcement` broadcast SEMUA sekolah setelah
+  create/update/delete sukses).
+- ✅ `internal/announcement/`: `AnnouncementView`/`BoardItem` +field
+  `is_platform` (bool, default false utk pengumuman sekolah); `List`
+  (activeOnly) & `ActiveOn` DIGABUNG dengan `platformViews`/
+  `platformBoardItems` (platform dulu, lalu sekolah) lewat
+  `SetPlatformGateway` opsional (nil = pengumuman platform dilewati, tidak
+  error) — `List` (activeOnly=false, daftar kelola sekolah) SENGAJA TIDAK
+  ikut pengumuman platform (dikelola terpisah lewat panel super admin).
+- ✅ `internal/dashboard/`: `AnnouncementItem` +field `is_platform`
+  (passthrough dari `announcement.BoardItem.IsPlatform` lewat
+  `dashboardadapter.go` — TV board otomatis dapat pengumuman platform karena
+  sumbernya SATU, `announcement.Service.ActiveOn`, tidak ada perubahan logika
+  di modul dashboard sendiri).
+- ✅ `internal/realtime/hub.go`: `Hub.PublishAll(ev)` (baru) + adapter
+  `realtimeForModules.PublishAll` (`cmd/server/realtimeadapter.go`).
+- ✅ `internal/billing/`: `SubscriptionRecord.FeatureOverrides` (map, dari
+  kolom baru); `mergeFeatures(plan, overrides)` dipakai `snapshotFor` (SEMUA
+  gerbang fitur otomatis ikut merge, TANPA sentuh call site lain) &
+  `subscriptionView`; `KnownFeatureKeys` (validasi P6.1); `SetFeatureOverrides`
+  (merge true/false/set, nil/null=hapus key, 404 tanpa subscription, 422 key
+  tak dikenal, invalidate cache SEBELUM return, audit
+  `admin.feature_overrides`, return features efektif); `SubscriptionView`
+  +field `feature_overrides`+`features_effective` (TAMBAHAN saja, `features`
+  lama TIDAK berubah — frontend existing aman); `buildRevenueReport` (murni,
+  agregasi per bulan SELALU 12 baris + per plan terurut plan_code) +
+  `GetRevenueReport`/`ExportRevenueXLSX` (`revenue_export.go`, pola sama
+  `attendance/export.go`: fungsi render murni + 2 sheet "Ringkasan"+"Invoice").
+- ✅ Test (fake repo, tanpa DB): `internal/identity/admin_test.go`
+  (`createSchoolAdmin`: sukses+audit+membership admin_sekolah, nama wajib,
+  identifier wajib, 409 email/username bentrok, 404 sekolah tidak ada),
+  `internal/platformadmin/service_test.go` (`Onboarding`: 404 sekolah tidak
+  ada, ready hanya bila SEMUA true; platform announcement aktif by tanggal,
+  CRUD+audit+`PublishAll` dipanggil tepat sekali per operasi sukses SAJA),
+  `internal/announcement/service_test.go` (List/ActiveOn menggabung platform
+  DULU lalu sekolah; platform gateway nil dilewati tanpa error),
+  `internal/realtime/hub_test.go` (`PublishAll` menjangkau SEMUA sekolah
+  dengan koneksi aktif; no-op aman tanpa koneksi), `internal/billing/
+  service_test.go` (`SetFeatureOverrides`: merge true/false/null,
+  422 key tak dikenal, 404 tanpa subscription, invalidate cache diverifikasi
+  lewat `HasFeature` sebelum/sesudah; `buildRevenueReport`: agregasi per
+  bulan/plan + kasus kosong; `GetRevenueReport` default tahun berjalan).
 
 ## Fase 14 — Paritas SION per-sekolah ⬜ (acuan user: docs/12-sion-parity.md; MULAI SETELAH Fase 13 P2-P6 selesai)
 - ⬜ Gelombang A: Kedisiplinan (master pelanggaran+poin, catat pelanggaran, ambang SP1/2/3 per TA, surat peringatan snapshot+nomor unik+PDF, rekap/export, view siswa/ortu)

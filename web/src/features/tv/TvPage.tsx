@@ -107,6 +107,9 @@ function TvAnnouncementPanel({ announcements }: { announcements: TvAnnouncement[
 
   return (
     <div className={`transition-opacity duration-300 motion-reduce:transition-none ${visible ? 'opacity-100' : 'opacity-0'}`}>
+      {current.is_platform && (
+        <p className="mb-1 text-[14px] font-semibold uppercase tracking-[0.1em] text-primary">NouSchool</p>
+      )}
       <p className="text-[24px] font-semibold text-ink">{current.title}</p>
       <p className="mt-2 text-[20px] leading-snug text-muted">{current.body}</p>
     </div>

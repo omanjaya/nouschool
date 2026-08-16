@@ -128,3 +128,22 @@ SELECT * FROM payments WHERE invoice_id = $1 ORDER BY created_at DESC LIMIT 1;
 
 -- name: CountActiveStudentsForSchool :one
 SELECT COUNT(*) FROM students WHERE school_id = $1 AND status = 'active';
+
+-- -- P6 (fase 13 Gelombang 2, docs/11-superadmin.md): feature override +
+-- laporan pendapatan --
+
+-- name: UpdateFeatureOverrides :one
+-- Ganti feature_overrides SAJA (kolom lain subscriptions TIDAK disentuh) —
+-- 404 (no rows) bila sekolah belum punya subscription.
+UPDATE subscriptions SET feature_overrides = sqlc.arg(feature_overrides)::jsonb
+WHERE school_id = sqlc.arg(school_id)::bigint
+RETURNING *;
+
+-- name: ListPaidInvoicesInRange :many
+-- Lintas-sekolah (panel super admin, P6.3/P6.4 laporan pendapatan) — pola
+-- JOIN schools sama dengan ListSubscriptionsForAdmin di atas.
+SELECT i.number, s.name AS school_name, i.plan_code, i.amount, i.paid_at
+FROM invoices i
+JOIN schools s ON s.id = i.school_id
+WHERE i.status = 'paid' AND i.paid_at >= sqlc.arg(from_at)::timestamptz AND i.paid_at < sqlc.arg(to_at)::timestamptz
+ORDER BY i.paid_at;

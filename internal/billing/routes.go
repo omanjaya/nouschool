@@ -46,4 +46,10 @@ func RegisterRoutes(
 	mux.Handle("POST /api/admin/invoices/{id}/void", admin(h.AdminVoidInvoice))
 	mux.Handle("GET /api/admin/invoices/{id}/pdf", admin(h.InvoicePDF))
 	mux.Handle("GET /api/admin/invoices/{id}/proof", admin(h.Proof))
+
+	// Fase 13 Gelombang 2 (docs/11-superadmin.md P6: feature override +
+	// laporan pendapatan).
+	mux.Handle("PUT /api/admin/schools/{id}/feature-overrides", admin(h.AdminSetFeatureOverrides))
+	mux.Handle("GET /api/admin/revenue", admin(h.AdminRevenue))
+	mux.Handle("GET /api/admin/revenue/export", admin(h.AdminRevenueExport))
 }

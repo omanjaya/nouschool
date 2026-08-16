@@ -29,6 +29,12 @@ func Validation(message string) *Error {
 	return &Error{Status: http.StatusUnprocessableEntity, Code: "validation", Message: message}
 }
 
+// Conflict membuat error 409 (mis. identifier/slug yang sudah dipakai) dengan
+// pesan yang aman ditampilkan ke pengguna.
+func Conflict(message string) *Error {
+	return &Error{Status: http.StatusConflict, Code: "conflict", Message: message}
+}
+
 type envelope struct {
 	Error *Error `json:"error,omitempty"`
 	Data  any    `json:"data,omitempty"`

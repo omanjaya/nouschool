@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
@@ -20,6 +21,111 @@ import (
 // (billing/student/attendance/teaching/notification) sehingga layak jadi
 // modul agregator tersendiri (lihat catatan desain lengkap di
 // internal/platformadmin/service.go).
+
+// -- P2.1: POST /api/admin/schools/{id}/admins (fase 13 Gelombang 2,
+// docs/11-superadmin.md P2 "Onboarding wizard sekolah baru") --
+//
+// Ditempatkan DI SINI (perluasan identity), bukan modul agregator
+// platformadmin, dengan alasan yang SAMA dengan P4.1/4.2/4.3 di atas: hanya
+// menyentuh tabel milik modul identity sendiri (users/memberships).
+// GET .../onboarding (checklist status, butuh JOIN lintas modul lain)
+// SEBALIKNYA ditempatkan di internal/platformadmin (lihat catatan desain di
+// sana) — konsisten dengan pembagian P4 vs P1/P3/P4.4 Gelombang 1.
+
+var errSchoolAdminNameRequired = httpx.Validation("Nama admin wajib diisi.")
+var errSchoolAdminIdentifierRequired = httpx.Validation("Isi minimal salah satu: email atau username.")
+
+func conflictIdentifier(field string) *httpx.Error {
+	return httpx.Conflict(field + " sudah dipakai akun lain.")
+}
+
+// createSchoolAdminRepo adalah kontrak minimal yang dibutuhkan
+// createSchoolAdmin — dipenuhi *Repository secara struktural, dideklarasikan
+// sebagai interface supaya bisa dites dengan fake in-memory (lihat
+// admin_test.go), tanpa DB.
+type createSchoolAdminRepo interface {
+	UserByEmail(ctx context.Context, email string) (User, error)
+	UserByUsername(ctx context.Context, username string) (User, error)
+	CreateUser(ctx context.Context, in CreateUserInput) (User, error)
+	CreateMembership(ctx context.Context, userID, schoolID int64, role string) (Membership, error)
+}
+
+// createSchoolAdmin implementasi murni (testable) dari
+// Service.AdminCreateSchoolAdmin:
+//  1. validasi nama wajib, minimal salah satu identifier (email/username)
+//  2. sekolah target harus ada (schools SchoolGateway, opsional — nil = lewati
+//     cek ini, dipakai test yang tidak peduli validasi ini)
+//  3. tolak 409 bila email/username SUDAH dipakai user lain
+//  4. generate password sementara (pola sama generateTempPassword P4.2) →
+//     hash → buat user → buat membership admin_sekolah
+//  5. audit admin.create_school_admin (school_id target, entity user)
+func createSchoolAdmin(
+	ctx context.Context, repo createSchoolAdminRepo, schools SchoolGateway, audit adminResetAuditLogger,
+	genPassword func() (string, error), hashPassword func(string) (string, error),
+	actorUserID, schoolID int64, name, email, username string,
+) (int64, string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, "", errSchoolAdminNameRequired
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	username = strings.TrimSpace(username)
+	if email == "" && username == "" {
+		return 0, "", errSchoolAdminIdentifierRequired
+	}
+
+	if schools != nil {
+		if _, _, found, err := schools.SchoolStatusAndSlug(ctx, schoolID); err != nil {
+			return 0, "", err
+		} else if !found {
+			return 0, "", httpx.ErrNotFound
+		}
+	}
+
+	if email != "" {
+		if _, err := repo.UserByEmail(ctx, email); err == nil {
+			return 0, "", conflictIdentifier("Email")
+		} else if !errors.Is(err, ErrNotFound) {
+			return 0, "", err
+		}
+	}
+	if username != "" {
+		if _, err := repo.UserByUsername(ctx, username); err == nil {
+			return 0, "", conflictIdentifier("Username")
+		} else if !errors.Is(err, ErrNotFound) {
+			return 0, "", err
+		}
+	}
+
+	tempPassword, err := genPassword()
+	if err != nil {
+		return 0, "", err
+	}
+	hash, err := hashPassword(tempPassword)
+	if err != nil {
+		return 0, "", err
+	}
+
+	user, err := repo.CreateUser(ctx, CreateUserInput{Email: email, Username: username, PasswordHash: hash, Name: name})
+	if err != nil {
+		return 0, "", err
+	}
+	if _, err := repo.CreateMembership(ctx, user.ID, schoolID, RoleAdminSekolah); err != nil {
+		return 0, "", err
+	}
+
+	if audit != nil {
+		sid, uid, eid := schoolID, actorUserID, user.ID
+		_ = audit.Log(ctx, &sid, &uid, "admin.create_school_admin", "user", &eid, nil,
+			map[string]any{"name": name, "email": email, "username": username})
+	}
+	return user.ID, tempPassword, nil
+}
+
+// AdminCreateSchoolAdmin — POST /api/admin/schools/{id}/admins.
+func (s *Service) AdminCreateSchoolAdmin(ctx context.Context, actorUserID, schoolID int64, name, email, username string) (int64, string, error) {
+	return createSchoolAdmin(ctx, s.repo, s.schools, s, generateTempPassword, HashPassword, actorUserID, schoolID, name, email, username)
+}
 
 // -- P4.1: GET /api/admin/schools/{id}/members --
 

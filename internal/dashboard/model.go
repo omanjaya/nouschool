@@ -76,11 +76,16 @@ type AttendanceRow struct {
 	SessionStatus string `json:"session_status"`
 }
 
-// AnnouncementItem — bentuk ringkas pengumuman aktif (docs/06: cukup id/title/body).
+// AnnouncementItem — bentuk ringkas pengumuman aktif (docs/06: cukup
+// id/title/body). IsPlatform (fase 13 Gelombang 2, docs/11-superadmin.md P5)
+// — true untuk pengumuman platform ("NouSchool", tampil di semua sekolah,
+// platform dulu lalu sekolah di Board.Announcements), false untuk pengumuman
+// sekolah sendiri.
 type AnnouncementItem struct {
-	ID    int64  `json:"id"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	ID         int64  `json:"id"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	IsPlatform bool   `json:"is_platform"`
 }
 
 // Board adalah shape response GET /api/tv/board — payload gabungan SATU

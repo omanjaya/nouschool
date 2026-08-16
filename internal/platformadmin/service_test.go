@@ -23,10 +23,74 @@ type fakeRepo struct {
 
 	outboxByID map[int64]string // id -> status (dipakai RetryOutbox test)
 	retried    map[int64]bool
+
+	schoolExists      map[int64]bool
+	onboarding        map[int64]OnboardingRow
+	platformAnns      map[int64]PlatformAnnouncementRecord
+	nextPlatformAnnID int64
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{outboxByID: map[int64]string{}, retried: map[int64]bool{}}
+	return &fakeRepo{
+		outboxByID: map[int64]string{}, retried: map[int64]bool{},
+		schoolExists: map[int64]bool{}, onboarding: map[int64]OnboardingRow{},
+		platformAnns: map[int64]PlatformAnnouncementRecord{},
+	}
+}
+
+// -- P2.2 --
+
+func (f *fakeRepo) SchoolExists(ctx context.Context, schoolID int64) (bool, error) {
+	return f.schoolExists[schoolID], nil
+}
+
+func (f *fakeRepo) SchoolOnboardingStatus(ctx context.Context, schoolID int64) (OnboardingRow, error) {
+	return f.onboarding[schoolID], nil
+}
+
+// -- P5 --
+
+func (f *fakeRepo) InsertPlatformAnnouncement(ctx context.Context, title, body string, startsAt, endsAt time.Time, createdBy int64) (PlatformAnnouncementRecord, error) {
+	f.nextPlatformAnnID++
+	rec := PlatformAnnouncementRecord{ID: f.nextPlatformAnnID, Title: title, Body: body, StartsAt: startsAt, EndsAt: endsAt, CreatedBy: createdBy, CreatedAt: time.Now()}
+	f.platformAnns[rec.ID] = rec
+	return rec, nil
+}
+
+func (f *fakeRepo) ListPlatformAnnouncements(ctx context.Context) ([]PlatformAnnouncementRecord, error) {
+	out := make([]PlatformAnnouncementRecord, 0, len(f.platformAnns))
+	for _, r := range f.platformAnns {
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) ListActivePlatformAnnouncements(ctx context.Context, date time.Time) ([]PlatformAnnouncementRecord, error) {
+	var out []PlatformAnnouncementRecord
+	for _, r := range f.platformAnns {
+		if !date.Before(r.StartsAt) && !date.After(r.EndsAt) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) UpdatePlatformAnnouncement(ctx context.Context, id int64, title, body string, startsAt, endsAt time.Time) (PlatformAnnouncementRecord, error) {
+	rec, ok := f.platformAnns[id]
+	if !ok {
+		return PlatformAnnouncementRecord{}, ErrNotFound
+	}
+	rec.Title, rec.Body, rec.StartsAt, rec.EndsAt = title, body, startsAt, endsAt
+	f.platformAnns[id] = rec
+	return rec, nil
+}
+
+func (f *fakeRepo) DeletePlatformAnnouncement(ctx context.Context, id int64) error {
+	if _, ok := f.platformAnns[id]; !ok {
+		return ErrNotFound
+	}
+	delete(f.platformAnns, id)
+	return nil
 }
 
 func (f *fakeRepo) ListSchoolsOverview(ctx context.Context) ([]SchoolOverviewRow, error) {
@@ -248,5 +312,151 @@ func TestRetryAllOutboxInvalidStatus(t *testing.T) {
 
 	if _, err := svc.RetryAllOutbox(context.Background(), 1, 0, "sent"); err != errRetryAllStatus {
 		t.Errorf("error = %v, ingin errRetryAllStatus", err)
+	}
+}
+
+// -- Onboarding: P2.2 --
+
+func TestOnboardingNotFound(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newServiceForTest(repo, nil, clock.System{})
+
+	if _, err := svc.Onboarding(context.Background(), 999); err == nil {
+		t.Fatal("ingin error not found (sekolah tidak ada)")
+	}
+}
+
+func TestOnboardingReadyOnlyWhenAllTrue(t *testing.T) {
+	repo := newFakeRepo()
+	repo.schoolExists[7] = true
+	repo.onboarding[7] = OnboardingRow{HasActiveYear: true, HasAdmin: true, HasSubscriptionActive: true, HasStudents: true, HasSchedule: false}
+	svc := newServiceForTest(repo, nil, clock.System{})
+
+	status, err := svc.Onboarding(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.Ready {
+		t.Fatal("ready seharusnya false (has_schedule false)")
+	}
+	if !status.HasActiveYear || !status.HasAdmin || !status.HasSubscriptionActive || !status.HasStudents {
+		t.Errorf("field lain seharusnya ikut true: %+v", status)
+	}
+
+	repo.onboarding[7] = OnboardingRow{HasActiveYear: true, HasAdmin: true, HasSubscriptionActive: true, HasStudents: true, HasSchedule: true}
+	status2, err := svc.Onboarding(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status2.Ready {
+		t.Fatal("ready seharusnya true (semua checklist true)")
+	}
+}
+
+// -- Platform announcements: P5 --
+
+type fakePlatformRealtime struct {
+	calls []string
+}
+
+func (f *fakePlatformRealtime) PublishAll(eventType string, data map[string]any) {
+	f.calls = append(f.calls, eventType)
+}
+
+func TestActivePlatformAnnouncementsByDate(t *testing.T) {
+	repo := newFakeRepo()
+	repo.platformAnns[1] = PlatformAnnouncementRecord{
+		ID: 1, Title: "Maintenance", Body: "Server maintenance",
+		StartsAt: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+		EndsAt:   time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC),
+	}
+	svc := newServiceForTest(repo, nil, clock.System{})
+
+	items, err := svc.ActivePlatformAnnouncements(context.Background(), "2026-08-15")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != 1 || items[0].Title != "Maintenance" {
+		t.Fatalf("expected 1 item Maintenance, got %+v", items)
+	}
+
+	items2, err := svc.ActivePlatformAnnouncements(context.Background(), "2026-09-01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items2) != 0 {
+		t.Fatalf("expected 0 item di luar rentang, got %d", len(items2))
+	}
+
+	if _, err := svc.ActivePlatformAnnouncements(context.Background(), "tanggal-salah"); err == nil {
+		t.Fatal("expected error format tanggal salah")
+	}
+}
+
+func TestCreatePlatformAnnouncementValidationAuditRealtime(t *testing.T) {
+	repo := newFakeRepo()
+	audit := &fakeAudit{}
+	rt := &fakePlatformRealtime{}
+	svc := newServiceForTest(repo, audit, clock.System{})
+	svc.SetRealtime(rt)
+
+	_, err := svc.CreatePlatformAnnouncement(context.Background(), 1, CreatePlatformAnnouncementInput{Title: "  ", Body: "X", StartsAt: "2026-08-15", EndsAt: "2026-08-16"})
+	if err == nil {
+		t.Fatal("ingin error validasi (title kosong)")
+	}
+
+	view, err := svc.CreatePlatformAnnouncement(context.Background(), 1, CreatePlatformAnnouncementInput{Title: "Rilis", Body: "Fitur baru", StartsAt: "2026-08-15", EndsAt: "2026-08-16"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if view.Title != "Rilis" {
+		t.Fatalf("title = %q, ingin Rilis", view.Title)
+	}
+	if len(audit.calls) != 1 || audit.calls[0] != "admin.platform_announcement_create" {
+		t.Fatalf("audit admin.platform_announcement_create seharusnya tercatat, got %+v", audit.calls)
+	}
+	if len(rt.calls) != 1 || rt.calls[0] != "announcement" {
+		t.Fatalf("PublishAll(announcement) seharusnya dipanggil tepat sekali, got %v", rt.calls)
+	}
+}
+
+func TestUpdateDeletePlatformAnnouncement(t *testing.T) {
+	repo := newFakeRepo()
+	audit := &fakeAudit{}
+	rt := &fakePlatformRealtime{}
+	svc := newServiceForTest(repo, audit, clock.System{})
+	svc.SetRealtime(rt)
+
+	created, err := svc.CreatePlatformAnnouncement(context.Background(), 1, CreatePlatformAnnouncementInput{Title: "A", Body: "B", StartsAt: "2026-08-15", EndsAt: "2026-08-16"})
+	if err != nil {
+		t.Fatalf("unexpected error create: %v", err)
+	}
+
+	updated, err := svc.UpdatePlatformAnnouncement(context.Background(), 1, created.ID, UpdatePlatformAnnouncementInput{Title: "C", Body: "D", StartsAt: "2026-08-15", EndsAt: "2026-08-17"})
+	if err != nil {
+		t.Fatalf("unexpected error update: %v", err)
+	}
+	if updated.Title != "C" {
+		t.Fatalf("title = %q, ingin C", updated.Title)
+	}
+
+	if _, err := svc.UpdatePlatformAnnouncement(context.Background(), 1, 999, UpdatePlatformAnnouncementInput{Title: "C", Body: "D", StartsAt: "2026-08-15", EndsAt: "2026-08-16"}); err == nil {
+		t.Fatal("ingin error not found")
+	}
+
+	if err := svc.DeletePlatformAnnouncement(context.Background(), 1, created.ID); err != nil {
+		t.Fatalf("unexpected error delete: %v", err)
+	}
+	if err := svc.DeletePlatformAnnouncement(context.Background(), 1, created.ID); err == nil {
+		t.Fatal("ingin error not found (sudah dihapus)")
+	}
+
+	// audit: create + update + delete + delete(not found tidak audit) = 3
+	if len(audit.calls) != 3 {
+		t.Fatalf("audit calls = %d, ingin 3 (create+update+delete)", len(audit.calls))
+	}
+	// realtime: create + update + delete SUKSES = 3 (delete gagal TIDAK memancarkan)
+	if len(rt.calls) != 3 {
+		t.Fatalf("realtime calls = %d, ingin 3", len(rt.calls))
 	}
 }

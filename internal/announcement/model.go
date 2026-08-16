@@ -43,19 +43,26 @@ func (d *Date) UnmarshalJSON(b []byte) error {
 // -- response shapes --
 
 // AnnouncementView adalah shape response GET/POST/PATCH /api/announcements.
+// IsPlatform (fase 13 Gelombang 2, docs/11-superadmin.md P5 "Pengumuman
+// platform"): true untuk pengumuman platform (dari internal/platformadmin,
+// tampil di SEMUA sekolah), false untuk pengumuman sekolah sendiri — lihat
+// Service.List/platformViews.
 type AnnouncementView struct {
-	ID        int64     `json:"id"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	StartsAt  Date      `json:"starts_at"`
-	EndsAt    Date      `json:"ends_at"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	Title      string    `json:"title"`
+	Body       string    `json:"body"`
+	StartsAt   Date      `json:"starts_at"`
+	EndsAt     Date      `json:"ends_at"`
+	CreatedAt  time.Time `json:"created_at"`
+	IsPlatform bool      `json:"is_platform"`
 }
 
 // BoardItem adalah shape ringkas pengumuman aktif dipakai modul dashboard TV
 // (docs/06-teaching.md: payload gabungan `announcements: [{"id","title","body"}]`).
+// IsPlatform — lihat catatan AnnouncementView di atas.
 type BoardItem struct {
-	ID    int64  `json:"id"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	ID         int64  `json:"id"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	IsPlatform bool   `json:"is_platform"`
 }

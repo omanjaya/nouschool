@@ -222,9 +222,14 @@ func (s *Service) snapshotFor(ctx context.Context, schoolID int64) snapshot {
 	if err != nil || !found {
 		snap = snapshot{found: false, status: StatusReadonly}
 	} else {
+		// features EFEKTIF = snapshot plan di-MERGE dengan feature_overrides
+		// (override MENANG) — fase 13 Gelombang 2, docs/11-superadmin.md P6.1.
+		// SATU tempat merge ini dipakai SEMUA gerbang fitur (HasFeature,
+		// RequireFeature, SubscriptionForMe dipakai /api/me & notification
+		// whatsapp gate) karena semuanya lewat snapshotFor.
 		snap = snapshot{
 			found: true, status: sub.Status, planCode: sub.PlanCode,
-			endsOn: sub.EndsOn, graceUntil: sub.GraceUntil(), features: sub.Features,
+			endsOn: sub.EndsOn, graceUntil: sub.GraceUntil(), features: mergeFeatures(sub.Features, sub.FeatureOverrides),
 		}
 	}
 
@@ -395,10 +400,15 @@ func (s *Service) subscriptionView(ctx context.Context, schoolID int64, sub Subs
 		g := sub.GraceUntil().Format(dateLayout)
 		grace = &g
 	}
+	overrides := sub.FeatureOverrides
+	if overrides == nil {
+		overrides = map[string]bool{}
+	}
 	return &SubscriptionView{
 		PlanCode: sub.PlanCode, PlanName: planName, Status: sub.Status,
 		StartsOn: sub.StartsOn.Format(dateLayout), EndsOn: sub.EndsOn.Format(dateLayout), GraceUntil: grace,
 		MaxStudents: sub.MaxStudents, StudentCount: studentCount, Price: sub.Price, Features: activeFeatureKeys(sub.Features),
+		FeatureOverrides: overrides, FeaturesEffective: activeFeatureKeys(mergeFeatures(sub.Features, sub.FeatureOverrides)),
 	}, nil
 }
 
@@ -888,4 +898,140 @@ func (s *Service) ExtendSubscriptionGoodwill(ctx context.Context, actorUserID, s
 // ListSubscriptionsAdmin — status semua sekolah (panel super admin).
 func (s *Service) ListSubscriptionsAdmin(ctx context.Context) ([]AdminSubscriptionRow, error) {
 	return s.repo.ListSubscriptionsForAdmin(ctx)
+}
+
+// -- P6.1 (fase 13 Gelombang 2): PUT /api/admin/schools/{id}/feature-overrides --
+
+// KnownFeatureKeys — daftar kunci fitur yang boleh di-override super admin,
+// SAMA persis dengan FeatureKeys kanonik (docs/09-billing.md "Feature
+// gating") — validasi P6.1 "tolak key tak dikenal 422".
+var KnownFeatureKeys = map[string]bool{
+	FeatureTVDashboard: true, FeatureWhatsApp: true, FeatureDapodikImport: true,
+	FeatureQRCard: true, FeatureSelfCheckin: true,
+}
+
+// mergeFeatures menggabungkan snapshot fitur plan dengan override sekolah
+// (override MENANG bila key ada di overrides) — dipakai snapshotFor (SEMUA
+// gerbang fitur) DAN subscriptionView (features_effective).
+func mergeFeatures(plan, overrides map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(plan)+len(overrides))
+	for k, v := range plan {
+		out[k] = v
+	}
+	for k, v := range overrides {
+		out[k] = v
+	}
+	return out
+}
+
+var errUnknownFeatureKey = httpx.Validation("Kunci fitur tidak dikenal.")
+
+// SetFeatureOverrides — PUT /api/admin/schools/{id}/feature-overrides
+// (docs/11-superadmin.md P6.1): overrides[key]=true/false -> set override,
+// overrides[key]=nil (JSON null) -> HAPUS override (kembali ikut plan).
+// 404 bila sekolah belum punya subscription, 422 bila ada key tidak dikenal.
+// Cache subscription (60 dtk, snapshotFor) di-invalidate SEBELUM fungsi ini
+// kembali, jadi request BERIKUTNYA (mis. /api/me, RequireFeature) sudah
+// pasti mendapat versi baru — TIDAK ada request yang sedang berjalan
+// terpengaruh (laporan perilaku sesuai instruksi tugas). Mengembalikan
+// daftar fitur EFEKTIF (plan digabung override) setelah perubahan.
+func (s *Service) SetFeatureOverrides(ctx context.Context, actorUserID, schoolID int64, overrides map[string]*bool) ([]string, error) {
+	for key := range overrides {
+		if !KnownFeatureKeys[key] {
+			return nil, errUnknownFeatureKey
+		}
+	}
+	sub, found, err := s.repo.GetSubscription(ctx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, httpx.ErrNotFound
+	}
+
+	merged := map[string]bool{}
+	for k, v := range sub.FeatureOverrides {
+		merged[k] = v
+	}
+	for k, v := range overrides {
+		if v == nil {
+			delete(merged, k)
+		} else {
+			merged[k] = *v
+		}
+	}
+
+	updated, err := s.repo.UpdateFeatureOverrides(ctx, schoolID, merged)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateCache(schoolID)
+	s.logAudit(ctx, schoolID, actorUserID, "admin.feature_overrides", "subscription", updated.ID, sub.FeatureOverrides, merged)
+
+	effective := mergeFeatures(updated.Features, updated.FeatureOverrides)
+	return activeFeatureKeys(effective), nil
+}
+
+// -- P6.3/P6.4 (fase 13 Gelombang 2): GET /api/admin/revenue & /export --
+
+// buildRevenueReport adalah fungsi MURNI (tanpa I/O, testable tanpa DB) yang
+// mengagregasi baris invoice PAID menjadi ringkasan per bulan (SELALU 12
+// baris, Januari..Desember, termasuk 0 bila kosong) dan per plan (HANYA
+// plan yang muncul, terurut plan_code) — dipakai GetRevenueReport &
+// ExportRevenueXLSX (revenue_export.go). Percaya rows SUDAH difilter tahun
+// oleh pemanggil (repo query rentang tanggal) — TIDAK mengecek ulang di sini.
+func buildRevenueReport(year int, rows []RevenueInvoiceRow) RevenueReport {
+	months := make([]RevenueMonth, 12)
+	for i := range months {
+		months[i] = RevenueMonth{Month: i + 1}
+	}
+
+	byPlanMap := map[string]*RevenueByPlan{}
+	planOrder := make([]string, 0)
+	var total int64
+	for _, row := range rows {
+		total += row.Amount
+
+		m := int(row.PaidAt.Month()) - 1
+		if m >= 0 && m < 12 {
+			months[m].PaidTotal += row.Amount
+			months[m].InvoiceCount++
+		}
+
+		bp, ok := byPlanMap[row.PlanCode]
+		if !ok {
+			bp = &RevenueByPlan{PlanCode: row.PlanCode}
+			byPlanMap[row.PlanCode] = bp
+			planOrder = append(planOrder, row.PlanCode)
+		}
+		bp.PaidTotal += row.Amount
+		bp.InvoiceCount++
+	}
+	sort.Strings(planOrder)
+	byPlan := make([]RevenueByPlan, 0, len(planOrder))
+	for _, code := range planOrder {
+		byPlan = append(byPlan, *byPlanMap[code])
+	}
+
+	return RevenueReport{Year: year, Total: total, Months: months, ByPlan: byPlan}
+}
+
+func (s *Service) revenueYearRange(year int) (int, time.Time, time.Time) {
+	if year <= 0 {
+		year = s.clock.Now().Year()
+	}
+	from := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(1, 0, 0)
+	return year, from, to
+}
+
+// GetRevenueReport — GET /api/admin/revenue?year=YYYY (default tahun
+// berjalan) — dari invoice PAID (paid_at di tahun tsb).
+func (s *Service) GetRevenueReport(ctx context.Context, year int) (RevenueReport, error) {
+	year, from, to := s.revenueYearRange(year)
+	rows, err := s.repo.ListPaidInvoicesInRange(ctx, from, to)
+	if err != nil {
+		return RevenueReport{}, err
+	}
+	return buildRevenueReport(year, rows), nil
 }

@@ -234,6 +234,16 @@ type PlanPrice struct {
 	PriceYearly int64 `json:"price_yearly"`
 }
 
+type PlatformAnnouncement struct {
+	ID        int64              `json:"id"`
+	Title     string             `json:"title"`
+	Body      string             `json:"body"`
+	StartsAt  pgtype.Date        `json:"starts_at"`
+	EndsAt    pgtype.Date        `json:"ends_at"`
+	CreatedBy pgtype.Int8        `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type PlatformConfig struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -330,15 +340,16 @@ type Subject struct {
 }
 
 type Subscription struct {
-	ID          int64       `json:"id"`
-	SchoolID    int64       `json:"school_id"`
-	PlanCode    string      `json:"plan_code"`
-	Features    []byte      `json:"features"`
-	MaxStudents int32       `json:"max_students"`
-	Price       int64       `json:"price"`
-	StartsOn    pgtype.Date `json:"starts_on"`
-	EndsOn      pgtype.Date `json:"ends_on"`
-	Status      string      `json:"status"`
+	ID               int64       `json:"id"`
+	SchoolID         int64       `json:"school_id"`
+	PlanCode         string      `json:"plan_code"`
+	Features         []byte      `json:"features"`
+	MaxStudents      int32       `json:"max_students"`
+	Price            int64       `json:"price"`
+	StartsOn         pgtype.Date `json:"starts_on"`
+	EndsOn           pgtype.Date `json:"ends_on"`
+	Status           string      `json:"status"`
+	FeatureOverrides []byte      `json:"feature_overrides"`
 }
 
 type Teacher struct {

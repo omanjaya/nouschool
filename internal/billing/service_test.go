@@ -5,6 +5,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -291,6 +292,35 @@ func (f *fakeRepo) LatestPaymentForInvoice(ctx context.Context, invoiceID int64)
 		}
 	}
 	return latest, found, nil
+}
+
+// -- P6 (fase 13 Gelombang 2) --
+
+func (f *fakeRepo) UpdateFeatureOverrides(ctx context.Context, schoolID int64, overrides map[string]bool) (SubscriptionRecord, error) {
+	rec, ok := f.subscriptions[schoolID]
+	if !ok {
+		return SubscriptionRecord{}, ErrNotFound
+	}
+	rec.FeatureOverrides = overrides
+	f.subscriptions[schoolID] = rec
+	return rec, nil
+}
+
+func (f *fakeRepo) ListPaidInvoicesInRange(ctx context.Context, from, to time.Time) ([]RevenueInvoiceRow, error) {
+	var out []RevenueInvoiceRow
+	for _, inv := range f.invoices {
+		if inv.Status != InvoicePaid || inv.PaidAt == nil {
+			continue
+		}
+		if inv.PaidAt.Before(from) || !inv.PaidAt.Before(to) {
+			continue
+		}
+		out = append(out, RevenueInvoiceRow{
+			Number: inv.Number, SchoolName: fmt.Sprintf("Sekolah %d", inv.SchoolID),
+			PlanCode: inv.PlanCode, Amount: inv.Amount, PaidAt: *inv.PaidAt,
+		})
+	}
+	return out, nil
 }
 
 func (f *fakeRepo) CountActiveStudents(ctx context.Context, schoolID int64) (int, error) {
@@ -698,6 +728,186 @@ func TestHandleGatewayWebhook_SignatureAndIdempotent(t *testing.T) {
 // validMidtransSignature menghitung signature yang SAMA persis dengan
 // MidtransProvider.VerifySignature (sha512(order_id+status_code+gross_amount+ServerKey))
 // — dipakai test untuk mensimulasikan webhook Midtrans yang sah.
+// -- SetFeatureOverrides: P6.1 (fase 13 Gelombang 2) --
+
+func TestSetFeatureOverridesMergeTrueFalseNull(t *testing.T) {
+	repo := newFakeRepo()
+	repo.subscriptions[1] = SubscriptionRecord{
+		ID: 1, SchoolID: 1, PlanCode: "basic", Status: StatusActive,
+		Features: map[string]bool{FeatureTVDashboard: false, FeatureWhatsApp: false, FeatureQRCard: true, FeatureSelfCheckin: true},
+		EndsOn:   fixedNow.AddDate(1, 0, 0),
+	}
+	svc := newServiceForTest(repo, nil, clock.Fixed{T: fixedNow})
+
+	tvTrue := true
+	features, err := svc.SetFeatureOverrides(context.Background(), 1, 1, map[string]*bool{FeatureTVDashboard: &tvTrue})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsStr(features, FeatureTVDashboard) {
+		t.Fatalf("features efektif seharusnya menyertakan tv_dashboard (override true), got %v", features)
+	}
+	if repo.subscriptions[1].FeatureOverrides[FeatureTVDashboard] != true {
+		t.Fatalf("override tersimpan seharusnya true, got %v", repo.subscriptions[1].FeatureOverrides)
+	}
+
+	qrFalse := false
+	features2, err := svc.SetFeatureOverrides(context.Background(), 1, 1, map[string]*bool{FeatureQRCard: &qrFalse})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if containsStr(features2, FeatureQRCard) {
+		t.Fatalf("features efektif seharusnya TIDAK menyertakan qr_card (override false), got %v", features2)
+	}
+	// tv_dashboard override sebelumnya harus TETAP (merge, bukan replace).
+	if !containsStr(features2, FeatureTVDashboard) {
+		t.Fatalf("override tv_dashboard sebelumnya seharusnya tetap ada, got %v", features2)
+	}
+
+	// null (nil) -> hapus override tv_dashboard, kembali ikut plan (false).
+	features3, err := svc.SetFeatureOverrides(context.Background(), 1, 1, map[string]*bool{FeatureTVDashboard: nil})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if containsStr(features3, FeatureTVDashboard) {
+		t.Fatalf("tv_dashboard seharusnya kembali ikut plan (false) setelah override dihapus, got %v", features3)
+	}
+	if _, ok := repo.subscriptions[1].FeatureOverrides[FeatureTVDashboard]; ok {
+		t.Fatalf("key tv_dashboard seharusnya TERHAPUS dari overrides tersimpan, got %v", repo.subscriptions[1].FeatureOverrides)
+	}
+}
+
+func TestSetFeatureOverridesRejectsUnknownKey(t *testing.T) {
+	repo := newFakeRepo()
+	repo.subscriptions[1] = SubscriptionRecord{ID: 1, SchoolID: 1, PlanCode: "basic", Status: StatusActive, EndsOn: fixedNow.AddDate(1, 0, 0)}
+	svc := newServiceForTest(repo, nil, clock.Fixed{T: fixedNow})
+
+	v := true
+	_, err := svc.SetFeatureOverrides(context.Background(), 1, 1, map[string]*bool{"fitur_ngasal": &v})
+	var de *httpx.Error
+	if !errors.As(err, &de) || de.Status != 422 {
+		t.Fatalf("ingin 422 validation, got %v", err)
+	}
+}
+
+func TestSetFeatureOverridesRejectsNoSubscription(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newServiceForTest(repo, nil, clock.Fixed{T: fixedNow})
+
+	v := true
+	_, err := svc.SetFeatureOverrides(context.Background(), 1, 999, map[string]*bool{FeatureTVDashboard: &v})
+	if !errors.Is(err, error(httpx.ErrNotFound)) {
+		t.Fatalf("ingin httpx.ErrNotFound (sekolah tanpa subscription), got %v", err)
+	}
+}
+
+func TestSetFeatureOverridesInvalidatesCache(t *testing.T) {
+	repo := newFakeRepo()
+	repo.subscriptions[1] = SubscriptionRecord{
+		ID: 1, SchoolID: 1, PlanCode: "basic", Status: StatusActive,
+		Features: map[string]bool{FeatureTVDashboard: false}, EndsOn: fixedNow.AddDate(1, 0, 0),
+	}
+	svc := newServiceForTest(repo, nil, clock.Fixed{T: fixedNow})
+
+	// Isi cache dengan snapshot LAMA (tv_dashboard false).
+	has, _ := svc.HasFeature(context.Background(), 1, FeatureTVDashboard)
+	if has {
+		t.Fatal("prasyarat: tv_dashboard seharusnya false sebelum override")
+	}
+
+	v := true
+	if _, err := svc.SetFeatureOverrides(context.Background(), 1, 1, map[string]*bool{FeatureTVDashboard: &v}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Cache HARUS ter-invalidate — HasFeature berikutnya mengambil versi baru.
+	has2, _ := svc.HasFeature(context.Background(), 1, FeatureTVDashboard)
+	if !has2 {
+		t.Fatal("cache seharusnya ter-invalidate setelah SetFeatureOverrides, tv_dashboard harus true sekarang")
+	}
+}
+
+func containsStr(list []string, target string) bool {
+	for _, s := range list {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
+// -- buildRevenueReport: P6.3 (fase 13 Gelombang 2) --
+
+func TestBuildRevenueReportAggregatesByMonthAndPlan(t *testing.T) {
+	rows := []RevenueInvoiceRow{
+		{Number: "INV/2026/0001", SchoolName: "Demo", PlanCode: "basic", Amount: 2_000_000, PaidAt: time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)},
+		{Number: "INV/2026/0002", SchoolName: "UjiBilling", PlanCode: "pro", Amount: 4_000_000, PaidAt: time.Date(2026, 1, 20, 0, 0, 0, 0, time.UTC)},
+		{Number: "INV/2026/0003", SchoolName: "Demo", PlanCode: "basic", Amount: 2_000_000, PaidAt: time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)},
+	}
+	report := buildRevenueReport(2026, rows)
+
+	if report.Year != 2026 {
+		t.Errorf("year = %d, ingin 2026", report.Year)
+	}
+	if report.Total != 8_000_000 {
+		t.Errorf("total = %d, ingin 8000000", report.Total)
+	}
+	if len(report.Months) != 12 {
+		t.Fatalf("months harus SELALU 12 baris, got %d", len(report.Months))
+	}
+	if report.Months[0].PaidTotal != 6_000_000 || report.Months[0].InvoiceCount != 2 {
+		t.Errorf("Januari (index 0) salah: %+v", report.Months[0])
+	}
+	if report.Months[2].PaidTotal != 2_000_000 || report.Months[2].InvoiceCount != 1 {
+		t.Errorf("Maret (index 2) salah: %+v", report.Months[2])
+	}
+	if report.Months[1].PaidTotal != 0 || report.Months[1].InvoiceCount != 0 {
+		t.Errorf("Februari (tanpa invoice) seharusnya 0: %+v", report.Months[1])
+	}
+
+	if len(report.ByPlan) != 2 {
+		t.Fatalf("by_plan seharusnya 2 baris (basic+pro), got %d", len(report.ByPlan))
+	}
+	if report.ByPlan[0].PlanCode != "basic" || report.ByPlan[0].PaidTotal != 4_000_000 || report.ByPlan[0].InvoiceCount != 2 {
+		t.Errorf("by_plan[0] (basic, terurut alfabetis) salah: %+v", report.ByPlan[0])
+	}
+	if report.ByPlan[1].PlanCode != "pro" || report.ByPlan[1].PaidTotal != 4_000_000 || report.ByPlan[1].InvoiceCount != 1 {
+		t.Errorf("by_plan[1] (pro) salah: %+v", report.ByPlan[1])
+	}
+}
+
+func TestBuildRevenueReportEmpty(t *testing.T) {
+	report := buildRevenueReport(2026, nil)
+	if report.Total != 0 {
+		t.Errorf("total = %d, ingin 0", report.Total)
+	}
+	if len(report.Months) != 12 {
+		t.Fatalf("months harus tetap 12 baris walau kosong, got %d", len(report.Months))
+	}
+	if len(report.ByPlan) != 0 {
+		t.Errorf("by_plan seharusnya kosong, got %d baris", len(report.ByPlan))
+	}
+}
+
+func TestGetRevenueReportDefaultsToCurrentYear(t *testing.T) {
+	repo := newFakeRepo()
+	repo.nextInvoiceID = 1
+	paidAt := fixedNow
+	repo.invoices[1] = InvoiceRecord{ID: 1, SchoolID: 1, Number: "INV/2026/0001", Amount: 10_000_000, Status: InvoicePaid, PlanCode: "pro", PaidAt: &paidAt}
+	svc := newServiceForTest(repo, nil, clock.Fixed{T: fixedNow}) // fixedNow tahun 2026
+
+	report, err := svc.GetRevenueReport(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.Year != fixedNow.Year() {
+		t.Errorf("year = %d, ingin tahun berjalan %d", report.Year, fixedNow.Year())
+	}
+	if report.Total != 10_000_000 {
+		t.Errorf("total = %d, ingin 10000000", report.Total)
+	}
+}
+
 func validMidtransSignature(orderID, statusCode, grossAmount, serverKey string) string {
 	sum := sha512.Sum512([]byte(orderID + statusCode + grossAmount + serverKey))
 	return hex.EncodeToString(sum[:])

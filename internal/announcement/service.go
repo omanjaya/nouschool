@@ -32,12 +32,34 @@ type Realtime interface {
 	Publish(schoolID int64, eventType string, data map[string]any)
 }
 
+// PlatformAnnouncementItem — kebutuhan modul announcement dari sumber
+// pengumuman platform (fase 13 Gelombang 2, docs/11-superadmin.md P5
+// "Pengumuman platform") — consumer-side interface primitif dideklarasikan
+// di sisi PEMAKAI (lihat CLAUDE.md). Dipenuhi *platformadmin.Service secara
+// STRUKTURAL lewat adapter kecil di cmd/server (platformadminadapter.go) —
+// announcement TIDAK mengimpor platformadmin untuk tipe apa pun.
+type PlatformAnnouncementItem struct {
+	ID        int64
+	Title     string
+	Body      string
+	StartsAt  string // YYYY-MM-DD
+	EndsAt    string // YYYY-MM-DD
+	CreatedAt time.Time
+}
+
+// PlatformAnnouncements adalah kebutuhan modul announcement dari modul
+// platformadmin: pengumuman platform aktif pada tanggal tertentu.
+type PlatformAnnouncements interface {
+	ActiveOn(ctx context.Context, dateStr string) ([]PlatformAnnouncementItem, error)
+}
+
 // Service berisi aturan bisnis modul announcement.
 type Service struct {
 	repo     announcementRepository
 	identity IdentityGateway
 	clock    clock.Clock
-	realtime Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
+	realtime Realtime              // opsional — nil = event realtime dilewati (lihat SetRealtime)
+	platform PlatformAnnouncements // opsional — nil = pengumuman platform dilewati (lihat SetPlatformGateway)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, clk clock.Clock) *Service {
@@ -50,6 +72,12 @@ func NewService(repo *Repository, identity IdentityGateway, clk clock.Clock) *Se
 // SetRealtime menyuntikkan Realtime SETELAH konstruksi (opsional, disuntik
 // main.go — pola yang sama dengan modul lain; nil aman/no-op).
 func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// SetPlatformGateway menyuntikkan PlatformAnnouncements SETELAH konstruksi
+// (opsional, disuntik main.go SETELAH platformadmin dikonstruksi — pola
+// setter yang sama dengan SetRealtime; nil aman/no-op -> List/ActiveOn
+// TIDAK menyertakan pengumuman platform).
+func (s *Service) SetPlatformGateway(p PlatformAnnouncements) { s.platform = p }
 
 // emitAnnouncement memancarkan "announcement" {} broadcast satu sekolah
 // (docs tugas Fase 12: create/update/delete) — dipanggil SETELAH operasi
@@ -102,10 +130,56 @@ func viewsFromRecords(recs []Record) []AnnouncementView {
 
 // -- GET /api/announcements --
 
+// platformViews mengambil pengumuman platform aktif pada dateStr (YYYY-MM-DD)
+// dan memetakannya menjadi AnnouncementView{IsPlatform:true} — dipakai List
+// (activeOnly=true). s.platform nil (belum di-inject/gateway kosong) -> nil
+// slice, TIDAK error (fitur opsional, lihat SetPlatformGateway).
+func (s *Service) platformViews(ctx context.Context, dateStr string) ([]AnnouncementView, error) {
+	if s.platform == nil {
+		return nil, nil
+	}
+	items, err := s.platform.ActiveOn(ctx, dateStr)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AnnouncementView, 0, len(items))
+	for _, it := range items {
+		start, _ := time.Parse("2006-01-02", it.StartsAt)
+		end, _ := time.Parse("2006-01-02", it.EndsAt)
+		out = append(out, AnnouncementView{
+			ID: it.ID, Title: it.Title, Body: it.Body,
+			StartsAt: NewDate(start), EndsAt: NewDate(end), CreatedAt: it.CreatedAt, IsPlatform: true,
+		})
+	}
+	return out, nil
+}
+
+// platformBoardItems — SAMA seperti platformViews, tapi bentuk BoardItem
+// (dipakai ActiveOn/TV board).
+func (s *Service) platformBoardItems(ctx context.Context, dateStr string) ([]BoardItem, error) {
+	if s.platform == nil {
+		return nil, nil
+	}
+	items, err := s.platform.ActiveOn(ctx, dateStr)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BoardItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, BoardItem{ID: it.ID, Title: it.Title, Body: it.Body, IsPlatform: true})
+	}
+	return out, nil
+}
+
 // List — activeOnly=true: pengumuman aktif HARI INI (tanggal lokal sekolah),
-// dibaca SEMUA role termasuk akun display (docs/06-teaching.md "Pengumuman");
-// activeOnly=false: SEMUA pengumuman, butuh perm announcement:manage
-// (docs/02-identity.md: admin & kepsek).
+// dibaca SEMUA role termasuk akun display (docs/06-teaching.md "Pengumuman"),
+// DIGABUNG dengan pengumuman platform aktif (fase 13 Gelombang 2,
+// docs/11-superadmin.md P5) — platform DULU, baru sekolah (urutan sama
+// dengan ActiveOn/TV board di bawah); activeOnly=false: SEMUA pengumuman
+// SEKOLAH SAJA (pengumuman platform dikelola lewat panel super admin
+// tersendiri, /api/admin/platform-announcements — TIDAK muncul di daftar
+// kelola sekolah), butuh perm announcement:manage (docs/02-identity.md:
+// admin & kepsek).
 func (s *Service) List(ctx context.Context, schoolID int64, activeOnly bool) ([]AnnouncementView, error) {
 	if !activeOnly {
 		if !s.identity.HasPermission(reqctx.Role(ctx), PermAnnouncementManage) {
@@ -119,27 +193,43 @@ func (s *Service) List(ctx context.Context, schoolID int64, activeOnly bool) ([]
 	}
 
 	today := schoolToday(s.clock.Now(), schoolTimezone(ctx))
+	todayStr := today.Format("2006-01-02")
+	platform, err := s.platformViews(ctx, todayStr)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.repo.ListActive(ctx, schoolID, today)
 	if err != nil {
 		return nil, err
 	}
-	return viewsFromRecords(rows), nil
+	out := make([]AnnouncementView, 0, len(platform)+len(rows))
+	out = append(out, platform...)
+	out = append(out, viewsFromRecords(rows)...)
+	return out, nil
 }
 
 // ActiveOn — pengumuman aktif pada tanggal (YYYY-MM-DD) tertentu, TANPA
 // gerbang permission (interface publik dipakai modul dashboard TV lewat
 // consumer-side interface, lihat cmd/server/dashboardadapter.go — payload TV
-// hanya butuh {id,title,body}, docs/06-teaching.md).
+// hanya butuh {id,title,body}, docs/06-teaching.md), DIGABUNG dengan
+// pengumuman platform aktif (fase 13 Gelombang 2, docs/11-superadmin.md P5
+// "TV board ... juga menyertakan them, platform dulu, lalu sekolah").
 func (s *Service) ActiveOn(ctx context.Context, schoolID int64, dateStr string) ([]BoardItem, error) {
 	d, err := time.Parse("2006-01-02", strings.TrimSpace(dateStr))
 	if err != nil {
 		return nil, httpx.Validation("Format tanggal harus YYYY-MM-DD.")
 	}
+	normalized := d.Format("2006-01-02")
+	platform, err := s.platformBoardItems(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.repo.ListActive(ctx, schoolID, d)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]BoardItem, 0, len(rows))
+	out := make([]BoardItem, 0, len(platform)+len(rows))
+	out = append(out, platform...)
 	for _, r := range rows {
 		out = append(out, BoardItem{ID: r.ID, Title: r.Title, Body: r.Body})
 	}

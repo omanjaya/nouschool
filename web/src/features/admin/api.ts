@@ -4,9 +4,15 @@ import type {
   AcademicYear,
   AdminAuditLogResult,
   AdminOverview,
+  AdminRevenueResult,
   AdminSchoolBillingResult,
   AdminSchoolMember,
+  AdminSchoolOnboarding,
   AdminSchoolStats,
+  CreateSchoolAdminInput,
+  CreateSchoolAdminResult,
+  FeatureOverridesInput,
+  FeatureOverridesResult,
   ImpersonateStartResult,
   InterestLead,
   NotificationChannelSettings,
@@ -15,6 +21,8 @@ import type {
   OutboxStatus,
   Plan,
   PlanUpdateInput,
+  PlatformAnnouncement,
+  PlatformAnnouncementInput,
   ResetPasswordResult,
   School,
 } from '../../lib/types';
@@ -362,5 +370,107 @@ export function useRetryAllOutbox() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: OUTBOX_LIST_QUERY_KEY });
     },
+  });
+}
+
+/* ---- Onboarding wizard sekolah baru (Fase 13 Gelombang 2 P2, docs/11 P2) ---- */
+
+export function schoolOnboardingQueryKey(schoolId: string) {
+  return ['admin', 'schools', schoolId, 'onboarding'] as const;
+}
+
+/** GET /api/admin/schools/{id}/onboarding — checklist status siap pakai, dipakai wizard & detail sekolah. */
+export function useSchoolOnboarding(schoolId: string) {
+  return useQuery({
+    queryKey: schoolOnboardingQueryKey(schoolId),
+    queryFn: () => api.get<AdminSchoolOnboarding>(`/admin/schools/${schoolId}/onboarding`),
+    enabled: schoolId.length > 0,
+  });
+}
+
+/**
+ * POST /api/admin/schools/{id}/admins {name, email?, username?} — akun admin sekolah pertama
+ * (langkah 3 wizard onboarding), password sementara ditampilkan sekali (pola `useResetPassword`).
+ * Menginvalidasi daftar anggota & checklist onboarding sekolah ini.
+ */
+export function useCreateSchoolAdmin(schoolId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateSchoolAdminInput) =>
+      api.post<CreateSchoolAdminResult>(`/admin/schools/${schoolId}/admins`, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: schoolMembersQueryKey(schoolId) });
+      queryClient.invalidateQueries({ queryKey: schoolOnboardingQueryKey(schoolId) });
+    },
+  });
+}
+
+/* ---- Pengumuman platform (Fase 13 Gelombang 2 P5, docs/11 P5) ---- */
+
+export const PLATFORM_ANNOUNCEMENTS_QUERY_KEY = ['admin', 'platform-announcements'] as const;
+
+/** GET /api/admin/platform-announcements — CRUD pengumuman ke semua sekolah. */
+export function usePlatformAnnouncements() {
+  return useQuery({
+    queryKey: PLATFORM_ANNOUNCEMENTS_QUERY_KEY,
+    queryFn: () => api.get<PlatformAnnouncement[]>('/admin/platform-announcements'),
+  });
+}
+
+export function useCreatePlatformAnnouncement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PlatformAnnouncementInput) =>
+      api.post<PlatformAnnouncement>('/admin/platform-announcements', input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: PLATFORM_ANNOUNCEMENTS_QUERY_KEY }),
+  });
+}
+
+export function useUpdatePlatformAnnouncement(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PlatformAnnouncementInput) =>
+      api.patch<PlatformAnnouncement>(`/admin/platform-announcements/${id}`, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: PLATFORM_ANNOUNCEMENTS_QUERY_KEY }),
+  });
+}
+
+export function useDeletePlatformAnnouncement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<undefined>(`/admin/platform-announcements/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: PLATFORM_ANNOUNCEMENTS_QUERY_KEY }),
+  });
+}
+
+/* ---- Feature override per sekolah (Fase 13 Gelombang 2 P6, docs/11 P6) ---- */
+
+/**
+ * PUT /api/admin/schools/{id}/feature-overrides {overrides} — kirim map lengkap (key "ikut plan"
+ * bernilai `null`). Menginvalidasi cache billing sekolah ini karena `feature_overrides` &
+ * `features_effective` ikut terbaca dari `GET .../billing`.
+ */
+export function useUpdateFeatureOverrides(schoolId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (overrides: FeatureOverridesInput) =>
+      api.put<FeatureOverridesResult>(`/admin/schools/${schoolId}/feature-overrides`, { overrides }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: schoolBillingQueryKey(schoolId) });
+    },
+  });
+}
+
+/* ---- Laporan pendapatan platform (Fase 13 Gelombang 2 P6, docs/11 P6) ---- */
+
+export function adminRevenueQueryKey(year: number) {
+  return ['admin', 'revenue', year] as const;
+}
+
+/** GET /api/admin/revenue?year= — total & rincian per bulan/plan. Export: lihat `RevenuePage`. */
+export function useAdminRevenue(year: number) {
+  return useQuery({
+    queryKey: adminRevenueQueryKey(year),
+    queryFn: () => api.get<AdminRevenueResult>(`/admin/revenue?year=${year}`),
   });
 }

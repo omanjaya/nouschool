@@ -28,4 +28,9 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, requireAuth, requireSuperAdm
 	mux.Handle("GET /api/admin/schools/{id}/members", admin(h.AdminListMembers))
 	mux.Handle("POST /api/admin/users/{id}/reset-password", admin(h.AdminResetPassword))
 	mux.Handle("GET /api/admin/schools/{id}/audit", admin(h.AdminAuditLog))
+
+	// Fase 13 Gelombang 2, docs/11-superadmin.md P2 "Onboarding" — akun admin
+	// sekolah pertama. Ditempatkan di modul identity (bukan platformadmin)
+	// dengan alasan yang sama dengan P4.1/4.2/4.3 (lihat catatan admin.go).
+	mux.Handle("POST /api/admin/schools/{id}/admins", admin(h.AdminCreateSchoolAdmin))
 }

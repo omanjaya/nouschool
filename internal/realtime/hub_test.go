@@ -186,6 +186,32 @@ func TestConcurrentRegisterPublishUnregister(t *testing.T) {
 	wg.Wait()
 }
 
+// TestPublishAllBroadcastsAllSchools — PublishAll (fase 13 Gelombang 2,
+// docs/11-superadmin.md P5) menjangkau SEMUA sekolah yang punya koneksi
+// terdaftar, TIDAK hanya satu sekolah seperti Publish biasa.
+func TestPublishAllBroadcastsAllSchools(t *testing.T) {
+	h := NewHub()
+	a := h.Register(1, 10, "admin_sekolah", nil)
+	b := h.Register(2, 20, "guru", nil)
+	c := h.Register(3, 30, "kepala_sekolah", nil)
+
+	h.PublishAll(Event{Type: "announcement", Data: map[string]any{}})
+
+	for _, cl := range []*Client{a, b, c} {
+		msg := decode(t, recvOrTimeout(t, cl.Send()))
+		if msg.Type != "announcement" {
+			t.Fatalf("type salah: %s", msg.Type)
+		}
+	}
+}
+
+// TestPublishAllNoConnectionsNoop — PublishAll pada Hub tanpa koneksi sama
+// sekali tidak panic/deadlock (no-op bersih).
+func TestPublishAllNoConnectionsNoop(t *testing.T) {
+	h := NewHub()
+	h.PublishAll(Event{Type: "announcement"})
+}
+
 // TestPublisherNilSafe — Client dengan closer nil (pola Register(... , nil)
 // dipakai test lain di file ini) tidak panic saat di-drop (buffer penuh).
 func TestPublisherNilSafe(t *testing.T) {
