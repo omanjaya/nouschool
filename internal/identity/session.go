@@ -29,17 +29,33 @@ const (
 // makanya ketiga tempat WAJIB pakai fungsi ini, bukan konstanta sessionTTL
 // langsung).
 func sessionTTLForRole(role string) time.Duration {
-	if role == RoleDisplay {
+	switch role {
+	case RoleDisplay:
 		return displaySessionTTL
+	case impersonationSessionRole:
+		// Tidak dipakai jalur normal (ExchangeImpersonation menghitung
+		// expiresAt sendiri, lihat impersonation.go) — nilai ini murni jaring
+		// pengaman kalau suatu saat sessionTTLForRole dipanggil dengan role
+		// ini dari tempat lain.
+		return impersonationSessionTTL
+	default:
+		return sessionTTL
 	}
-	return sessionTTL
 }
 
 func sessionRenewWindowForRole(role string) time.Duration {
-	if role == RoleDisplay {
+	switch role {
+	case RoleDisplay:
 		return displaySessionRenewWindow
+	case impersonationSessionRole:
+		// 0 -> RequireAuth TIDAK PERNAH memperpanjang sesi impersonation
+		// secara sliding (lihat middleware.go): sesi wajib mati keras 2 jam
+		// sejak dibuat walau super admin terus aktif memakainya, sesuai
+		// desain fase 13 (docs/11-superadmin.md "Support").
+		return 0
+	default:
+		return sessionRenewWindow
 	}
-	return sessionRenewWindow
 }
 
 var ErrInvalidSession = errors.New("identity: token sesi tidak valid")

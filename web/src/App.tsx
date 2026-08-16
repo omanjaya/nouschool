@@ -18,6 +18,7 @@ import { InterestLeadsPage } from './features/admin/InterestLeadsPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
 import { ActivationPage } from './features/activation/ActivationPage';
+import { ImpersonatePage } from './features/impersonate/ImpersonatePage';
 import { DataLayout } from './features/data/DataLayout';
 import { StudentsListPage } from './features/students/StudentsListPage';
 import { StudentDetailPage } from './features/students/StudentDetailPage';
@@ -380,6 +381,35 @@ function RealtimeReconnectBanner() {
   );
 }
 
+/**
+ * Garis tipis "Mode support" (Fase 12) — tampil hanya untuk sesi impersonation
+ * di host TENANT: `me.school` ada (bukan platform admin) DAN `me.is_super_admin`
+ * true (super admin sedang "masuk sebagai" sekolah ini, lihat
+ * `features/admin/SchoolDetailPage` & `features/impersonate/ImpersonatePage`).
+ * Warna `--st-izin` (semantik info, docs/10) — bukan warna baru di luar token.
+ */
+function ImpersonationBanner({ me, onEndSession }: { me: Me; onEndSession: () => void }) {
+  if (!me.school || !me.is_super_admin) return null;
+
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-st-izin-line px-4 py-1.5 text-center text-[11px] font-medium text-st-izin"
+    >
+      <span>
+        Mode support NouSchool — Anda masuk sebagai {me.school.name}. Semua tindakan tercatat.
+      </span>
+      <button
+        type="button"
+        onClick={onEndSession}
+        className="font-semibold underline underline-offset-2 hover:opacity-80"
+      >
+        Akhiri Sesi
+      </button>
+    </div>
+  );
+}
+
 /** Rute + AppShell untuk pengguna yang sudah login — nav & sapaan mengikuti /api/me. */
 function AuthenticatedShell() {
   const { data: me } = useMe();
@@ -447,6 +477,7 @@ function AuthenticatedShell() {
       appName={brandName}
       logoUrl={brandLogoUrl}
     >
+      <ImpersonationBanner me={me} onEndSession={handleLogout} />
       <RealtimeReconnectBanner />
       <SubscriptionBanner me={me} />
       <Routes>
@@ -575,6 +606,10 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/aktivasi" element={<ActivationPage />} />
+      {/* Fase 12 (sesi support super admin) — layar penuh tanpa AppShell, sibling
+          `/aktivasi`; publik karena backend mengesahkan lewat token sekali pakai,
+          bukan sesi yang sudah login. */}
+      <Route path="/impersonate" element={<ImpersonatePage />} />
       {/* Fullscreen, TANPA AppShell (docs/10-design-system.md #5: "layout terpisah /tv") — sibling
           rute, bukan lewat AuthenticatedShell, supaya sidebar/bottom-nav tidak pernah ikut render. */}
       <Route

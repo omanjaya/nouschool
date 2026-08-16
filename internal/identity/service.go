@@ -38,16 +38,30 @@ type BillingGateway interface {
 	SubscriptionForMe(ctx context.Context, schoolID int64) (status, planCode, endsOn, graceUntil string, features []string, found bool, err error)
 }
 
+// SchoolGateway adalah kebutuhan modul identity dari modul tenant (fase 13,
+// fitur impersonation super admin, docs/11-superadmin.md) — dipenuhi
+// *tenant.Service secara struktural lewat SchoolStatusAndSlug. Signature
+// primitif supaya identity TIDAK perlu mengimpor package tenant untuk tipe
+// apa pun (lihat CLAUDE.md).
+type SchoolGateway interface {
+	SchoolStatusAndSlug(ctx context.Context, id int64) (status, slug string, found bool, err error)
+}
+
 // Service berisi aturan bisnis modul identity: login/logout, sesi, RBAC.
 type Service struct {
-	repo         *Repository
-	rateLimiter  *RateLimiter
-	cookieSecure bool
-	billing      BillingGateway // opsional — nil = subscription/features dilewati di /api/me (lihat SetBillingGateway)
+	repo          *Repository
+	rateLimiter   *RateLimiter
+	cookieSecure  bool
+	billing       BillingGateway      // opsional — nil = subscription/features dilewati di /api/me (lihat SetBillingGateway)
+	schools       SchoolGateway       // opsional — nil = IssueImpersonation gagal (lihat SetSchoolGateway)
+	impersonation *impersonationStore // token sekali-pakai impersonation (fase 13) — selalu terisi, in-memory
 }
 
 func NewService(repo *Repository, rateLimiter *RateLimiter, cookieSecure bool) *Service {
-	return &Service{repo: repo, rateLimiter: rateLimiter, cookieSecure: cookieSecure}
+	return &Service{
+		repo: repo, rateLimiter: rateLimiter, cookieSecure: cookieSecure,
+		impersonation: newImpersonationStore(nil),
+	}
 }
 
 // SetBillingGateway menyuntikkan BillingGateway SETELAH konstruksi (opsional,
@@ -55,6 +69,12 @@ func NewService(repo *Repository, rateLimiter *RateLimiter, cookieSecure bool) *
 // identitySvc untuk audit log, pola yang sama dengan
 // internal/attendance.SetNotifier; nil aman/no-op).
 func (s *Service) SetBillingGateway(b BillingGateway) { s.billing = b }
+
+// SetSchoolGateway menyuntikkan SchoolGateway SETELAH konstruksi (opsional,
+// disuntik main.go — tenant dikonstruksi SETELAH identity, pola yang sama
+// dengan SetBillingGateway di atas). Tanpa ini, IssueImpersonation
+// mengembalikan error (lihat impersonation.go).
+func (s *Service) SetSchoolGateway(g SchoolGateway) { s.schools = g }
 
 // LoginInput adalah parameter POST /api/auth/login.
 type LoginInput struct {

@@ -897,6 +897,14 @@ export interface PayInvoiceResult {
   redirect_url: string;
 }
 
+/* ---- Impersonation / sesi support super admin (Fase 12) ---- */
+
+/** POST /api/admin/schools/{id}/impersonate (super admin, host platform) — token sekali pakai untuk masuk sebagai sekolah ini di host tenant. */
+export interface ImpersonateStartResult {
+  token: string;
+  slug: string;
+}
+
 /* ---- Panel super admin: plans & harga (Fase 10) ---- */
 
 /** Bracket harga per jumlah siswa maksimal. */

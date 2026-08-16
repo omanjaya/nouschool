@@ -718,5 +718,14 @@ live sebagai bonus di atas cakupan minimum.
   Fase 12 backend di atas connect LANGSUNG ke `localhost:8210`, bukan lewat
   Vite, sesuai batasan tugas "jangan sentuh web/")
 
+## Fase 13 — Super Admin 🚧 (rencana lengkap: docs/11-superadmin.md)
+- 🚧 Impersonation "Masuk sebagai Sekolah Ini" — ✅ backend (token sekali-pakai 2 mnt, `POST /api/admin/schools/{id}/impersonate` + `POST /api/auth/impersonate`, session support TTL 2 jam tanpa sliding renewal, audit `admin.impersonate_issued`/`_started`, `RequireSuperAdmin` sudah menolak konteks tenant); ⬜ banner "Mode support" di UI sekolah (frontend, belum dikerjakan)
+- ⬜ P1 Dashboard platform /admin (overview + daftar perlu perhatian)
+- ⬜ P2 Onboarding wizard sekolah baru (+ buat akun admin sekolah)
+- ⬜ P3 Statistik kesehatan per sekolah
+- ⬜ P4 Reset password user, audit log viewer, outbox global
+- ⬜ P5 Pengumuman platform
+- ⬜ P6 Feature override per sekolah, laporan pendapatan
+
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
 - Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.

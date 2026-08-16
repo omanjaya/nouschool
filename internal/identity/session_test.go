@@ -42,3 +42,20 @@ func TestSessionRenewWindowForRole(t *testing.T) {
 		t.Fatal("displaySessionRenewWindow harus < displaySessionTTL")
 	}
 }
+
+// TestImpersonationSessionRoleNeverSlidingRenewed — bug nyata yang kejadian
+// saat verifikasi e2e fase 13: renewal generik di RequireAuth (middleware.go)
+// HANYA melihat sess.Role, dan "admin_sekolah" biasa selalu diperpanjang
+// (renew window 15 hari). Sesi impersonation harus mati keras 2 jam sejak
+// dibuat, TIDAK PERNAH diperpanjang walau dipakai terus-menerus — renew
+// window 0 adalah mekanisme itu (lihat RequireAuth: kondisi
+// `sess.ExpiresAt.Sub(now) < sessionRenewWindowForRole(role)` tidak pernah
+// true untuk window 0 selama sesi belum kedaluwarsa).
+func TestImpersonationSessionRoleNeverSlidingRenewed(t *testing.T) {
+	if got := sessionRenewWindowForRole(impersonationSessionRole); got != 0 {
+		t.Fatalf("sesi impersonation TIDAK boleh punya renew window > 0, got %v", got)
+	}
+	if got := sessionTTLForRole(impersonationSessionRole); got != impersonationSessionTTL {
+		t.Fatalf("sessionTTLForRole(impersonationSessionRole) seharusnya impersonationSessionTTL (2 jam), got %v", got)
+	}
+}

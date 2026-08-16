@@ -135,6 +135,22 @@ func (s *Service) SchoolNameAndSlug(ctx context.Context, id int64) (name, slug s
 	return sch.Name, sch.Slug, nil
 }
 
+// SchoolStatusAndSlug mengembalikan status & slug sekolah (tipe primitif) —
+// dipakai modul identity (fase 13, fitur impersonation super admin) lewat
+// consumer-side interface SchoolGateway TANPA identity perlu mengimpor
+// package tenant untuk tipe apa pun (lihat CLAUDE.md). found=false bila
+// sekolah tidak ada (pola sama dengan SchoolNameAndSlug).
+func (s *Service) SchoolStatusAndSlug(ctx context.Context, id int64) (status, slug string, found bool, err error) {
+	sch, err := s.repo.SchoolByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return "", "", false, nil
+		}
+		return "", "", false, err
+	}
+	return sch.Status, sch.Slug, true, nil
+}
+
 // CreateAcademicYear menambah tahun ajaran baru (tidak otomatis aktif —
 // aktivasi eksplisit lewat ActivateAcademicYear).
 func (s *Service) CreateAcademicYear(ctx context.Context, actorUserID, schoolID int64, name string, startsOn, endsOn time.Time) (AcademicYear, error) {

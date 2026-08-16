@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Building2, CalendarRange, ChevronLeft, Eye, FileDown, Receipt } from 'lucide-react';
+import { Building2, CalendarRange, ChevronLeft, Eye, FileDown, LogIn, Receipt } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -17,6 +17,7 @@ import {
   useCreateAcademicYear,
   useCreateSubscription,
   useExtendSubscription,
+  useImpersonateSchool,
   useNotificationChannelSettings,
   usePlans,
   useSchoolBilling,
@@ -82,10 +83,50 @@ export function SchoolDetailPage() {
         <p className="text-[12px] text-muted">{school.slug}</p>
       </div>
 
+      <ImpersonateButton school={school} />
+
       <SchoolEditForm school={school} />
       <AcademicYearsSection schoolId={school.id} />
       <BillingSection schoolId={school.id} />
       <NotificationChannelsSection schoolId={school.id} />
+    </div>
+  );
+}
+
+/**
+ * Tombol sesi support super admin (Fase 12) — hanya untuk sekolah `active`
+ * (sekolah `suspended` tidak boleh diakses lewat sesi support). Backend
+ * membuat token sekali pakai; URL tenant dibangun DI CLIENT dari host
+ * platform saat ini (`admin.nouschool.id` → `{slug}.nouschool.id`, atau
+ * `localhost:5173` → `{slug}.localhost:5173` di dev) supaya jalan di
+ * environment mana pun tanpa hardcode domain.
+ */
+function ImpersonateButton({ school }: { school: School }) {
+  const impersonate = useImpersonateSchool(school.id);
+  const { showToast } = useToast();
+
+  if (school.status !== 'active') return null;
+
+  function handleClick() {
+    impersonate.mutate(undefined, {
+      onSuccess: ({ token, slug }) => {
+        const baseHost = window.location.host.replace(/^admin\./, '');
+        const url = `${window.location.protocol}//${slug}.${baseHost}/impersonate?token=${encodeURIComponent(token)}`;
+        window.open(url, '_blank');
+      },
+      onError: (err) => {
+        showToast(err instanceof ApiError ? err.message : 'Gagal memulai sesi support.', 'error');
+      },
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <Button variant="secondary" loading={impersonate.isPending} onClick={handleClick}>
+        <LogIn size={16} strokeWidth={2} aria-hidden="true" />
+        Masuk sebagai Sekolah Ini
+      </Button>
+      <p className="text-[11px] text-muted">Sesi support 2 jam · tercatat di audit log sekolah.</p>
     </div>
   );
 }

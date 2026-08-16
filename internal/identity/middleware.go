@@ -62,7 +62,18 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 			}
 		}
 
-		ctx = reqctx.WithUser(ctx, sess.UserID, sess.Role, sess.IsSuperAdmin)
+		// effectiveRole: sess.Role di DB bisa berupa sentinel
+		// impersonationSessionRole (fase 13, lihat impersonation.go) —
+		// diterjemahkan KEMBALI ke RoleAdminSekolah di sini supaya
+		// RequirePerm/HasPermission (rbac.go) tetap jalan normal seolah
+		// admin_sekolah biasa. Sentinel HANYA dipakai untuk mengecualikan
+		// sesi ini dari sliding renewal generik di atas (bukan role RBAC
+		// sungguhan, sengaja tidak pernah masuk reqctx/rolePermissions).
+		effectiveRole := sess.Role
+		if effectiveRole == impersonationSessionRole {
+			effectiveRole = RoleAdminSekolah
+		}
+		ctx = reqctx.WithUser(ctx, sess.UserID, effectiveRole, sess.IsSuperAdmin)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

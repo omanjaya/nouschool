@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import type {
   AcademicYear,
   AdminSchoolBillingResult,
+  ImpersonateStartResult,
   InterestLead,
   NotificationChannelSettings,
   Plan,
@@ -200,6 +201,18 @@ export function useVoidInvoice(schoolId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: schoolBillingQueryKey(schoolId) });
     },
+  });
+}
+
+/**
+ * POST /api/admin/schools/{id}/impersonate (super admin, host platform) —
+ * token sekali pakai dipakai untuk membuka sesi support di host TENANT
+ * (`GET /impersonate?token=...`, lihat `features/impersonate`). Tidak ada
+ * cache untuk diinvalidasi — hasilnya hanya dipakai sekali untuk membangun URL.
+ */
+export function useImpersonateSchool(schoolId: string) {
+  return useMutation({
+    mutationFn: () => api.post<ImpersonateStartResult>(`/admin/schools/${schoolId}/impersonate`),
   });
 }
 

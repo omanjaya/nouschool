@@ -70,6 +70,11 @@ func main() {
 		// identitySvc mengimplementasikan tenant.AuditLogger secara struktural
 		// (method Log) — tenant TIDAK mengimpor identity untuk tipe apa pun.
 		tenantSvc := tenant.NewService(tenantRepo, identitySvc)
+		// identitySvc.SetSchoolGateway di bawah (setelah tenantSvc dikonstruksi)
+		// menyuntikkan tenantSvc sebagai identity.SchoolGateway (fase 13,
+		// fitur impersonation super admin) — pola setter yang sama dengan
+		// SetBillingGateway (lihat catatan di internal/identity/service.go).
+		identitySvc.SetSchoolGateway(tenantSvc)
 		settingsSvc := tenant.NewSettingsService(tenantRepo, identitySvc)
 		hostResolver := tenant.NewHostResolver(tenantRepo, cfg.BaseDomain)
 		// domainSvc (Fase 11): custom domain end-to-end — dipakai bersama
@@ -255,7 +260,7 @@ func main() {
 		}
 
 		// --- wiring routes ---
-		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth)
+		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		student.RegisterRoutes(mux, studentHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm,
