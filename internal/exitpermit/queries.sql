@@ -179,3 +179,17 @@ WHERE id = $1 AND school_id = $2
 -- name: GateScanExitPermit :execrows
 UPDATE student_exit_permits SET status = 'exited', exited_by = $3, exited_at = now()
 WHERE gate_token = $1 AND school_id = $2 AND status = 'issued';
+
+-- name: GetStudentClassID :one
+-- Fase 15 GAP 3 (reject per tahap) — dipakai memvalidasi approver tahap 2
+-- (guru pengajar KELAS siswa jam berjalan/berikutnya), query LANGSUNG ke
+-- tabel students/enrollments/classes (pola sama internal/grading yang query
+-- langsung tabel siswa lintas modul, TANPA memanggil modul student).
+SELECT e.class_id FROM enrollments e
+JOIN classes c ON c.id = e.class_id
+WHERE e.student_id = $1 AND c.school_id = $2 AND c.academic_year_id = $3;
+
+-- name: GetStudentUserID :one
+-- Fase 15 GAP 3 — akun login siswa (bila sudah aktivasi) dipakai notifikasi
+-- "exitpermit.rejected" ke siswa sendiri (selain ortu).
+SELECT COALESCE(user_id, 0)::bigint AS user_id FROM students WHERE id = $1 AND school_id = $2;

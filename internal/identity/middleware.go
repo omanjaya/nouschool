@@ -92,9 +92,17 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 }
 
 // RequirePerm menolak request (403) bila role sesi tidak punya permission
-// tersebut (peta statis rolePermissions — lihat rbac.go). Super admin di
-// host platform lolos semua permission. Object-level check TETAP di service
-// layer masing-masing modul.
+// tersebut. Super admin di host platform lolos semua permission. Object-level
+// check TETAP di service layer masing-masing modul.
+//
+// Fase 15 Gap 2 (docs/12-sion-parity.md "matrix permission per role per
+// sekolah, override"): di host TENANT (reqctx.SchoolID != 0), gerbang ini
+// mengecek dulu school_role_permissions (override per sekolah, cache
+// in-memory TTL 60 detik — lihat effectivePermission/roleOverrideCache di
+// permoverride.go), baru fallback ke peta statis rolePermissions (rbac.go)
+// bila sekolah itu tidak punya baris override utk (role,permission) ini.
+// Host platform (tanpa sekolah) TIDAK PERNAH kena override — selalu peta
+// statis, sesuai desain (override adalah pengaturan PER SEKOLAH).
 func (s *Service) RequirePerm(perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +111,12 @@ func (s *Service) RequirePerm(perm string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if !HasPermission(reqctx.Role(ctx), perm) {
+			role := reqctx.Role(ctx)
+			allowed := HasPermission(role, perm)
+			if schoolID := reqctx.SchoolID(ctx); schoolID != 0 {
+				allowed = s.effectivePermission(ctx, schoolID, role, perm)
+			}
+			if !allowed {
 				httpx.WriteError(w, httpx.ErrForbidden)
 				return
 			}

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -47,20 +48,36 @@ type SchoolGateway interface {
 	SchoolStatusAndSlug(ctx context.Context, id int64) (status, slug string, found bool, err error)
 }
 
+// SecuritySettingsGateway adalah kebutuhan modul identity dari modul tenant
+// (Fase 15 Gap 4, docs/12-sion-parity.md "single-device login toggle per
+// sekolah") — dipenuhi *tenant.Repository secara STRUKTURAL lewat method
+// GetSetting (RAW json school_settings module "security", sudah ada sejak
+// Fase 1) — pola SAMA grading.SettingsGateway/studentleave.SettingsGateway
+// (lihat internal/tenant/letters.go), BUKAN lewat tenant.SettingsService
+// (parameter bertipe interface tenant.Settings tidak akan match struktural,
+// CLAUDE.md: consumer-side interface hanya boleh primitif). identity TIDAK
+// mengimpor tenant untuk tipe apa pun.
+type SecuritySettingsGateway interface {
+	GetSetting(ctx context.Context, schoolID int64, module string) (raw []byte, found bool, err error)
+}
+
 // Service berisi aturan bisnis modul identity: login/logout, sesi, RBAC.
 type Service struct {
 	repo          *Repository
 	rateLimiter   *RateLimiter
 	cookieSecure  bool
-	billing       BillingGateway      // opsional — nil = subscription/features dilewati di /api/me (lihat SetBillingGateway)
-	schools       SchoolGateway       // opsional — nil = IssueImpersonation gagal (lihat SetSchoolGateway)
-	impersonation *impersonationStore // token sekali-pakai impersonation (fase 13) — selalu terisi, in-memory
+	billing       BillingGateway          // opsional — nil = subscription/features dilewati di /api/me (lihat SetBillingGateway)
+	schools       SchoolGateway           // opsional — nil = IssueImpersonation gagal (lihat SetSchoolGateway)
+	security      SecuritySettingsGateway // opsional — nil = single-device login dilewati di Login (lihat SetSecuritySettingsGateway)
+	impersonation *impersonationStore     // token sekali-pakai impersonation (fase 13) — selalu terisi, in-memory
+	overrides     *roleOverrideCache      // cache matrix permission per sekolah (Fase 15 Gap 2, permoverride.go) — selalu terisi, in-memory TTL 60dtk
 }
 
 func NewService(repo *Repository, rateLimiter *RateLimiter, cookieSecure bool) *Service {
 	return &Service{
 		repo: repo, rateLimiter: rateLimiter, cookieSecure: cookieSecure,
 		impersonation: newImpersonationStore(nil),
+		overrides:     newRoleOverrideCache(60 * time.Second),
 	}
 }
 
@@ -75,6 +92,12 @@ func (s *Service) SetBillingGateway(b BillingGateway) { s.billing = b }
 // dengan SetBillingGateway di atas). Tanpa ini, IssueImpersonation
 // mengembalikan error (lihat impersonation.go).
 func (s *Service) SetSchoolGateway(g SchoolGateway) { s.schools = g }
+
+// SetSecuritySettingsGateway menyuntikkan SecuritySettingsGateway SETELAH
+// konstruksi (opsional, disuntik main.go dengan tenantRepo — pola sama
+// SetSchoolGateway di atas). nil aman/no-op: single-device login dianggap
+// nonaktif (lihat singleDeviceEnabled di bawah).
+func (s *Service) SetSecuritySettingsGateway(g SecuritySettingsGateway) { s.security = g }
 
 // LoginInput adalah parameter POST /api/auth/login.
 type LoginInput struct {
@@ -188,6 +211,23 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
+	// Fase 15 Gap 4 (docs/12-sion-parity.md "single-device login"): HANYA
+	// host tenant (schoolIDPtr != nil — sesi super admin host platform tidak
+	// pernah relevan, settings module "security" per-sekolah). Di-key oleh
+	// token_hash sesi yang BARU SAJA dibuat di atas (bukan session ID —
+	// CreateSession tidak mengembalikan baris yang dibuat, hanya error, dan
+	// mengubah signature itu berdampak ke banyak pemanggil lain di modul ini
+	// — token_hash sudah unik & sudah diketahui di sini SEBELUM insert,
+	// setara secara semantik dengan "keep session id"). Kegagalan baca
+	// setting DIABAIKAN (fail-open, sama prinsip dengan effectivePermission
+	// di permoverride.go) — login tidak boleh gagal gara-gara setting gagal
+	// termuat.
+	if schoolIDPtr != nil {
+		if enabled, serr := singleDeviceEnabled(ctx, s.security, *schoolIDPtr); serr == nil && enabled {
+			_ = s.repo.DeleteOtherSessionsByUserSchool(ctx, user.ID, *schoolIDPtr, tokenHash)
+		}
+	}
+
 	s.rateLimiter.Reset(in.IP)
 	s.rateLimiter.Reset(identifier)
 
@@ -256,3 +296,35 @@ func (s *Service) Me(ctx context.Context) (UserView, error) {
 }
 
 func (s *Service) CookieSecure() bool { return s.cookieSecure }
+
+// securitySettingsRaw adalah potongan minimal school_settings module
+// "security" yang identity peduli — HARUS cocok dengan json tag
+// tenant.SecuritySettings.SingleDevice (internal/tenant/security.go), tapi
+// SENGAJA struct lokal terpisah (identity TIDAK mengimpor tenant untuk tipe
+// apa pun, lihat SecuritySettingsGateway di atas).
+type securitySettingsRaw struct {
+	SingleDevice bool `json:"single_device"`
+}
+
+// singleDeviceEnabled adalah fungsi MURNI (testable dengan fake
+// SecuritySettingsGateway, tanpa DB) yang dipakai Login: gw nil ATAU module
+// belum pernah disimpan (found=false) -> false (default aman, sesuai
+// DefaultSecuritySettings di tenant). Error JSON malformed diteruskan ke
+// pemanggil (Login mengabaikannya via fail-open, lihat komentar di atas).
+func singleDeviceEnabled(ctx context.Context, gw SecuritySettingsGateway, schoolID int64) (bool, error) {
+	if gw == nil {
+		return false, nil
+	}
+	raw, found, err := gw.GetSetting(ctx, schoolID, "security")
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	var v securitySettingsRaw
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return false, err
+	}
+	return v.SingleDevice, nil
+}

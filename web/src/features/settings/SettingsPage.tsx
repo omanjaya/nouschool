@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Image as ImageIcon, ShieldAlert } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Image as ImageIcon, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useMe } from '../auth/api';
 import { usePublicContext } from '../branding/api';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -17,6 +18,7 @@ import { AttendanceSettingsSection } from '../attendance/AttendanceSettingsSecti
 import { GradingSettingsSection } from '../grading/GradingSettingsSection';
 import { CustomDomainSection } from './CustomDomainSection';
 import { LettersSettingsSection } from './LettersSettingsSection';
+import { SecuritySettingsSection } from './SecuritySettingsSection';
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -34,11 +36,13 @@ const SETTINGS_SECTIONS = [
   { id: 'izin', label: 'Izin' },
   { id: 'penilaian', label: 'Penilaian' },
   { id: 'surat', label: 'Surat' },
+  { id: 'keamanan', label: 'Keamanan' },
 ] as const;
 
 /** /pengaturan — hanya admin_sekolah, area sekolah (host tenant). */
 export function SettingsPage() {
   const { data: me, isLoading } = useMe();
+  const navigate = useNavigate();
 
   if (isLoading) {
     return (
@@ -69,6 +73,18 @@ export function SettingsPage() {
             {section.label}
           </a>
         ))}
+        {/*
+          "Hak Akses" (Fase 15 GAP 2) bukan anchor di halaman ini — matrix
+          role×permission cukup besar untuk jadi halaman tersendiri
+          (`/pengaturan/hak-akses`), jadi item nav ini pakai `Link` router,
+          bukan `href="#id"` seperti seksi lain di atas.
+        */}
+        <Link
+          to="/pengaturan/hak-akses"
+          className="rounded-lg px-3 py-2 text-[13px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+        >
+          Hak Akses
+        </Link>
       </nav>
 
       <div className="flex flex-col gap-8">
@@ -105,6 +121,26 @@ export function SettingsPage() {
             <h2 className="text-[18px] font-semibold text-ink">Catatan Kaki Surat</h2>
           </div>
           <LettersSettingsSection />
+        </div>
+        <div className="flex max-w-[680px] scroll-mt-6 flex-col gap-4 border-t border-line pt-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Hak Akses</p>
+            <h2 className="text-[18px] font-semibold text-ink">Hak Akses per Role</h2>
+          </div>
+          <Card className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[13px] text-muted">Atur permission yang dimiliki tiap role di sekolah ini.</p>
+            <Button variant="secondary" onClick={() => navigate('/pengaturan/hak-akses')}>
+              <ShieldCheck size={16} strokeWidth={2} aria-hidden="true" />
+              Buka Hak Akses
+            </Button>
+          </Card>
+        </div>
+        <div id="keamanan" className="flex max-w-[680px] scroll-mt-6 flex-col gap-4 border-t border-line pt-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Keamanan</p>
+            <h2 className="text-[18px] font-semibold text-ink">Pengaturan Keamanan</h2>
+          </div>
+          <SecuritySettingsSection />
         </div>
       </div>
     </div>

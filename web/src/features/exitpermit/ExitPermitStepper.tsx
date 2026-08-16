@@ -61,7 +61,10 @@ function Step({ field, permit, isLast }: { field: ExitPermitStageField; permit: 
             {info.by_name} · {formatDateTime(info.at)}
           </p>
         ) : decision === 'rejected' ? (
-          <p className="text-[12px] text-danger">Ditolak</p>
+          <p className="text-[12px] text-danger">
+            Ditolak{permit.rejected ? ` oleh ${permit.rejected.by_name}` : ''}
+            {permit.rejected?.comment ? `: ${permit.rejected.comment}` : ''}
+          </p>
         ) : !isCurrent ? (
           <p className="text-[12px] text-muted">Menunggu tahap sebelumnya</p>
         ) : null}

@@ -386,20 +386,89 @@ func (s *Service) CancelRequest(ctx context.Context, actorUserID, schoolID, perm
 	return nil
 }
 
-// -- POST /api/exit-permits/{id}/reject (admin, perm student:manage) --
+// -- POST /api/exit-permits/{id}/reject (admin ATAU approver sah tahap
+// berjalan — Fase 15 GAP 3) --
 //
-// KEPUTUSAN dilaporkan (docs tugas Fase 14 Gelombang B2): alur rantai QR SION
-// TIDAK punya endpoint "reject" formal per tahap approver (approver hanya
-// bisa MENYETUJUI dengan scan — tidak ada UI "tolak" di tiap tahap). Kami
-// SENGAJA menyimpang secukupnya: siswa boleh CANCEL selama pending (pola
-// sama studentleave), dan admin_sekolah (perm student:manage) diberi jalur
-// override "reject" administratif di tahap mana pun sebelum exited, untuk
-// menangani kasus keliru/darurat TANPA meniru UI approve/reject per tahap
-// yang tidak ada presedennya di SION.
-func (s *Service) RejectRequest(ctx context.Context, actorUserID, schoolID, permitID int64, comment string) (PermitView, error) {
-	if !s.identity.HasPermission(reqctx.Role(ctx), PermStudentManage) {
-		return PermitView{}, httpx.ErrForbidden
+// Riwayat (Fase 14 Gelombang B2): alur rantai QR SION awalnya TIDAK punya
+// endpoint "reject" formal per tahap approver — hanya admin_sekolah (perm
+// student:manage) yang punya jalur override administratif. Fase 15 GAP 3
+// (docs tugas) MEMPERLUAS ini: approver SAH TAHAP BERJALAN sekarang JUGA
+// boleh menolak — validasi otorisasi IDENTIK dengan Scan (lihat
+// requireRejectAuthority) TAPI TANPA token (aktor sudah teridentifikasi
+// lewat sesi login, bukan scan QR guru). Perilaku admin (bebas tahap mana
+// pun sebelum exited) TETAP seperti semula.
+var errCommentRequired = httpx.Validation("Komentar wajib diisi.")
+
+// errWrongClassTeacherReject — pesan KHUSUS reject tahap 2 (beda dari Scan
+// karena di sini tidak ada errNoClassSlot terpisah, satu pesan cukup).
+var errWrongClassTeacherReject = httpx.Validation("Anda bukan guru pengajar kelas siswa ini saat ini/berikutnya, atau sama dengan guru piket tahap 1.")
+
+// requireRejectAuthority menegakkan otorisasi Fase 15 GAP 3: admin
+// (student:manage) SELALU boleh, tahap status apa pun (perilaku lama TETAP).
+// SELAIN admin, HANYA approver SAH TAHAP BERJALAN yang boleh reject —
+// validasi PERSIS sama dengan Scan per tahap (lihat switch di Scan), TANPA
+// mengonsumsi token QR (aktor sudah pasti guru login, bukan hasil scan).
+func (s *Service) requireRejectAuthority(ctx context.Context, actorUserID, schoolID int64, detail Detail, now time.Time) error {
+	if s.identity.HasPermission(reqctx.Role(ctx), PermStudentManage) {
+		return nil
 	}
+	switch detail.Status {
+	case StatusPendingDutyTeacher:
+		hasFlag, err := s.duties.UserHasFlag(ctx, schoolID, actorUserID, FlagLateArrivalDuty)
+		if err != nil {
+			return err
+		}
+		if !hasFlag {
+			return httpx.ErrForbidden
+		}
+		return nil
+
+	case StatusPendingClassTeacher:
+		if actorUserID == detail.DutyBy {
+			return errWrongClassTeacherReject
+		}
+		classID, ok, err := s.repo.GetStudentClassID(ctx, schoolID, detail.AcademicYearID, detail.StudentID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errWrongClassTeacherReject
+		}
+		matches, hasSlot, err := s.schedule.TeacherMatchesClassNow(ctx, schoolID, classID, actorUserID, now)
+		if err != nil {
+			return err
+		}
+		if !hasSlot || !matches {
+			return errWrongClassTeacherReject
+		}
+		return nil
+
+	case StatusPendingBK:
+		hasFlag, err := s.duties.UserHasFlag(ctx, schoolID, actorUserID, FlagExitBKApproval)
+		if err != nil {
+			return err
+		}
+		if !hasFlag {
+			return httpx.ErrForbidden
+		}
+		return nil
+
+	case StatusPendingLeadership:
+		hasFlag, err := s.duties.UserHasFlag(ctx, schoolID, actorUserID, FlagExitLeadershipApproval)
+		if err != nil {
+			return err
+		}
+		if !hasFlag {
+			return httpx.ErrForbidden
+		}
+		return nil
+
+	default:
+		return httpx.ErrForbidden
+	}
+}
+
+func (s *Service) RejectRequest(ctx context.Context, actorUserID, schoolID, permitID int64, comment string) (PermitView, error) {
 	detail, err := s.repo.GetDetail(ctx, schoolID, permitID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -411,6 +480,12 @@ func (s *Service) RejectRequest(ctx context.Context, actorUserID, schoolID, perm
 		return PermitView{}, httpx.Validation("Pengajuan ini sudah final (exited/rejected/canceled).")
 	}
 	comment = strings.TrimSpace(comment)
+	if comment == "" {
+		return PermitView{}, errCommentRequired
+	}
+	if err := s.requireRejectAuthority(ctx, actorUserID, schoolID, detail, s.clock.Now()); err != nil {
+		return PermitView{}, err
+	}
 	rows, err := s.repo.Reject(ctx, schoolID, permitID, actorUserID, comment)
 	if err != nil {
 		return PermitView{}, err
@@ -424,8 +499,17 @@ func (s *Service) RejectRequest(ctx context.Context, actorUserID, schoolID, perm
 	if err != nil {
 		return PermitView{}, err
 	}
+
+	// Notifikasi BARU exitpermit.rejected -> siswa + ortu (docs tugas GAP 3).
 	guardians, _ := s.students.GuardianUserIDs(ctx, schoolID, detail.StudentID)
-	s.emit(schoolID, permitID, dedupInt64(guardians...))
+	studentUserID, uerr := s.repo.GetStudentUserID(ctx, schoolID, detail.StudentID)
+	recipients := guardians
+	if uerr == nil && studentUserID != 0 {
+		recipients = append(recipients, studentUserID)
+	}
+	recipients = dedupInt64(recipients...)
+	s.notify(ctx, schoolID, EventExitPermitRejected, recipients, map[string]any{"student": detail.StudentName, "comment": comment})
+	s.emit(schoolID, permitID, recipients)
 	return updated.View(""), nil
 }
 

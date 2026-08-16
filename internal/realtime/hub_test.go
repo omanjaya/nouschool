@@ -224,3 +224,30 @@ func TestPublisherNilSafe(t *testing.T) {
 	c.Drop()
 	c.Drop()
 }
+
+// TestOnlineUsersDedup — Fase 15 Gap 6 "presence": user dengan >1 koneksi
+// (mis. 2 tab) HANYA muncul SEKALI; sekolah lain & sekolah kosong tidak
+// ikut/tidak panic.
+func TestOnlineUsersDedup(t *testing.T) {
+	h := NewHub()
+	h.Register(1, 10, "guru", nil)
+	h.Register(1, 10, "guru", nil) // tab kedua, user & role sama
+	h.Register(1, 20, "kepala_sekolah", nil)
+	h.Register(2, 30, "admin_sekolah", nil) // sekolah lain, tidak ikut
+
+	online := h.OnlineUsers(1)
+	if len(online) != 2 {
+		t.Fatalf("expected 2 user unik, got %d: %+v", len(online), online)
+	}
+	byUser := map[int64]string{}
+	for _, u := range online {
+		byUser[u.UserID] = u.Role
+	}
+	if byUser[10] != "guru" || byUser[20] != "kepala_sekolah" {
+		t.Fatalf("data online salah: %+v", byUser)
+	}
+
+	if empty := h.OnlineUsers(999); len(empty) != 0 {
+		t.Fatalf("sekolah tanpa koneksi seharusnya slice kosong, got %+v", empty)
+	}
+}

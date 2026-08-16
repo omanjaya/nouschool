@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Navigate, Outlet, useSearchParams } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { GraduationCap } from 'lucide-react';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { Field, Select } from '../../components/ui/Field';
@@ -16,6 +16,12 @@ import type { ClassRef, ScheduleSlotSubjectRef } from '../../lib/types';
 export interface GradingContext {
   classId: string;
   subjectId: string;
+  /**
+   * `true` untuk kepala_sekolah (Fase 15 GAP 5, `grading:read` lintas kelas
+   * tapi tanpa mutasi) — konsumen Outlet (Rekap/Rapor) menyembunyikan tombol
+   * publikasi/bintang/simpan saat ini `true`. Selalu `false` untuk guru/admin.
+   */
+  readOnly: boolean;
 }
 
 function uniqueBy<T>(items: T[], key: (item: T) => string): T[] {
@@ -38,13 +44,17 @@ export function GradingPage() {
   const { data: me } = useMe();
   const { data: status, isLoading: statusLoading, isError: statusError, refetch: refetchStatus } = useGradingStatus();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
 
   const classId = searchParams.get('class_id') ?? '';
   const subjectId = searchParams.get('subject_id') ?? '';
 
   const isAdmin = me?.role === 'admin_sekolah';
   const isGuru = me?.role === 'guru';
-  const allowed = isAdmin || isGuru;
+  const isKepsek = me?.role === 'kepala_sekolah';
+  const allowed = isAdmin || isGuru || isKepsek;
+  /** Kepsek: baca-saja lintas kelas, hanya tab Rekap & Rapor (lihat `GradingContext.readOnly`). */
+  const canManageComponents = isAdmin || isGuru;
 
   const { data: adminClasses } = useClasses();
   const { data: adminSubjects } = useSubjects();
@@ -84,13 +94,23 @@ export function GradingPage() {
   const search = searchParams.toString();
   const qs = search ? `?${search}` : '';
   const TAB_ITEMS: TabItem[] = [
-    { to: `/nilai${qs}`, label: 'Komponen', end: true },
-    { to: `/nilai/input${qs}`, label: 'Input Nilai' },
+    ...(canManageComponents
+      ? [
+          { to: `/nilai${qs}`, label: 'Komponen', end: true },
+          { to: `/nilai/input${qs}`, label: 'Input Nilai' },
+        ]
+      : []),
     { to: `/nilai/rekap${qs}`, label: 'Rekap' },
+    { to: `/nilai/rapor${qs}`, label: 'Rapor' },
   ];
 
   if (!me) return null;
   if (!allowed) return <Navigate to="/" replace />;
+  // Kepsek tidak punya tab Komponen/Input Nilai — kalau nyasar ke sana lewat
+  // URL langsung, lempar ke Rekap (tab pertama yang tersedia untuknya).
+  if (isKepsek && (location.pathname === '/nilai' || location.pathname === '/nilai/input')) {
+    return <Navigate to={`/nilai/rekap${qs}`} replace />;
+  }
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-5 px-5 pt-6 lg:max-w-[1000px]">
@@ -142,7 +162,7 @@ export function GradingPage() {
           <Tabs items={TAB_ITEMS} />
 
           <div className="pb-8">
-            <Outlet context={{ classId, subjectId } satisfies GradingContext} />
+            <Outlet context={{ classId, subjectId, readOnly: isKepsek } satisfies GradingContext} />
           </div>
         </>
       )}

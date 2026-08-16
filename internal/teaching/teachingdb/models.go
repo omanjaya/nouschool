@@ -371,6 +371,31 @@ type PushSubscription struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type ReportManualScore struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	ClassID        int64              `json:"class_id"`
+	SubjectID      int64              `json:"subject_id"`
+	StudentID      int64              `json:"student_id"`
+	Kind           string             `json:"kind"`
+	Score          pgtype.Numeric     `json:"score"`
+	Note           string             `json:"note"`
+	SetBy          pgtype.Int8        `json:"set_by"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ReportTpMapping struct {
+	ID             int64  `json:"id"`
+	SchoolID       int64  `json:"school_id"`
+	AcademicYearID int64  `json:"academic_year_id"`
+	ClassID        int64  `json:"class_id"`
+	SubjectID      int64  `json:"subject_id"`
+	ComponentID    int64  `json:"component_id"`
+	TpCode         string `json:"tp_code"`
+	Description    string `json:"description"`
+}
+
 type Room struct {
 	ID       int64  `json:"id"`
 	SchoolID int64  `json:"school_id"`
@@ -400,6 +425,13 @@ type School struct {
 	Status        string             `json:"status"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	PendingDomain pgtype.Text        `json:"pending_domain"`
+}
+
+type SchoolRolePermission struct {
+	SchoolID   int64  `json:"school_id"`
+	Role       string `json:"role"`
+	Permission string `json:"permission"`
+	Allowed    bool   `json:"allowed"`
 }
 
 type SchoolSetting struct {

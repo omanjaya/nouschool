@@ -12,6 +12,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { formatClock } from '../schedule/format';
 import { todayISODate } from '../../lib/date';
 import { useMe } from '../auth/api';
+import { PresenceSummary } from '../presence/PresenceSummary';
 import { useTeachingStatus } from './api';
 import type { TeachingStatus, TeachingStatusItem } from '../../lib/types';
 
@@ -95,6 +96,10 @@ export function MonitoringPage() {
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
+      {/* Fase 15 GAP 6b — dipasang di TOP halaman ini (satu-satunya pemakai,
+          `canView` di atas sudah menggating admin_sekolah/kepala_sekolah). */}
+      <PresenceSummary />
+
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Mengajar</p>

@@ -176,6 +176,25 @@ func (s *Service) requireManage(ctx context.Context) error {
 	return nil
 }
 
+// requireReadAccess menggerbang endpoint READ (Fase 15 GAP 5, docs tugas:
+// "components GET, grades GET, recap GET, report/analysis GET ... menerima
+// grading:manage ATAU grading:read"). canManage=true berarti pemegang
+// grading:manage (admin_sekolah/guru) — object-level guru TETAP berlaku,
+// pemanggil masih WAJIB memanggil requireClassSubjectAccess sendiri.
+// canManage=false berarti grading:read SAJA (kepsek) — object-level DILEWATI
+// (baca SEMUA kelas-mapel), TANPA mutasi (endpoint PUT/POST/DELETE tetap
+// requireManage, TIDAK PERNAH memanggil fungsi ini).
+func (s *Service) requireReadAccess(ctx context.Context) (canManage bool, err error) {
+	role := reqctx.Role(ctx)
+	if s.identity.HasPermission(role, PermGradingManage) {
+		return true, nil
+	}
+	if s.identity.HasPermission(role, PermGradingRead) {
+		return false, nil
+	}
+	return false, httpx.ErrForbidden
+}
+
 // requireClassSubjectAccess menegakkan object-level guru (docs tugas): admin
 // bebas; guru HANYA boleh (class_id, subject_id) yang dia punya slot jadwal
 // TA aktif (ScheduleGateway.TeachesClassSubject); role lain (mestinya sudah
@@ -293,14 +312,17 @@ func (s *Service) ListComponents(ctx context.Context, schoolID int64, q ListComp
 	if _, err := s.requireEnabled(ctx, schoolID); err != nil {
 		return ComponentsPage{}, err
 	}
-	if err := s.requireManage(ctx); err != nil {
+	canManage, err := s.requireReadAccess(ctx)
+	if err != nil {
 		return ComponentsPage{}, err
 	}
 	if q.ClassID == 0 || q.SubjectID == 0 {
 		return ComponentsPage{}, httpx.Validation("class_id dan subject_id wajib diisi.")
 	}
-	if err := s.requireClassSubjectAccess(ctx, schoolID, q.ClassID, q.SubjectID); err != nil {
-		return ComponentsPage{}, err
+	if canManage {
+		if err := s.requireClassSubjectAccess(ctx, schoolID, q.ClassID, q.SubjectID); err != nil {
+			return ComponentsPage{}, err
+		}
 	}
 	rows, err := s.repo.ListComponentsByClassSubject(ctx, schoolID, q.ClassID, q.SubjectID)
 	if err != nil {
@@ -488,7 +510,8 @@ func (s *Service) GetGrades(ctx context.Context, schoolID, componentID int64) (C
 	if _, err := s.requireEnabled(ctx, schoolID); err != nil {
 		return ComponentGradesView{}, err
 	}
-	if err := s.requireManage(ctx); err != nil {
+	canManage, err := s.requireReadAccess(ctx)
+	if err != nil {
 		return ComponentGradesView{}, err
 	}
 	comp, err := s.repo.GetComponentByID(ctx, schoolID, componentID)
@@ -498,8 +521,10 @@ func (s *Service) GetGrades(ctx context.Context, schoolID, componentID int64) (C
 		}
 		return ComponentGradesView{}, err
 	}
-	if err := s.requireClassSubjectAccess(ctx, schoolID, comp.ClassID, comp.SubjectID); err != nil {
-		return ComponentGradesView{}, err
+	if canManage {
+		if err := s.requireClassSubjectAccess(ctx, schoolID, comp.ClassID, comp.SubjectID); err != nil {
+			return ComponentGradesView{}, err
+		}
 	}
 	roster, err := s.repo.ListClassRoster(ctx, schoolID, comp.ClassID)
 	if err != nil {
@@ -596,14 +621,17 @@ func (s *Service) Recap(ctx context.Context, schoolID int64, q RecapQuery) (Reca
 	if _, err := s.requireEnabled(ctx, schoolID); err != nil {
 		return RecapView{}, err
 	}
-	if err := s.requireManage(ctx); err != nil {
+	canManage, err := s.requireReadAccess(ctx)
+	if err != nil {
 		return RecapView{}, err
 	}
 	if q.ClassID == 0 || q.SubjectID == 0 {
 		return RecapView{}, httpx.Validation("class_id dan subject_id wajib diisi.")
 	}
-	if err := s.requireClassSubjectAccess(ctx, schoolID, q.ClassID, q.SubjectID); err != nil {
-		return RecapView{}, err
+	if canManage {
+		if err := s.requireClassSubjectAccess(ctx, schoolID, q.ClassID, q.SubjectID); err != nil {
+			return RecapView{}, err
+		}
 	}
 	return s.buildRecap(ctx, schoolID, q.ClassID, q.SubjectID)
 }

@@ -59,6 +59,14 @@ const (
 	// "Impersonate USER oleh admin sekolah"): admin_sekolah masuk sebagai
 	// member lain sekolahnya utk mendukung/debug.
 	PermUserImpersonate = "user:impersonate"
+	// PermGradingRead — Fase 15 Gap 5 (docs/12-sion-parity.md "akses baca
+	// modul nilai untuk kepala sekolah"): SATU baris baru, HANYA
+	// kepala_sekolah (lihat rolePermissions di bawah) — modul grading yang
+	// memakainya (gate endpoint baca nilai kepsek) dikerjakan agent lain;
+	// baris ini HANYA menambah konstanta + entri map sesuai lingkup tugas.
+	// docs/02-identity.md perlu ditambah baris tabel permission ini — dicatat
+	// di laporan tugas untuk diperbarui orchestrator (bukan diedit di sini).
+	PermGradingRead = "grading:read"
 )
 
 // rolePermissions adalah map role->permission statis (hardcode, bukan DB —
@@ -94,6 +102,10 @@ var rolePermissions = map[string]map[string]bool{
 		PermAnnouncementManage: true,
 		PermDashboardSchool:    true,
 		PermDisciplineRead:     true,
+		// PermGradingRead — Fase 15 Gap 5: HANYA kepala_sekolah (bukan
+		// admin_sekolah/guru, keduanya sudah punya grading:manage yang lebih
+		// luas) — akses baca modul nilai untuk kepsek.
+		PermGradingRead: true,
 	},
 	RoleGuru: {
 		PermStudentRead:          true,

@@ -148,6 +148,37 @@ func (h *Hub) Publish(schoolID int64, ev Event) {
 	}
 }
 
+// OnlineUser adalah satu user unik dengan koneksi WS aktif di suatu sekolah
+// (Fase 15 Gap 6 "presence") — role adalah role KONEKSI-nya (bisa beda
+// koneksi/tab beda role secara teori, sangat jarang; dedup mengambil role
+// dari koneksi PERTAMA yang ditemukan, cukup untuk presence indikatif).
+type OnlineUser struct {
+	UserID int64
+	Role   string
+}
+
+// OnlineUsers mengembalikan daftar user UNIK (dedup per user_id — satu user
+// bisa buka beberapa tab/koneksi) yang punya koneksi WS aktif di sekolah
+// schoolID SAAT INI (snapshot, bukan histori) — dipakai GET /api/presence
+// (lihat internal/realtime/presence.go).
+func (h *Hub) OnlineUsers(schoolID int64) []OnlineUser {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	set := h.schools[schoolID]
+	seen := make(map[int64]string, len(set))
+	for c := range set {
+		if _, ok := seen[c.userID]; !ok {
+			seen[c.userID] = c.role
+		}
+	}
+	out := make([]OnlineUser, 0, len(seen))
+	for userID, role := range seen {
+		out = append(out, OnlineUser{UserID: userID, Role: role})
+	}
+	return out
+}
+
 // PublishAll mengirim ev ke SEMUA sekolah yang punya SETIDAKNYA satu koneksi
 // terdaftar saat ini (fase 13 Gelombang 2, docs/11-superadmin.md P5
 // "Pengumuman platform ... publish event announcement ke SEMUA sekolah") —

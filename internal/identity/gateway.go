@@ -73,6 +73,22 @@ func (s *Service) UserIDByUsername(ctx context.Context, username string) (int64,
 	return u.ID, true, nil
 }
 
+// UserName mengembalikan nama user (found=false bila tidak ada) — dipenuhi
+// struktural sebagai realtime.IdentityGateway (consumer-side interface, Fase
+// 15 Gap 6 "presence": GET /api/presence butuh nama user online, lihat
+// internal/realtime/presence.go) — realtime TIDAK mengimpor identity untuk
+// tipe apa pun.
+func (s *Service) UserName(ctx context.Context, userID int64) (string, bool, error) {
+	u, err := s.repo.GetUserBasic(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return u.Name, true, nil
+}
+
 // UsersWithRole mengembalikan user_id seluruh user dengan membership AKTIF
 // role tsb di sekolah ini — dipakai modul leave (fase 9,
 // docs/08-notification.md) lewat consumer-side interface untuk resolve

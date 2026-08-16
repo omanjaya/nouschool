@@ -133,3 +133,43 @@ LIMIT sqlc.arg(limit_count)::int OFFSET sqlc.arg(offset_count)::int;
 SELECT COUNT(*) FROM audit_log a
 WHERE a.school_id = sqlc.arg(school_id)::bigint
   AND (sqlc.arg(action_prefix)::text = '' OR a.action LIKE sqlc.arg(action_prefix)::text || '%');
+
+-- -- Fase 15 Gap 2, docs/12-sion-parity.md "matrix permission per role per
+-- sekolah" — pengecualian dari rolePermissions statis (rbac.go), lihat
+-- migrasi 00022_role_perms_gap.sql & internal/identity/permoverride.go.
+
+-- name: ListRolePermissionOverrides :many
+SELECT school_id, role, permission, allowed FROM school_role_permissions WHERE school_id = $1;
+
+-- name: UpsertRolePermissionOverride :exec
+INSERT INTO school_role_permissions (school_id, role, permission, allowed)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (school_id, role, permission) DO UPDATE SET allowed = $4;
+
+-- name: DeleteRolePermissionOverride :exec
+DELETE FROM school_role_permissions WHERE school_id = $1 AND role = $2 AND permission = $3;
+
+-- -- Fase 15 Gap 4, docs/12-sion-parity.md "single-device login" — dipanggil
+-- Login (service.go) SETELAH sesi baru dibuat, keyed token_hash sesi baru
+-- itu sendiri (bukan ID — CreateSession tidak mengembalikan ID, lihat
+-- catatan desain di service.go) supaya sesi yang BARU dibuat TIDAK ikut
+-- terhapus.
+
+-- name: DeleteOtherSessionsByUserSchool :exec
+DELETE FROM sessions WHERE user_id = $1 AND school_id = $2 AND token_hash != $3;
+
+-- -- Fase 15 Gap 6, docs/12-sion-parity.md "nonaktifkan/aktifkan user" --
+
+-- name: GetMembershipByUserSchoolRole :one
+SELECT * FROM memberships WHERE user_id = $1 AND school_id = $2 AND role = $3;
+
+-- name: SetMembershipStatus :exec
+UPDATE memberships SET status = $4 WHERE user_id = $1 AND school_id = $2 AND role = $3;
+
+-- name: DeleteSessionsByUserSchool :exec
+-- Dipakai SetMemberStatus saat menonaktifkan membership — beda dari
+-- DeleteSessionsByUser (dipakai AdminResetPassword) yang menghapus SEMUA
+-- sesi user LINTAS SEKOLAH; di sini HANYA sesi user itu DI SEKOLAH INI
+-- (user bisa punya membership aktif di sekolah lain yang tidak boleh ikut
+-- kena).
+DELETE FROM sessions WHERE user_id = $1 AND school_id = $2;

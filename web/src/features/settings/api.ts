@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { PUBLIC_CONTEXT_QUERY_KEY } from '../branding/api';
-import type { Branding, CustomDomainStatus, LettersSettings } from '../../lib/types';
+import type { Branding, CustomDomainStatus, LettersSettings, SecuritySettings } from '../../lib/types';
 
 export const BRANDING_QUERY_KEY = ['settings', 'branding'] as const;
 
@@ -105,6 +105,29 @@ export function useUpdateLettersSettings() {
     mutationFn: (input: LettersSettings) => api.put<LettersSettings>('/settings/letters', input),
     onSuccess: (data) => {
       queryClient.setQueryData(LETTERS_SETTINGS_QUERY_KEY, data);
+    },
+  });
+}
+
+/* ---- Keamanan: satu perangkat per akun (Fase 15 GAP 4) ---- */
+
+export const SECURITY_SETTINGS_QUERY_KEY = ['settings', 'security'] as const;
+
+/** GET /api/settings/security (admin). */
+export function useSecuritySettings() {
+  return useQuery({
+    queryKey: SECURITY_SETTINGS_QUERY_KEY,
+    queryFn: () => api.get<SecuritySettings>('/settings/security'),
+  });
+}
+
+/** PUT /api/settings/security (admin). */
+export function useUpdateSecuritySettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SecuritySettings) => api.put<SecuritySettings>('/settings/security', input),
+    onSuccess: (data) => {
+      queryClient.setQueryData(SECURITY_SETTINGS_QUERY_KEY, data);
     },
   });
 }

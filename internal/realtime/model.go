@@ -13,6 +13,13 @@
 // user tertentu, atau union keduanya.
 package realtime
 
+// permTeachingMonitor — SALINAN string permission identity.PermTeachingMonitor
+// (rbac.go), dipakai gerbang GET /api/presence (Fase 15 Gap 6, presence.go)
+// — realtime TIDAK mengimpor identity untuk konstanta apa pun, pola SAMA
+// dengan modul lain yang mendeklarasikan ulang string permission-nya sendiri
+// (mis. teaching.PermTeachingMonitor di internal/teaching/model.go).
+const permTeachingMonitor = "teaching:monitor"
+
 // Event adalah satu pesan yang dipublikasikan ke Hub. Type + Data dikirim
 // APA ADANYA ke klien (lihat Message di ws.go) — Data WAJIB primitif/kecil
 // (id, tanggal, dst), BUKAN payload penuh (klien refetch via REST).

@@ -258,3 +258,69 @@ func (h *Handler) ImpersonateExchange(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, result.Token, result.ExpiresAt, h.svc.CookieSecure())
 	httpx.JSON(w, http.StatusOK, map[string]any{"user": result.View})
 }
+
+// -- Fase 15 Gap 2, docs/12-sion-parity.md "matrix permission per role per
+// sekolah" --
+
+// GetRolePermissions — GET /api/role-permissions (host tenant, perm
+// settings:manage ditegakkan di routes.go).
+func (h *Handler) GetRolePermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	view, err := h.svc.GetRolePermissions(ctx, reqctx.SchoolID(ctx))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, view)
+}
+
+type putRolePermissionsRequest struct {
+	Overrides map[string]map[string]*bool `json:"overrides"`
+}
+
+// PutRolePermissions — PUT /api/role-permissions. Body {"overrides":
+// {"role": {"perm": true|false|null}}} — null menghapus override (kembali
+// ke default statis).
+func (h *Handler) PutRolePermissions(w http.ResponseWriter, r *http.Request) {
+	var req putRolePermissionsRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	view, err := h.svc.PutRolePermissions(ctx, reqctx.SchoolID(ctx), reqctx.UserID(ctx), req.Overrides)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, view)
+}
+
+// -- Fase 15 Gap 6, docs/12-sion-parity.md "nonaktifkan/aktifkan user" --
+
+type setMemberStatusRequest struct {
+	Role   string `json:"role"`
+	Status string `json:"status"`
+}
+
+// SetMemberStatus — PATCH /api/members/{userId}/status (host tenant, perm
+// student:manage ditegakkan di routes.go).
+func (h *Handler) SetMemberStatus(w http.ResponseWriter, r *http.Request) {
+	targetID, err := pathInt64(r, "userId")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID user tidak valid."))
+		return
+	}
+	var req setMemberStatusRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	ctx := r.Context()
+	m, err := h.svc.SetMemberStatus(ctx, reqctx.SchoolID(ctx), reqctx.UserID(ctx), targetID, req.Role, req.Status)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"user_id": m.UserID, "role": m.Role, "status": m.Status})
+}

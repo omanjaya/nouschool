@@ -313,6 +313,121 @@ func (h *Handler) ExportXLSX(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
+// -- GET/PUT /api/grading/report/tp-mappings --
+
+func (h *Handler) GetTPMappings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	result, err := h.svc.GetTPMappings(ctx, reqctx.SchoolID(ctx), queryInt64(q, "class_id"), queryInt64(q, "subject_id"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+type tpMappingEntryRequest struct {
+	ComponentID int64  `json:"component_id"`
+	TPCode      string `json:"tp_code"`
+	Description string `json:"description"`
+}
+
+type putTPMappingsRequest struct {
+	Mappings []tpMappingEntryRequest `json:"mappings"`
+}
+
+func (h *Handler) PutTPMappings(w http.ResponseWriter, r *http.Request) {
+	var req putTPMappingsRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	entries := make([]TPMappingInput, 0, len(req.Mappings))
+	for _, m := range req.Mappings {
+		entries = append(entries, TPMappingInput{ComponentID: m.ComponentID, TPCode: m.TPCode, Description: m.Description})
+	}
+	ctx := r.Context()
+	q := r.URL.Query()
+	result, err := h.svc.PutTPMappings(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), queryInt64(q, "class_id"), queryInt64(q, "subject_id"), entries)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+// -- GET/PUT /api/grading/report/manual-scores --
+
+func (h *Handler) GetManualScores(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	result, err := h.svc.GetManualScores(ctx, reqctx.SchoolID(ctx), queryInt64(q, "class_id"), queryInt64(q, "subject_id"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+type manualScoreEntryRequest struct {
+	StudentID int64    `json:"student_id"`
+	Kind      string   `json:"kind"`
+	Score     *float64 `json:"score"`
+	Note      string   `json:"note"`
+}
+
+type putManualScoresRequest struct {
+	Items []manualScoreEntryRequest `json:"items"`
+}
+
+func (h *Handler) PutManualScores(w http.ResponseWriter, r *http.Request) {
+	var req putManualScoresRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	entries := make([]ManualScoreEntryInput, 0, len(req.Items))
+	for _, e := range req.Items {
+		entries = append(entries, ManualScoreEntryInput{StudentID: e.StudentID, Kind: e.Kind, Score: e.Score, Note: e.Note})
+	}
+	ctx := r.Context()
+	q := r.URL.Query()
+	result, err := h.svc.PutManualScores(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), queryInt64(q, "class_id"), queryInt64(q, "subject_id"), entries)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+// -- GET /api/grading/report/analysis --
+
+func (h *Handler) ReportAnalysis(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	result, err := h.svc.ReportAnalysis(ctx, reqctx.SchoolID(ctx), queryInt64(q, "class_id"), queryInt64(q, "subject_id"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+// -- GET /api/grading/report/export --
+
+func (h *Handler) ReportExportXLSX(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	filename, data, err := h.svc.ReportExportXLSX(ctx, reqctx.SchoolID(ctx), queryInt64(q, "class_id"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(filename)+`"`)
+	_, _ = w.Write(data)
+}
+
 // sanitizeFilename membuang tanda kutip/kontrol karakter supaya header
 // Content-Disposition tidak bisa disuntik lewat nama file — pola yang sama
 // dengan internal/discipline/handler.go & internal/leave/handler.go.

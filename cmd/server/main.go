@@ -86,6 +86,11 @@ func main() {
 		// fitur impersonation super admin) — pola setter yang sama dengan
 		// SetBillingGateway (lihat catatan di internal/identity/service.go).
 		identitySvc.SetSchoolGateway(tenantSvc)
+		// tenantRepo memenuhi identity.SecuritySettingsGateway secara
+		// STRUKTURAL lewat method GetSetting (Fase 15 Gap 4: single-device
+		// login, school_settings module "security" — pola sama
+		// disciplineSvc.SetSettingsGateway(tenantRepo) di bawah).
+		identitySvc.SetSecuritySettingsGateway(tenantRepo)
 		settingsSvc := tenant.NewSettingsService(tenantRepo, identitySvc)
 		hostResolver := tenant.NewHostResolver(tenantRepo, cfg.BaseDomain)
 		// domainSvc (Fase 11): custom domain end-to-end — dipakai bersama
@@ -110,6 +115,11 @@ func main() {
 		// di bawah, di belakang requireAuth SAJA (role display BOLEH).
 		realtimeHub := realtime.NewHub()
 		realtimeHandler := realtime.NewHandler(realtimeHub)
+		// identitySvc memenuhi realtime.IdentityGateway secara STRUKTURAL
+		// lewat method UserName (Fase 15 Gap 6 "presence": GET /api/presence
+		// butuh nama user online, lihat internal/realtime/presence.go) —
+		// realtime TIDAK mengimpor identity untuk tipe apa pun.
+		realtimeHandler.SetIdentityGateway(identitySvc)
 		realtimeAdapter := realtimeForModules{hub: realtimeHub}
 
 		// --- modul student (siswa, rombel, enrollment, wali, guru, mapel, import, undangan) ---
@@ -461,7 +471,7 @@ func main() {
 		notification.RegisterRoutes(mux, notificationHandler, identitySvc.RequireAuth)
 		billing.RegisterRoutes(mux, billingHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		platformadmin.RegisterRoutes(mux, platformAdminHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin)
-		realtime.RegisterRoutes(mux, realtimeHandler, identitySvc.RequireAuth)
+		realtime.RegisterRoutes(mux, realtimeHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 
 		// Worker outbox — poll tiap 10 detik, batch 50 (docs/08-notification.md).
 		// Berhenti dengan rapi saat ctx dibatalkan (graceful shutdown, sama

@@ -2,12 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import type {
   ChildRef,
+  GradingAnalysisResult,
   GradingComponent,
   GradingComponentGradesResult,
   GradingComponentInput,
   GradingComponentListResult,
   GradingGradeInput,
   GradingGradesSaveResult,
+  GradingManualScoreInput,
+  GradingManualScoresResult,
+  GradingManualScoresSaveResult,
   GradingPublicationInput,
   GradingRecapResult,
   GradingSettings,
@@ -15,6 +19,9 @@ import type {
   GradingStarInput,
   GradingStarListResult,
   GradingStatus,
+  GradingTpMappingInput,
+  GradingTpMappingsResult,
+  GradingTpMappingsSaveResult,
   MyGradesResult,
   MyStarsResult,
 } from '../../lib/types';
@@ -29,6 +36,9 @@ export const MY_GRADES_KEY = 'my-grades' as const;
 export const GRADING_STARS_KEY = 'grading-stars' as const;
 export const MY_STARS_KEY = 'my-stars' as const;
 export const GRADING_SETTINGS_KEY = ['grading-settings'] as const;
+export const GRADING_TP_MAPPINGS_KEY = 'grading-tp-mappings' as const;
+export const GRADING_MANUAL_SCORES_KEY = 'grading-manual-scores' as const;
+export const GRADING_ANALYSIS_KEY = 'grading-analysis' as const;
 
 /* ---- Status modul (semua role, host tenant) ---- */
 
@@ -144,6 +154,66 @@ export function useSetGradingPublication() {
 /** `<a href>` langsung (bukan fetch) — pola sama `disciplineExportUrl`. */
 export function gradingExportUrl(filter: GradingContextFilter): string {
   return `/api/grading/export?${contextQuery(filter)}`;
+}
+
+/* ---- Tab "Rapor" (Fase 15 GAP 1): pemetaan TP, nilai manual/semester lalu, analisis kelas (guru/admin; kepsek hanya Analisis via `grading:read`) ---- */
+
+/** GET /api/grading/report/tp-mappings?class_id=&subject_id= — hanya komponen tipe 'tp'. */
+export function useGradingTpMappings(filter: GradingContextFilter, enabled = true) {
+  return useQuery({
+    queryKey: [GRADING_TP_MAPPINGS_KEY, filter.classId, filter.subjectId],
+    queryFn: () => api.get<GradingTpMappingsResult>(`/grading/report/tp-mappings?${contextQuery(filter)}`),
+    enabled: enabled && Boolean(filter.classId && filter.subjectId),
+  });
+}
+
+/** PUT /api/grading/report/tp-mappings body `{mappings}` — simpan bulk (dirty guard di pemanggil). */
+export function useSaveGradingTpMappings(filter: GradingContextFilter) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (mappings: GradingTpMappingInput[]) =>
+      api.put<GradingTpMappingsSaveResult>(`/grading/report/tp-mappings?${contextQuery(filter)}`, { mappings }),
+    onSuccess: (data) => {
+      queryClient.setQueryData([GRADING_TP_MAPPINGS_KEY, filter.classId, filter.subjectId], data);
+    },
+  });
+}
+
+/** GET /api/grading/report/manual-scores?class_id=&subject_id=. */
+export function useGradingManualScores(filter: GradingContextFilter, enabled = true) {
+  return useQuery({
+    queryKey: [GRADING_MANUAL_SCORES_KEY, filter.classId, filter.subjectId],
+    queryFn: () => api.get<GradingManualScoresResult>(`/grading/report/manual-scores?${contextQuery(filter)}`),
+    enabled: enabled && Boolean(filter.classId && filter.subjectId),
+  });
+}
+
+/** PUT /api/grading/report/manual-scores body `{items}` — simpan bulk (dirty guard di pemanggil, pola `GradingInputPage`). */
+export function useSaveGradingManualScores(filter: GradingContextFilter) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (items: GradingManualScoreInput[]) =>
+      api.put<GradingManualScoresSaveResult>(`/grading/report/manual-scores?${contextQuery(filter)}`, { items }),
+    onSuccess: (data) => {
+      queryClient.setQueryData([GRADING_MANUAL_SCORES_KEY, filter.classId, filter.subjectId], data);
+      queryClient.invalidateQueries({ queryKey: [GRADING_ANALYSIS_KEY, filter.classId, filter.subjectId] });
+      queryClient.invalidateQueries({ queryKey: [GRADING_RECAP_KEY] });
+    },
+  });
+}
+
+/** GET /api/grading/report/analysis?class_id=&subject_id= — juga dipakai mode baca-saja kepsek. */
+export function useGradingAnalysis(filter: GradingContextFilter, enabled = true) {
+  return useQuery({
+    queryKey: [GRADING_ANALYSIS_KEY, filter.classId, filter.subjectId],
+    queryFn: () => api.get<GradingAnalysisResult>(`/grading/report/analysis?${contextQuery(filter)}`),
+    enabled: enabled && Boolean(filter.classId && filter.subjectId),
+  });
+}
+
+/** `<a href>` langsung — rapor SATU KELAS mencakup semua mapel (beda dari `gradingExportUrl` yang per kelas+mapel), hanya `class_id`. */
+export function gradingReportExportUrl(classId: string): string {
+  return `/api/grading/report/export?class_id=${encodeURIComponent(classId)}`;
 }
 
 /* ---- Nilai siswa/ortu ---- */

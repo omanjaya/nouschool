@@ -87,6 +87,9 @@ func NewModuleSettings(module string) (Settings, bool) {
 	case "letters":
 		l := DefaultLettersSettings()
 		return &l, true
+	case "security":
+		s := DefaultSecuritySettings()
+		return &s, true
 	default:
 		return nil, false
 	}

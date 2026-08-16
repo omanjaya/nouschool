@@ -33,6 +33,10 @@ type exitPermitRepository interface {
 	Reject(ctx context.Context, schoolID, id, rejectedBy int64, comment string) (int64, error)
 	Cancel(ctx context.Context, schoolID, id int64) (int64, error)
 	GateScan(ctx context.Context, schoolID int64, gateToken string, exitedBy int64) (int64, error)
+
+	// -- Fase 15 GAP 3 (reject per tahap) --
+	GetStudentClassID(ctx context.Context, schoolID, academicYearID, studentID int64) (classID int64, ok bool, err error)
+	GetStudentUserID(ctx context.Context, schoolID, studentID int64) (userID int64, err error)
 }
 
 var _ exitPermitRepository = (*Repository)(nil)
@@ -268,4 +272,19 @@ func (r *Repository) Cancel(ctx context.Context, schoolID, id int64) (int64, err
 
 func (r *Repository) GateScan(ctx context.Context, schoolID int64, gateToken string, exitedBy int64) (int64, error) {
 	return r.q.GateScanExitPermit(ctx, exitpermitdb.GateScanExitPermitParams{GateToken: textOrNilFrom(gateToken), SchoolID: schoolID, ExitedBy: int8OrNil(exitedBy)})
+}
+
+func (r *Repository) GetStudentClassID(ctx context.Context, schoolID, academicYearID, studentID int64) (int64, bool, error) {
+	id, err := r.q.GetStudentClassID(ctx, exitpermitdb.GetStudentClassIDParams{StudentID: studentID, SchoolID: schoolID, AcademicYearID: academicYearID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
+func (r *Repository) GetStudentUserID(ctx context.Context, schoolID, studentID int64) (int64, error) {
+	return r.q.GetStudentUserID(ctx, exitpermitdb.GetStudentUserIDParams{ID: studentID, SchoolID: schoolID})
 }

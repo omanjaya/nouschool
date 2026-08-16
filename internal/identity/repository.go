@@ -353,6 +353,110 @@ func tsToPtr(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
+// -- Fase 15 Gap 2: matrix permission override per sekolah --
+
+// RolePermOverrideRow adalah satu baris school_role_permissions.
+type RolePermOverrideRow struct {
+	Role       string
+	Permission string
+	Allowed    bool
+}
+
+func (r *Repository) ListRolePermissionOverrides(ctx context.Context, schoolID int64) ([]RolePermOverrideRow, error) {
+	rows, err := r.q.ListRolePermissionOverrides(ctx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RolePermOverrideRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, RolePermOverrideRow{Role: row.Role, Permission: row.Permission, Allowed: row.Allowed})
+	}
+	return out, nil
+}
+
+// RolePermOverrideChange adalah satu perubahan {role, permission, allowed}
+// pada PUT /api/role-permissions. Allowed nil = hapus override (kembali ke
+// default statis); non-nil = upsert nilai override.
+type RolePermOverrideChange struct {
+	Role       string
+	Permission string
+	Allowed    *bool
+}
+
+// ReplaceRolePermissionOverrides menerapkan SEMUA changes dalam SATU
+// transaksi (pola sama schedule.ReplacePeriods) — dipanggil
+// Service.PutRolePermissions SETELAH validasi (lihat permoverride.go).
+func (r *Repository) ReplaceRolePermissionOverrides(ctx context.Context, schoolID int64, changes []RolePermOverrideChange) error {
+	if len(changes) == 0 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.q.WithTx(tx)
+	for _, c := range changes {
+		if c.Allowed == nil {
+			if err := qtx.DeleteRolePermissionOverride(ctx, identitydb.DeleteRolePermissionOverrideParams{
+				SchoolID: schoolID, Role: c.Role, Permission: c.Permission,
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := qtx.UpsertRolePermissionOverride(ctx, identitydb.UpsertRolePermissionOverrideParams{
+			SchoolID: schoolID, Role: c.Role, Permission: c.Permission, Allowed: *c.Allowed,
+		}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// -- Fase 15 Gap 4: single-device login --
+
+// DeleteOtherSessionsByUserSchool menghapus SEMUA sesi user itu DI SEKOLAH
+// ini KECUALI sesi dengan token_hash keepTokenHash (sesi yang BARU dibuat
+// Login) — lihat catatan desain di service.go Login.
+func (r *Repository) DeleteOtherSessionsByUserSchool(ctx context.Context, userID, schoolID int64, keepTokenHash []byte) error {
+	return r.q.DeleteOtherSessionsByUserSchool(ctx, identitydb.DeleteOtherSessionsByUserSchoolParams{
+		// sessions.school_id nullable (NULL utk sesi super admin host
+		// platform) -> sqlc infer pgtype.Int8; schoolID di sini SELALU
+		// dikenal (Login host tenant saja memanggil ini, lihat service.go).
+		UserID: userID, SchoolID: pgtype.Int8{Int64: schoolID, Valid: true}, TokenHash: keepTokenHash,
+	})
+}
+
+// -- Fase 15 Gap 6: nonaktifkan/aktifkan user --
+
+// GetMembership mengembalikan SATU baris membership (userID, schoolID, role)
+// — ErrNotFound bila tidak ada.
+func (r *Repository) GetMembership(ctx context.Context, userID, schoolID int64, role string) (Membership, error) {
+	row, err := r.q.GetMembershipByUserSchoolRole(ctx, identitydb.GetMembershipByUserSchoolRoleParams{
+		UserID: userID, SchoolID: schoolID, Role: role,
+	})
+	if err != nil {
+		return Membership{}, mapNoRows(err)
+	}
+	return membershipFromDB(row), nil
+}
+
+func (r *Repository) SetMembershipStatus(ctx context.Context, userID, schoolID int64, role, status string) error {
+	return r.q.SetMembershipStatus(ctx, identitydb.SetMembershipStatusParams{
+		UserID: userID, SchoolID: schoolID, Role: role, Status: status,
+	})
+}
+
+// DeleteSessionsByUserSchool menghapus SEMUA sesi user itu DI SEKOLAH ini
+// SAJA (beda dari DeleteSessionsByUser yang lintas sekolah, dipakai
+// AdminResetPassword) — dipakai SetMemberStatus saat menonaktifkan.
+func (r *Repository) DeleteSessionsByUserSchool(ctx context.Context, userID, schoolID int64) error {
+	return r.q.DeleteSessionsByUserSchool(ctx, identitydb.DeleteSessionsByUserSchoolParams{
+		UserID: userID, SchoolID: pgtype.Int8{Int64: schoolID, Valid: true},
+	})
+}
+
 // -- audit --
 
 type InsertAuditLogInput struct {

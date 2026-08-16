@@ -1,18 +1,21 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft, LogIn, Pencil, UserX } from 'lucide-react';
+import { ChevronLeft, LogIn, Pencil, UserCheck, UserX } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Tag } from '../../components/ui/Tag';
 import { Button } from '../../components/ui/Button';
+import { Dialog } from '../../components/ui/Dialog';
+import { useToast } from '../../components/ui/Toast';
+import { ApiError } from '../../lib/api';
 import { formatDate } from '../../lib/date';
 import { useMe } from '../auth/api';
 import { ImpersonateUserDialog } from '../impersonateuser/ImpersonateUserDialog';
-import { useStudent } from './api';
+import { useSetStudentStatus, useStudent } from './api';
 import { StudentFormDialog } from './StudentFormDialog';
-import type { StudentStatus } from '../../lib/types';
+import type { Student, StudentStatus } from '../../lib/types';
 
 const STATUS_LABEL: Record<StudentStatus, string> = {
   active: 'Aktif',
@@ -38,6 +41,7 @@ export function StudentDetailPage() {
   const { data: student, isLoading, isError, refetch } = useStudent(id);
   const [editOpen, setEditOpen] = useState(false);
   const [impersonateOpen, setImpersonateOpen] = useState(false);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -66,6 +70,8 @@ export function StudentDetailPage() {
 
   const hasAccount = Boolean(student.user_id);
   const canImpersonate = me?.role === 'admin_sekolah' && hasAccount;
+  const canManageStatus = me?.role === 'admin_sekolah' && hasAccount;
+  const isInactive = student.membership_status === 'inactive';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -115,11 +121,25 @@ export function StudentDetailPage() {
           </div>
           <Tag variant={hasAccount ? 'now' : 'neutral'}>{hasAccount ? 'Aktif' : 'Belum aktivasi'}</Tag>
         </Card>
-        {canImpersonate && (
-          <Button variant="secondary" className="mt-3" onClick={() => setImpersonateOpen(true)}>
-            <LogIn size={16} strokeWidth={2} aria-hidden="true" />
-            Masuk sebagai Siswa Ini
-          </Button>
+        {(canImpersonate || canManageStatus) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {canImpersonate && (
+              <Button variant="secondary" onClick={() => setImpersonateOpen(true)}>
+                <LogIn size={16} strokeWidth={2} aria-hidden="true" />
+                Masuk sebagai Siswa Ini
+              </Button>
+            )}
+            {canManageStatus && (
+              <Button variant="secondary" onClick={() => setStatusDialogOpen(true)}>
+                {isInactive ? (
+                  <UserCheck size={16} strokeWidth={2} aria-hidden="true" />
+                ) : (
+                  <UserX size={16} strokeWidth={2} aria-hidden="true" />
+                )}
+                {isInactive ? 'Aktifkan Akun' : 'Nonaktifkan Akun'}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -132,6 +152,76 @@ export function StudentDetailPage() {
           userName={student.name}
         />
       )}
+      {canManageStatus && student.user_id && (
+        <DeactivateStudentDialog
+          open={statusDialogOpen}
+          onClose={() => setStatusDialogOpen(false)}
+          student={student}
+          userId={student.user_id}
+        />
+      )}
     </div>
+  );
+}
+
+/** Dialog konfirmasi nonaktifkan/aktifkan akun siswa (Fase 15 GAP 6a) — sama pola `DeactivateTeacherDialog`. */
+function DeactivateStudentDialog({
+  open,
+  onClose,
+  student,
+  userId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  student: Student;
+  userId: string;
+}) {
+  const isInactive = student.membership_status === 'inactive';
+  const setStatus = useSetStudentStatus(student.id, userId);
+  const { showToast } = useToast();
+
+  function handleConfirm() {
+    setStatus.mutate(isInactive ? 'active' : 'inactive', {
+      onSuccess: () => {
+        showToast(isInactive ? 'Akun siswa diaktifkan kembali.' : 'Akun siswa dinonaktifkan.');
+        onClose();
+      },
+      onError: (err) => showToast(err instanceof ApiError ? err.message : 'Gagal mengubah status akun.', 'error'),
+    });
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title={isInactive ? 'Aktifkan akun siswa?' : 'Nonaktifkan akun siswa?'}>
+      <p className="text-[14px] text-ink">
+        {isInactive ? (
+          <>
+            Akun <span className="font-medium">{student.name}</span> bisa login kembali seperti biasa.
+          </>
+        ) : (
+          <>
+            Akun <span className="font-medium">{student.name}</span> tidak bisa login sampai diaktifkan lagi; semua
+            sesinya keluar.
+          </>
+        )}
+      </p>
+      {setStatus.isError && (
+        <p className="mt-2 text-[12px] text-danger">
+          {setStatus.error instanceof ApiError ? setStatus.error.message : 'Gagal mengubah status akun.'}
+        </p>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onClose}>
+          Batal
+        </Button>
+        <Button
+          type="button"
+          variant={isInactive ? 'primary' : 'danger'}
+          loading={setStatus.isPending}
+          onClick={handleConfirm}
+        >
+          {isInactive ? 'Aktifkan' : 'Nonaktifkan'}
+        </Button>
+      </div>
+    </Dialog>
   );
 }

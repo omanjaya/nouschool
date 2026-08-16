@@ -80,11 +80,12 @@ func isActivePermit(status string) bool {
 }
 
 // Event kanonik — nilai HARUS sama persis dengan
-// notification.EventExitPermitIssued/Exited (didefinisikan ulang di sini
-// karena exitpermit TIDAK boleh mengimpor notification).
+// notification.EventExitPermitIssued/Exited/Rejected (didefinisikan ulang di
+// sini karena exitpermit TIDAK boleh mengimpor notification).
 const (
-	EventExitPermitIssued = "exitpermit.issued"
-	EventExitPermitExited = "exitpermit.exited"
+	EventExitPermitIssued   = "exitpermit.issued"
+	EventExitPermitExited   = "exitpermit.exited"
+	EventExitPermitRejected = "exitpermit.rejected" // Fase 15 GAP 3
 )
 
 // -- response shapes --

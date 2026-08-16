@@ -34,6 +34,10 @@ const (
 // perlu digerbang izin lebih lanjut).
 type Handler struct {
 	hub *Hub
+	// identity — opsional (Fase 15 Gap 6 "presence"), disuntik SETELAH
+	// konstruksi lewat SetIdentityGateway (nil-safe, lihat presence.go) —
+	// nil = GET /api/presence tetap jalan tapi field "name" selalu kosong.
+	identity IdentityGateway
 }
 
 // NewHandler membangun Handler baru di atas hub.

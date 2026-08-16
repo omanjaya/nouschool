@@ -99,6 +99,34 @@ func (q *Queries) CreateStar(ctx context.Context, arg CreateStarParams) (Classro
 	return i, err
 }
 
+const createTPMapping = `-- name: CreateTPMapping :exec
+INSERT INTO report_tp_mappings (school_id, academic_year_id, class_id, subject_id, component_id, tp_code, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+`
+
+type CreateTPMappingParams struct {
+	SchoolID       int64  `json:"school_id"`
+	AcademicYearID int64  `json:"academic_year_id"`
+	ClassID        int64  `json:"class_id"`
+	SubjectID      int64  `json:"subject_id"`
+	ComponentID    int64  `json:"component_id"`
+	TpCode         string `json:"tp_code"`
+	Description    string `json:"description"`
+}
+
+func (q *Queries) CreateTPMapping(ctx context.Context, arg CreateTPMappingParams) error {
+	_, err := q.db.Exec(ctx, createTPMapping,
+		arg.SchoolID,
+		arg.AcademicYearID,
+		arg.ClassID,
+		arg.SubjectID,
+		arg.ComponentID,
+		arg.TpCode,
+		arg.Description,
+	)
+	return err
+}
+
 const deleteComponent = `-- name: DeleteComponent :execrows
 DELETE FROM assessment_components WHERE id = $1 AND school_id = $2
 `
@@ -127,6 +155,32 @@ type DeleteGradeParams struct {
 
 func (q *Queries) DeleteGrade(ctx context.Context, arg DeleteGradeParams) error {
 	_, err := q.db.Exec(ctx, deleteGrade, arg.ComponentID, arg.StudentID)
+	return err
+}
+
+const deleteManualScore = `-- name: DeleteManualScore :exec
+DELETE FROM report_manual_scores
+WHERE school_id = $1 AND academic_year_id = $2 AND class_id = $3 AND subject_id = $4 AND student_id = $5 AND kind = $6
+`
+
+type DeleteManualScoreParams struct {
+	SchoolID       int64  `json:"school_id"`
+	AcademicYearID int64  `json:"academic_year_id"`
+	ClassID        int64  `json:"class_id"`
+	SubjectID      int64  `json:"subject_id"`
+	StudentID      int64  `json:"student_id"`
+	Kind           string `json:"kind"`
+}
+
+func (q *Queries) DeleteManualScore(ctx context.Context, arg DeleteManualScoreParams) error {
+	_, err := q.db.Exec(ctx, deleteManualScore,
+		arg.SchoolID,
+		arg.AcademicYearID,
+		arg.ClassID,
+		arg.SubjectID,
+		arg.StudentID,
+		arg.Kind,
+	)
 	return err
 }
 
@@ -166,6 +220,23 @@ func (q *Queries) DeleteStar(ctx context.Context, arg DeleteStarParams) (int64, 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const deleteTPMappingsForClassSubject = `-- name: DeleteTPMappingsForClassSubject :exec
+
+DELETE FROM report_tp_mappings WHERE school_id = $1 AND class_id = $2 AND subject_id = $3
+`
+
+type DeleteTPMappingsForClassSubjectParams struct {
+	SchoolID  int64 `json:"school_id"`
+	ClassID   int64 `json:"class_id"`
+	SubjectID int64 `json:"subject_id"`
+}
+
+// -- report_tp_mappings (GAP 1 rapor lanjutan) --
+func (q *Queries) DeleteTPMappingsForClassSubject(ctx context.Context, arg DeleteTPMappingsForClassSubjectParams) error {
+	_, err := q.db.Exec(ctx, deleteTPMappingsForClassSubject, arg.SchoolID, arg.ClassID, arg.SubjectID)
+	return err
 }
 
 const getClassByID = `-- name: GetClassByID :one
@@ -533,6 +604,55 @@ func (q *Queries) ListGradesForComponents(ctx context.Context, componentIds []in
 	return items, nil
 }
 
+const listManualScoresForClassSubject = `-- name: ListManualScoresForClassSubject :many
+SELECT student_id, kind, score::float8 AS score, note FROM report_manual_scores
+WHERE school_id = $1 AND academic_year_id = $2 AND class_id = $3 AND subject_id = $4
+`
+
+type ListManualScoresForClassSubjectParams struct {
+	SchoolID       int64 `json:"school_id"`
+	AcademicYearID int64 `json:"academic_year_id"`
+	ClassID        int64 `json:"class_id"`
+	SubjectID      int64 `json:"subject_id"`
+}
+
+type ListManualScoresForClassSubjectRow struct {
+	StudentID int64   `json:"student_id"`
+	Kind      string  `json:"kind"`
+	Score     float64 `json:"score"`
+	Note      string  `json:"note"`
+}
+
+func (q *Queries) ListManualScoresForClassSubject(ctx context.Context, arg ListManualScoresForClassSubjectParams) ([]ListManualScoresForClassSubjectRow, error) {
+	rows, err := q.db.Query(ctx, listManualScoresForClassSubject,
+		arg.SchoolID,
+		arg.AcademicYearID,
+		arg.ClassID,
+		arg.SubjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListManualScoresForClassSubjectRow
+	for rows.Next() {
+		var i ListManualScoresForClassSubjectRow
+		if err := rows.Scan(
+			&i.StudentID,
+			&i.Kind,
+			&i.Score,
+			&i.Note,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublishedSubjectsForClass = `-- name: ListPublishedSubjectsForClass :many
 SELECT subject_id FROM grade_publications WHERE school_id = $1 AND academic_year_id = $2 AND class_id = $3
 `
@@ -707,6 +827,135 @@ func (q *Queries) ListStarsForStudentVisible(ctx context.Context, arg ListStarsF
 	return items, nil
 }
 
+const listSubjectsWithComponentsForClass = `-- name: ListSubjectsWithComponentsForClass :many
+SELECT DISTINCT sub.id, sub.code, sub.name
+FROM assessment_components c
+JOIN subjects sub ON sub.id = c.subject_id
+WHERE c.school_id = $1 AND c.class_id = $2
+ORDER BY sub.name
+`
+
+type ListSubjectsWithComponentsForClassParams struct {
+	SchoolID int64 `json:"school_id"`
+	ClassID  int64 `json:"class_id"`
+}
+
+type ListSubjectsWithComponentsForClassRow struct {
+	ID   int64  `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// Dipakai GAP 1 report/export — daftar mapel yang PUNYA komponen penilaian
+// di kelas ini (satu kolom per mapel pada sheet rapor kelas).
+func (q *Queries) ListSubjectsWithComponentsForClass(ctx context.Context, arg ListSubjectsWithComponentsForClassParams) ([]ListSubjectsWithComponentsForClassRow, error) {
+	rows, err := q.db.Query(ctx, listSubjectsWithComponentsForClass, arg.SchoolID, arg.ClassID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubjectsWithComponentsForClassRow
+	for rows.Next() {
+		var i ListSubjectsWithComponentsForClassRow
+		if err := rows.Scan(&i.ID, &i.Code, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTPMappingsForClass = `-- name: ListTPMappingsForClass :many
+SELECT m.component_id, m.subject_id, sub.name AS subject_name, c.name AS component_name, m.tp_code, m.description
+FROM report_tp_mappings m
+JOIN assessment_components c ON c.id = m.component_id
+JOIN subjects sub ON sub.id = m.subject_id
+WHERE m.school_id = $1 AND m.class_id = $2
+ORDER BY sub.name, c.name
+`
+
+type ListTPMappingsForClassParams struct {
+	SchoolID int64 `json:"school_id"`
+	ClassID  int64 `json:"class_id"`
+}
+
+type ListTPMappingsForClassRow struct {
+	ComponentID   int64  `json:"component_id"`
+	SubjectID     int64  `json:"subject_id"`
+	SubjectName   string `json:"subject_name"`
+	ComponentName string `json:"component_name"`
+	TpCode        string `json:"tp_code"`
+	Description   string `json:"description"`
+}
+
+// Dipakai GAP 1 report/export sheet "TP" — mapping SEMUA mapel di kelas ini.
+func (q *Queries) ListTPMappingsForClass(ctx context.Context, arg ListTPMappingsForClassParams) ([]ListTPMappingsForClassRow, error) {
+	rows, err := q.db.Query(ctx, listTPMappingsForClass, arg.SchoolID, arg.ClassID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTPMappingsForClassRow
+	for rows.Next() {
+		var i ListTPMappingsForClassRow
+		if err := rows.Scan(
+			&i.ComponentID,
+			&i.SubjectID,
+			&i.SubjectName,
+			&i.ComponentName,
+			&i.TpCode,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTPMappingsForClassSubject = `-- name: ListTPMappingsForClassSubject :many
+SELECT component_id, tp_code, description FROM report_tp_mappings
+WHERE school_id = $1 AND class_id = $2 AND subject_id = $3
+`
+
+type ListTPMappingsForClassSubjectParams struct {
+	SchoolID  int64 `json:"school_id"`
+	ClassID   int64 `json:"class_id"`
+	SubjectID int64 `json:"subject_id"`
+}
+
+type ListTPMappingsForClassSubjectRow struct {
+	ComponentID int64  `json:"component_id"`
+	TpCode      string `json:"tp_code"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) ListTPMappingsForClassSubject(ctx context.Context, arg ListTPMappingsForClassSubjectParams) ([]ListTPMappingsForClassSubjectRow, error) {
+	rows, err := q.db.Query(ctx, listTPMappingsForClassSubject, arg.SchoolID, arg.ClassID, arg.SubjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTPMappingsForClassSubjectRow
+	for rows.Next() {
+		var i ListTPMappingsForClassSubjectRow
+		if err := rows.Scan(&i.ComponentID, &i.TpCode, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const studentClassID = `-- name: StudentClassID :one
 SELECT e.class_id FROM enrollments e
 JOIN classes c ON c.id = e.class_id
@@ -816,6 +1065,42 @@ func (q *Queries) UpsertGrade(ctx context.Context, arg UpsertGradeParams) (Upser
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertManualScore = `-- name: UpsertManualScore :exec
+
+INSERT INTO report_manual_scores (school_id, academic_year_id, class_id, subject_id, student_id, kind, score, note, set_by)
+VALUES ($1, $2, $3, $4, $5, $6, $9::float8, $7, $8)
+ON CONFLICT (academic_year_id, class_id, subject_id, student_id, kind) DO UPDATE SET
+    score = EXCLUDED.score, note = EXCLUDED.note, set_by = EXCLUDED.set_by, updated_at = now()
+`
+
+type UpsertManualScoreParams struct {
+	SchoolID       int64       `json:"school_id"`
+	AcademicYearID int64       `json:"academic_year_id"`
+	ClassID        int64       `json:"class_id"`
+	SubjectID      int64       `json:"subject_id"`
+	StudentID      int64       `json:"student_id"`
+	Kind           string      `json:"kind"`
+	Note           string      `json:"note"`
+	SetBy          pgtype.Int8 `json:"set_by"`
+	Score          float64     `json:"score"`
+}
+
+// -- report_manual_scores (GAP 1 rapor lanjutan) --
+func (q *Queries) UpsertManualScore(ctx context.Context, arg UpsertManualScoreParams) error {
+	_, err := q.db.Exec(ctx, upsertManualScore,
+		arg.SchoolID,
+		arg.AcademicYearID,
+		arg.ClassID,
+		arg.SubjectID,
+		arg.StudentID,
+		arg.Kind,
+		arg.Note,
+		arg.SetBy,
+		arg.Score,
+	)
+	return err
 }
 
 const upsertPublication = `-- name: UpsertPublication :exec

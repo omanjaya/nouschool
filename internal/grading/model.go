@@ -23,6 +23,14 @@ const (
 // Permission kanonik dipakai modul grading (lihat docs/02-identity.md).
 const PermGradingManage = "grading:manage"
 
+// PermGradingRead — Fase 15 GAP 5 (docs tugas): dipegang kepala_sekolah,
+// membaca SEMUA kelas-mapel (lewati object-level guru) TANPA mutasi.
+// Konstanta identity.PermGradingRead didaftarkan agent lain di rbac.go
+// SECARA PARALEL — grading TIDAK boleh mengimpor identity (lihat CLAUDE.md),
+// jadi nilai string di-hardcode literal di sini, HARUS SAMA PERSIS dengan
+// rbac.go: "grading:read".
+const PermGradingRead = "grading:read"
+
 // Tipe komponen penilaian kanonik (migrations/00017_grading.sql CHECK).
 const (
 	ComponentTP      = "tp"
@@ -183,4 +191,102 @@ type StarResult struct {
 type MyStarsView struct {
 	Total int        `json:"total"`
 	Items []StarItem `json:"items"`
+}
+
+// -- report (Fase 15 GAP 1 rapor lanjutan) --
+
+// Kind kanonik report_manual_scores.kind (migrations/00023_report_config.sql CHECK).
+const (
+	ReportScoreKindPrevious = "previous"
+	ReportScoreKindManual   = "manual"
+)
+
+func validReportScoreKind(k string) bool {
+	return k == ReportScoreKindPrevious || k == ReportScoreKindManual
+}
+
+// TPMappingRow adalah shape satu baris response GET /api/grading/report/tp-mappings
+// — SATU per komponen tipe 'tp' pada (class,subject), tp_code/description ""
+// bila belum dipetakan.
+type TPMappingRow struct {
+	ComponentID   int64  `json:"component_id"`
+	ComponentName string `json:"component_name"`
+	TPCode        string `json:"tp_code"`
+	Description   string `json:"description"`
+}
+
+// TPMappingsView adalah shape response GET /api/grading/report/tp-mappings.
+type TPMappingsView struct {
+	Items []TPMappingRow `json:"items"`
+}
+
+// TPMappingInput adalah satu baris parameter Service.PutTPMappings.
+type TPMappingInput struct {
+	ComponentID int64
+	TPCode      string
+	Description string
+}
+
+// ManualScoreDetail adalah potongan {score,note} disematkan pada ReportScoreRow.Manual.
+type ManualScoreDetail struct {
+	Score float64 `json:"score"`
+	Note  string  `json:"note"`
+}
+
+// ReportScoreRow adalah shape satu baris response GET /api/grading/report/manual-scores.
+type ReportScoreRow struct {
+	StudentID     int64              `json:"student_id"`
+	Name          string             `json:"name"`
+	NIS           string             `json:"nis"`
+	Previous      *float64           `json:"previous"`
+	Manual        *ManualScoreDetail `json:"manual"`
+	ComputedFinal *float64           `json:"computed_final"`
+}
+
+// ReportScoresView adalah shape response GET /api/grading/report/manual-scores.
+type ReportScoresView struct {
+	Items []ReportScoreRow `json:"items"`
+}
+
+// ManualScoreEntryInput adalah satu baris parameter Service.PutManualScores —
+// Score nil = hapus baris (kind) siswa itu (docs tugas: "null = hapus").
+type ManualScoreEntryInput struct {
+	StudentID int64
+	Kind      string
+	Score     *float64
+	Note      string
+}
+
+// LabelCount adalah satu baris agregasi per label pada ReportAnalysisView.
+type LabelCount struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+// BelowKktpComponentCount adalah satu baris agregasi "di bawah KKTP" per
+// komponen pada ReportAnalysisView.
+type BelowKktpComponentCount struct {
+	ComponentID int64  `json:"component_id"`
+	Name        string `json:"name"`
+	Count       int    `json:"count"`
+}
+
+// ResolvedSourceCount adalah shape ReportAnalysisView.ResolvedSource — jumlah
+// siswa per SUMBER nilai rapor ter-resolusi (manual menang atas computed;
+// none = tidak ada nilai sama sekali).
+type ResolvedSourceCount struct {
+	Computed int `json:"computed"`
+	Manual   int `json:"manual"`
+	None     int `json:"none"`
+}
+
+// ReportAnalysisView adalah shape response GET /api/grading/report/analysis.
+type ReportAnalysisView struct {
+	Avg                   float64                   `json:"avg"`
+	Min                   float64                   `json:"min"`
+	Max                   float64                   `json:"max"`
+	Count                 int                       `json:"count"`
+	PerLabel              []LabelCount              `json:"per_label"`
+	BelowKktpPerComponent []BelowKktpComponentCount `json:"below_kktp_per_component"`
+	ResolvedSource        ResolvedSourceCount       `json:"resolved_source"`
 }

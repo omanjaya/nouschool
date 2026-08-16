@@ -24,7 +24,7 @@ interface StarTarget {
  * bintang per baris.
  */
 export function GradingRecapPage() {
-  const { classId, subjectId } = useOutletContext<GradingContext>();
+  const { classId, subjectId, readOnly } = useOutletContext<GradingContext>();
   const hasContext = Boolean(classId && subjectId);
   const { showToast } = useToast();
 
@@ -95,7 +95,7 @@ export function GradingRecapPage() {
               ))}
               <th className="px-3 py-2 text-right">Final</th>
               <th className="px-3 py-2">Label</th>
-              <th className="px-3 py-2 text-right">Bintang</th>
+              {!readOnly && <th className="px-3 py-2 text-right">Bintang</th>}
             </tr>
           </thead>
           <tbody>
@@ -118,26 +118,28 @@ export function GradingRecapPage() {
                 <td className="px-3 py-2">
                   {s.label ? <Tag variant="neutral">{s.label}</Tag> : <span className="text-muted">-</span>}
                 </td>
-                <td className="px-3 py-2 text-right">
-                  <div className="flex justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setStarTarget({ student: { id: s.student_id, name: s.name }, delta: 1 })}
-                      aria-label={`Tambah bintang ${s.name}`}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-st-hadir"
-                    >
-                      <Star size={16} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStarTarget({ student: { id: s.student_id, name: s.name }, delta: -1 })}
-                      aria-label={`Kurangi bintang ${s.name}`}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-danger"
-                    >
-                      <StarOff size={16} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                  </div>
-                </td>
+                {!readOnly && (
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setStarTarget({ student: { id: s.student_id, name: s.name }, delta: 1 })}
+                        aria-label={`Tambah bintang ${s.name}`}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-st-hadir"
+                      >
+                        <Star size={16} strokeWidth={2} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStarTarget({ student: { id: s.student_id, name: s.name }, delta: -1 })}
+                        aria-label={`Kurangi bintang ${s.name}`}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-danger"
+                      >
+                        <StarOff size={16} strokeWidth={2} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -149,9 +151,11 @@ export function GradingRecapPage() {
           <Tag variant={data.published ? 'success' : 'neutral'}>
             {data.published ? 'Terpublikasi' : 'Belum dipublikasikan'}
           </Tag>
-          <Button variant="secondary" onClick={handlePublishClick} loading={publishMutation.isPending}>
-            {data.published ? 'Batalkan Publikasi' : 'Publikasikan'}
-          </Button>
+          {!readOnly && (
+            <Button variant="secondary" onClick={handlePublishClick} loading={publishMutation.isPending}>
+              {data.published ? 'Batalkan Publikasi' : 'Publikasikan'}
+            </Button>
+          )}
         </div>
         <a
           href={gradingExportUrl({ classId, subjectId })}

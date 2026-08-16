@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { Student, StudentListResult } from '../../lib/types';
+import type { MemberStatusResult, MembershipStatus, Student, StudentListResult } from '../../lib/types';
 
 export const STUDENTS_QUERY_KEY = 'students' as const;
 
@@ -71,6 +71,23 @@ export function useUpdateStudent(id: string) {
     mutationFn: (input: Partial<StudentInput>) => api.patch<Student>(`/students/${id}`, input),
     onSuccess: (data) => {
       queryClient.setQueryData(studentQueryKey(id), data);
+      queryClient.invalidateQueries({ queryKey: [STUDENTS_QUERY_KEY] });
+    },
+  });
+}
+
+/**
+ * PATCH /api/members/{userId}/status {role:'siswa', status} (admin) — Fase 15
+ * GAP 6a. `userId` di sini adalah `students.user_id` (akun sudah aktivasi) —
+ * pemanggil (`StudentDetailPage`) memastikan itu ada sebelum menampilkan aksi.
+ */
+export function useSetStudentStatus(studentId: string, userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (status: MembershipStatus) =>
+      api.patch<MemberStatusResult>(`/members/${userId}/status`, { role: 'siswa', status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: studentQueryKey(studentId) });
       queryClient.invalidateQueries({ queryKey: [STUDENTS_QUERY_KEY] });
     },
   });

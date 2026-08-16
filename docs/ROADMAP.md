@@ -1788,6 +1788,118 @@ build/vet/test ./...` hijau.
   - **Ide tertunda ditambahkan sadar (DILEWATI Gelombang D ini)**: deadline
     koreksi absensi & single-device login — lihat "Ide tertunda" di bawah
 
+## Fase 15 — Penutupan sisa gap SION ✅ (diminta user 16 Agu 2026; gap 7 = stack, keputusan desain, tidak dikerjakan)
+- ✅ Gap 1: Rapor lanjutan (pemetaan TP, nilai manual/sebelumnya, analisis, export rapor per kelas)
+  - Migrasi `00023_report_config.sql`: `report_tp_mappings` (component_id FK UNIQUE) +
+    `report_manual_scores` (kind previous/manual, UNIQUE per tahun-kelas-mapel-siswa-kind)
+  - `internal/grading/report.go` (service: GetTPMappings/PutTPMappings replace-penuh,
+    GetManualScores/PutManualScores, ReportAnalysis) + `report_repository.go` (data access) +
+    `report_export.go` (xlsx 2 sheet: "Rapor Kelas" per mapel+rata-rata, "TP" mapping)
+  - Resolusi nilai rapor: manual MENANG atas computed final; previous HANYA info
+  - Endpoint: `GET/PUT /api/grading/report/tp-mappings`, `GET/PUT /api/grading/report/manual-scores`,
+    `GET /api/grading/report/analysis`, `GET /api/grading/report/export?class_id=`
+  - e2e terverifikasi: rendi PUT tp-mapping TP1 → GET balik cocok → PUT manual (siswa 1 manual 90)
+    + previous (siswa 3, 75) → analysis (resolved_source manual:1, avg/min/max wajar) →
+    export xlsx valid (kolom Basis Data siswa 1 = "90.00 (A)", sheet TP terisi)
+- ✅ Gap 2: Editor matrix permission per role per sekolah (override, tanpa custom role baru)
+  - Migrasi `00022_role_perms_gap.sql`: `school_role_permissions (school_id, role, permission,
+    allowed, PRIMARY KEY(school_id,role,permission))` — PENGECUALIAN per sekolah dari peta
+    `rolePermissions` statis (rbac.go), BUKAN tabel role/permission baru
+  - `internal/identity/permoverride.go` (baru): `GET/PUT /api/role-permissions` (perm
+    `settings:manage`) — 6 role editable (admin_sekolah/kepala_sekolah/guru/siswa/orang_tua/
+    display — BUKAN pegawai/super_admin) × 24 permission kanonik + label Indonesia; PUT body
+    `{"overrides":{"role":{"perm":true|false|null}}}` (null = hapus, balik ke default); validasi
+    MENOLAK menyentuh role `admin_sekolah` (mencegah admin mengunci diri) DAN permission
+    `settings:manage` (siapa pun) — all-or-nothing per request, `ReplaceRolePermissionOverrides`
+    transaksional
+  - **Enforcement**: `RequirePerm` (middleware.go) — host TENANT saja — cek override dulu lewat
+    `Service.effectivePermission` (cache in-memory per sekolah TTL 60dtk, pola sama
+    `tenant.HostResolver`, invalidate SETELAH PUT sukses), fallback `HasPermission` statis.
+    **Keterbatasan disengaja didokumentasikan**: `HasPermission(role,perm)` paket-level tetap baca
+    peta statis TANPA context — dipakai beberapa modul sbg "object-level shortcut" langsung (lewat
+    consumer-side interface `identitySvc.HasPermission`) TIDAK ikut kena override; gerbang UTAMA
+    tiap route (`RequirePerm`) SELALU kena override
+  - Test: `permoverride_test.go` (`effectivePermissionFrom` murni: default-allow→deny &
+    default-deny→allow, fallback; `validateRolePermissionChanges`: admin_sekolah/settings:manage
+    ditolak upsert & hapus; get/put fake repo: upsert+delete null, all-or-nothing saat gagal;
+    cache TTL+invalidate)
+  - e2e: admin cabut `discipline:record` dari guru → rendi POST discipline/records 403 (sebelumnya
+    422 lolos RBAC) → hapus override → 422 lagi (cache invalidate LANGSUNG, tanpa tunggu TTL) →
+    arah sebaliknya: beri siswa `student:read` → GET /api/students 403→200 → larangan admin_sekolah
+    & settings:manage keduanya 422 jelas
+- ✅ Gap 3: Reject per tahap oleh approver di dispensasi keluar
+  - `internal/exitpermit/service.go`: `RejectRequest` sekarang menerima admin (student:manage,
+    perilaku lama) ATAU approver SAH tahap berjalan (`requireRejectAuthority` — validasi IDENTIK
+    Scan tapi TANPA token: piket=flag late_arrival_duty, guru kelas=jadwal jam berjalan/berikutnya
+    & beda orang dari tahap 1, BK/pimpinan=flag masing-masing); komentar WAJIB (validasi baru)
+  - Query baru `GetStudentClassID`/`GetStudentUserID` (query langsung tabel siswa, tanpa
+    mengimpor modul student) dipakai validasi tahap 2 & notifikasi siswa
+  - Notifikasi baru `exitpermit.rejected` (`internal/notification/model.go`+`templates.go`) →
+    siswa + ortu; realtime `exitpermit` tetap publish (pola existing)
+  - e2e terverifikasi: siswa ajukan izin → sari (piket, tahap 1) reject dengan komentar (200,
+    status rejected, notif in-app siswa masuk) → rendi (guru non-piket) coba reject permit baru
+    (403) → reject permit sudah final (422) → reject tanpa komentar (422)
+- ✅ Gap 4: Single-device login (toggle keamanan per sekolah)
+  - `internal/tenant/security.go` (baru): `SecuritySettings{single_device bool}` default `false`,
+    terdaftar `tenant.NewModuleSettings` module `"security"` — `PUT /api/settings/security` BIASA
+    (perm `settings:manage`, BUKAN superadmin-only)
+  - `internal/identity/service.go`: `SecuritySettingsGateway` (consumer-side interface, dipenuhi
+    `*tenant.Repository` langsung lewat `GetSetting`, pola sama `grading.SettingsGateway`,
+    disuntik `SetSecuritySettingsGateway(tenantRepo)` main.go) + `singleDeviceEnabled` (fungsi
+    murni, dites fake gateway). `Login` (HOST TENANT saja) — setelah sesi baru dibuat, bila aktif
+    → `repo.DeleteOtherSessionsByUserSchool(user, school, keepTokenHash)`. **Keputusan desain**:
+    di-key `token_hash` sesi BARU (bukan session ID — `CreateSession` tidak mengembalikan baris
+    yang dibuat, dan mengubah signature-nya berdampak ke banyak pemanggil lain di modul ini;
+    `token_hash` sudah unik & diketahui SEBELUM insert, setara secara semantik dgn "keep session id")
+  - Test: `security_test.go` (`singleDeviceEnabled`: gateway nil/belum tersimpan/true/false/JSON
+    malformed, fake repo)
+  - e2e: aktifkan `single_device` → login rendi 2x → `GET /api/me` cookie sesi PERTAMA 401, sesi
+    KEDUA tetap 200 → nonaktifkan lagi → login 2x → KEDUA sesi tetap hidup (toggle dua arah terbukti)
+- ✅ Gap 5: Akses baca modul nilai untuk kepala sekolah
+  - `internal/grading/model.go`: `PermGradingRead = "grading:read"` (literal, konstanta identity
+    didaftarkan agent paralel di rbac.go)
+  - `Service.requireReadAccess` — endpoint READ (components GET, grades GET, recap GET,
+    report/analysis GET) menerima grading:manage ATAU grading:read; pemegang grading:read SAJA
+    (kepsek) melewati object-level guru (baca SEMUA kelas-mapel), TANPA mutasi (PUT/POST/DELETE
+    tetap grading:manage-only, termasuk stars & report/tp-mappings & report/manual-scores &
+    report/export yang SENGAJA TIDAK diberi akses grading:read)
+  - `routes.go`: 4 endpoint READ itu diganti middleware dari `requirePerm(grading:manage)` jadi
+    `requireAuth` saja — permission check dipindah ke service supaya kepsek tidak diblok di mux
+  - e2e terverifikasi: kepsek GET recap BDT XII RPL 1 (200, baca kelas yang bukan miliknya) &
+    POST components (403)
+  - **Catatan (agen identity)**: `docs/02-identity.md` tabel permission BELUM diupdate di sesi ini
+    (instruksi tugas: "docs/02 diupdate orchestrator") — baris baru yang perlu ditambahkan:
+    `grading:read` dengan kolom kepsek ✅ saja, semua kolom lain kosong
+- ✅ Gap 6: Nonaktifkan/aktifkan user + presence online (WS hub)
+  - `internal/identity/memberstatus.go` (baru): `PATCH /api/members/{userId}/status` (perm
+    `student:manage`, sama gerbang CRUD siswa/pegawai) `{role, status:'active'|'inactive'}` —
+    target SATU baris membership (userId,school,role — user bisa >1 role). Larangan: diri sendiri,
+    role target `admin_sekolah`, target `is_super_admin`. Saat `inactive` →
+    `repo.DeleteSessionsByUserSchool(user,school)` (SEMUA sesi user itu DI SEKOLAH INI SAJA — beda
+    dari `DeleteSessionsByUser` lintas sekolah yang dipakai `AdminResetPassword`). Audit
+    `admin.member_status`. **Enforcement login OTOMATIS, TIDAK ada kode tambahan**: `Login` sudah
+    memanggil `ListActiveMemberships` yang SQL-nya SUDAH memfilter `status='active'` sejak Fase 1 —
+    diverifikasi e2e (bukan diasumsikan)
+  - `internal/realtime/hub.go`: `Hub.OnlineUsers(schoolID) []OnlineUser{UserID,Role}` (tipe
+    bernama, bukan struct anonim) — dedup per `user_id` dari koneksi WS aktif.
+    `internal/realtime/presence.go` (baru): `GET /api/presence` (perm `teaching:monitor` —
+    ditempatkan DI MODUL REALTIME karena state koneksi tinggal di Hub; identity hanya dibutuhkan
+    utk nama user lewat consumer-side interface `realtime.IdentityGateway.UserName`, dipenuhi
+    `*identity.Service` langsung, disuntik `realtimeHandler.SetIdentityGateway(identitySvc)`
+    main.go) → `{total, by_role:{role:count}, users:[{user_id,name,role}]}`.
+    `identity.Service.UserName` (gateway.go, baru) membungkus `GetUserBasic`
+  - `realtime.RegisterRoutes` diperluas terima `requirePerm` (dipakai KHUSUS gerbang
+    `/api/presence`; `/api/ws` tetap tanpa requirePerm sesuai Fase 12)
+  - Test: `memberstatus_test.go` (fake repo: tolak diri sendiri/role admin_sekolah/target super
+    admin/status tak dikenal/membership tak ditemukan, inactive hapus sesi HANYA di sekolah ini,
+    active tidak hapus sesi), `internal/realtime/hub_test.go` `TestOnlineUsersDedup` (user 2
+    koneksi dedup jadi 1, sekolah lain tidak ikut, sekolah kosong slice kosong)
+  - e2e: admin PATCH siswa (NIS 22101/Ahmad Fauzi, user_id 10) → inactive → login siswa → 401
+    `invalid_credentials` → cookie sesi lama siswa juga ikut 401 → aktifkan lagi → login siswa
+    → 200 lagi → larangan diri sendiri & role admin_sekolah keduanya 422 jelas → kepsek `GET
+    /api/presence` → 200 `{total,by_role,users}` shape benar (1 koneksi WS admin nyata terdeteksi
+    saat verifikasi) → guru `GET /api/presence` → 403 (`teaching:monitor` bukan milik guru)
+
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
 - Rapor formal penuh (pemetaan TP, nilai manual/sebelumnya, analisis — sisa konfigurasi lanjutan SION); Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.
 - Deadline koreksi absensi (batas waktu guru boleh mengoreksi record lama sebelum "terkunci permanen" — beda dari `edit_window_hours` yang sudah ada, ini lebih ke kebijakan administratif jangka panjang) & single-device login (satu akun hanya boleh punya satu sesi aktif, cabut sesi lama saat login baru) — disebut eksplisit di docs tugas Fase 14 Gelombang D sebagai "DILEWATI sadar", butuh keputusan user (dampak UX & multi-perangkat cukup besar, terutama single-device utk akun yang dipakai bergantian keluarga/wali).

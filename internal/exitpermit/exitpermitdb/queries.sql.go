@@ -295,6 +295,47 @@ func (q *Queries) GetExitPermitDetail(ctx context.Context, arg GetExitPermitDeta
 	return i, err
 }
 
+const getStudentClassID = `-- name: GetStudentClassID :one
+SELECT e.class_id FROM enrollments e
+JOIN classes c ON c.id = e.class_id
+WHERE e.student_id = $1 AND c.school_id = $2 AND c.academic_year_id = $3
+`
+
+type GetStudentClassIDParams struct {
+	StudentID      int64 `json:"student_id"`
+	SchoolID       int64 `json:"school_id"`
+	AcademicYearID int64 `json:"academic_year_id"`
+}
+
+// Fase 15 GAP 3 (reject per tahap) — dipakai memvalidasi approver tahap 2
+// (guru pengajar KELAS siswa jam berjalan/berikutnya), query LANGSUNG ke
+// tabel students/enrollments/classes (pola sama internal/grading yang query
+// langsung tabel siswa lintas modul, TANPA memanggil modul student).
+func (q *Queries) GetStudentClassID(ctx context.Context, arg GetStudentClassIDParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getStudentClassID, arg.StudentID, arg.SchoolID, arg.AcademicYearID)
+	var class_id int64
+	err := row.Scan(&class_id)
+	return class_id, err
+}
+
+const getStudentUserID = `-- name: GetStudentUserID :one
+SELECT COALESCE(user_id, 0)::bigint AS user_id FROM students WHERE id = $1 AND school_id = $2
+`
+
+type GetStudentUserIDParams struct {
+	ID       int64 `json:"id"`
+	SchoolID int64 `json:"school_id"`
+}
+
+// Fase 15 GAP 3 — akun login siswa (bila sudah aktivasi) dipakai notifikasi
+// "exitpermit.rejected" ke siswa sendiri (selain ortu).
+func (q *Queries) GetStudentUserID(ctx context.Context, arg GetStudentUserIDParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getStudentUserID, arg.ID, arg.SchoolID)
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const listExitPermitsActiveToday = `-- name: ListExitPermitsActiveToday :many
 SELECT
     p.id, p.school_id, p.academic_year_id, p.student_id, p.reason, p.status,

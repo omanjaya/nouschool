@@ -95,6 +95,8 @@ audit_log (
 | `billing:view` | ✅ | ✅ | | | | | |
 | `announcement:manage` | ✅ | ✅ | | | | | |
 | `dashboard:school` | ✅ | ✅ | | | | | |
+| `grading:manage` | ✅ | | ✅ | | | |
+| `grading:read` | | ✅ | | | | |
 | `discipline:manage` | ✅ | | | | | | |
 | `discipline:record` | ✅ | | ✅ | | | | |
 | `discipline:read` | ✅ | ✅ | ✅ | | | | |

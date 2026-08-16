@@ -118,3 +118,50 @@ SELECT name, nis FROM students WHERE id = $1 AND school_id = $2;
 SELECT e.class_id FROM enrollments e
 JOIN classes c ON c.id = e.class_id
 WHERE e.student_id = $1 AND c.school_id = $2 AND c.academic_year_id = $3;
+
+-- name: ListSubjectsWithComponentsForClass :many
+-- Dipakai GAP 1 report/export — daftar mapel yang PUNYA komponen penilaian
+-- di kelas ini (satu kolom per mapel pada sheet rapor kelas).
+SELECT DISTINCT sub.id, sub.code, sub.name
+FROM assessment_components c
+JOIN subjects sub ON sub.id = c.subject_id
+WHERE c.school_id = $1 AND c.class_id = $2
+ORDER BY sub.name;
+
+-- -- report_tp_mappings (GAP 1 rapor lanjutan) --
+
+-- name: DeleteTPMappingsForClassSubject :exec
+DELETE FROM report_tp_mappings WHERE school_id = $1 AND class_id = $2 AND subject_id = $3;
+
+-- name: CreateTPMapping :exec
+INSERT INTO report_tp_mappings (school_id, academic_year_id, class_id, subject_id, component_id, tp_code, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7);
+
+-- name: ListTPMappingsForClassSubject :many
+SELECT component_id, tp_code, description FROM report_tp_mappings
+WHERE school_id = $1 AND class_id = $2 AND subject_id = $3;
+
+-- name: ListTPMappingsForClass :many
+-- Dipakai GAP 1 report/export sheet "TP" — mapping SEMUA mapel di kelas ini.
+SELECT m.component_id, m.subject_id, sub.name AS subject_name, c.name AS component_name, m.tp_code, m.description
+FROM report_tp_mappings m
+JOIN assessment_components c ON c.id = m.component_id
+JOIN subjects sub ON sub.id = m.subject_id
+WHERE m.school_id = $1 AND m.class_id = $2
+ORDER BY sub.name, c.name;
+
+-- -- report_manual_scores (GAP 1 rapor lanjutan) --
+
+-- name: UpsertManualScore :exec
+INSERT INTO report_manual_scores (school_id, academic_year_id, class_id, subject_id, student_id, kind, score, note, set_by)
+VALUES ($1, $2, $3, $4, $5, $6, sqlc.arg(score)::float8, $7, $8)
+ON CONFLICT (academic_year_id, class_id, subject_id, student_id, kind) DO UPDATE SET
+    score = EXCLUDED.score, note = EXCLUDED.note, set_by = EXCLUDED.set_by, updated_at = now();
+
+-- name: DeleteManualScore :exec
+DELETE FROM report_manual_scores
+WHERE school_id = $1 AND academic_year_id = $2 AND class_id = $3 AND subject_id = $4 AND student_id = $5 AND kind = $6;
+
+-- name: ListManualScoresForClassSubject :many
+SELECT student_id, kind, score::float8 AS score, note FROM report_manual_scores
+WHERE school_id = $1 AND academic_year_id = $2 AND class_id = $3 AND subject_id = $4;

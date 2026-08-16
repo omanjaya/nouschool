@@ -28,6 +28,19 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, requireAuth, requireSuperAdm
 	mux.Handle("POST /api/admin/schools/{id}/impersonate", requireAuth(requireSuperAdmin(http.HandlerFunc(h.AdminIssueImpersonation))))
 	mux.HandleFunc("POST /api/auth/impersonate", h.ImpersonateExchange)
 
+	// Fase 15 Gap 2, docs/12-sion-parity.md "matrix permission per role per
+	// sekolah" — host tenant, admin_sekolah (perm settings:manage, SATU
+	// permission yang TIDAK BISA dioverride lewat endpoint ini sendiri,
+	// lihat permoverride.go — mencegah admin mengunci diri dari editor ini).
+	mux.Handle("GET /api/role-permissions", requireAuth(requirePerm(PermSettingsManage)(http.HandlerFunc(h.GetRolePermissions))))
+	mux.Handle("PUT /api/role-permissions", requireAuth(requirePerm(PermSettingsManage)(http.HandlerFunc(h.PutRolePermissions))))
+
+	// Fase 15 Gap 6, docs/12-sion-parity.md "nonaktifkan/aktifkan user" —
+	// host tenant, gerbang perm SAMA dgn CRUD siswa/pegawai (student:manage,
+	// lihat catatan di memberstatus.go); larangan diri sendiri/admin_sekolah/
+	// super admin ditegakkan di Service.SetMemberStatus.
+	mux.Handle("PATCH /api/members/{userId}/status", requireAuth(requirePerm(PermStudentManage)(http.HandlerFunc(h.SetMemberStatus))))
+
 	// Fase 13, docs/11-superadmin.md P4 "Operasional" — host platform, super
 	// admin saja. Ditempatkan di modul identity (bukan modul agregator baru
 	// platformadmin) karena hanya menyentuh tabel identity sendiri (lihat

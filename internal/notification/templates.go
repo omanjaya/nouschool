@@ -122,6 +122,15 @@ var registry = map[string]eventTemplate{
 		[]string{ChannelWebPush},
 		"/izin-keluar",
 	),
+	// Fase 15 GAP 3 (docs/ROADMAP.md). Data: student, comment. Dikirim ke
+	// siswa+ortu saat approver tahap berjalan (atau admin) menolak pengajuan
+	// dispensasi keluar.
+	EventExitPermitRejected: mustTemplate("exitpermit_rejected",
+		"Izin keluar ditolak",
+		"Izin keluar ditolak {{.student}}: {{.comment}}",
+		[]string{ChannelWebPush},
+		"/izin-keluar",
+	),
 	// Data: student, late_count (int), action (label Indonesia, "" bila
 	// ActionNone — template menyembunyikan kalimat aksi lewat {{if .action}}).
 	// Dikirim ke ortu setiap kali keterlambatan tercatat (scan piket pertama

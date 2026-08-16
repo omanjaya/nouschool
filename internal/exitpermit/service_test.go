@@ -66,14 +66,30 @@ func itoa(v int64) string {
 }
 
 type fakeExitRepo struct {
-	nextID int64
-	rows   map[int64]*fakeRow
-	names  map[int64]string
-	now    time.Time
+	nextID          int64
+	rows            map[int64]*fakeRow
+	names           map[int64]string
+	now             time.Time
+	classByStudent  map[int64]int64 // studentID -> classID (GetStudentClassID)
+	userIDByStudent map[int64]int64 // studentID -> login userID (GetStudentUserID)
 }
 
 func newFakeExitRepo(now time.Time) *fakeExitRepo {
-	return &fakeExitRepo{rows: map[int64]*fakeRow{}, names: map[int64]string{}, now: now}
+	return &fakeExitRepo{
+		rows: map[int64]*fakeRow{}, names: map[int64]string{}, now: now,
+		classByStudent: map[int64]int64{}, userIDByStudent: map[int64]int64{},
+	}
+}
+
+// -- Fase 15 GAP 3 (reject per tahap) --
+
+func (f *fakeExitRepo) GetStudentClassID(ctx context.Context, schoolID, academicYearID, studentID int64) (int64, bool, error) {
+	id, ok := f.classByStudent[studentID]
+	return id, ok, nil
+}
+
+func (f *fakeExitRepo) GetStudentUserID(ctx context.Context, schoolID, studentID int64) (int64, error) {
+	return f.userIDByStudent[studentID], nil
 }
 
 func (f *fakeExitRepo) CreateRequest(ctx context.Context, schoolID, academicYearID, studentID int64, reason string) (int64, error) {
@@ -375,6 +391,8 @@ func newFullSetup(now time.Time) (*Service, *fakeExitRepo, *fakeTeacherQR, *fake
 		myStudent: map[int64][2]int64{studentUserID: {studentID, classID}},
 		guardians: map[int64][]int64{studentID: {999}},
 	}
+	repo.classByStudent[studentID] = classID
+	repo.userIDByStudent[studentID] = studentUserID
 	svc := newServiceForTest(repo, defaultIdentity(), fakeYears{id: 1}, students, duties, sched, tq, clock.Fixed{T: now})
 	return svc, repo, tq, sched
 }
@@ -491,6 +509,82 @@ func TestExitPermit_RejectByAdmin(t *testing.T) {
 	rejected, err := svc.RejectRequest(ctxAs(RoleAdminSekolah, 1), 1, 1, created.ID, "tidak jelas")
 	if err != nil {
 		t.Fatalf("reject: %v", err)
+	}
+	if rejected.Status != StatusRejected {
+		t.Fatalf("expected rejected, got %s", rejected.Status)
+	}
+}
+
+// TestExitPermit_RejectRequiresComment — Fase 15 GAP 3: komentar wajib
+// diisi, bahkan untuk admin.
+func TestExitPermit_RejectRequiresComment(t *testing.T) {
+	now := time.Date(2026, 8, 16, 8, 0, 0, 0, time.UTC)
+	svc, _, _, _ := newFullSetup(now)
+	created, _ := svc.SubmitRequest(ctxAs(RoleSiswa, studentUserID), studentUserID, 1, "Sakit")
+
+	if _, err := svc.RejectRequest(ctxAs(RoleAdminSekolah, 1), 1, 1, created.ID, "   "); err == nil {
+		t.Fatal("expected error empty comment, got nil")
+	} else if domainStatus(t, err) != 422 {
+		t.Fatalf("expected 422, got %v", err)
+	}
+}
+
+// TestExitPermit_RejectByStageApprover — Fase 15 GAP 3: approver SAH tahap
+// berjalan (piket di tahap 1) boleh reject TANPA token, guru pengajar lain
+// (bukan tahap berjalan) DITOLAK.
+func TestExitPermit_RejectByStageApprover(t *testing.T) {
+	now := time.Date(2026, 8, 16, 8, 0, 0, 0, time.UTC)
+	svc, _, _, _ := newFullSetup(now)
+	created, _ := svc.SubmitRequest(ctxAs(RoleSiswa, studentUserID), studentUserID, 1, "Sakit")
+
+	// Guru pengajar (BUKAN pemegang tugas piket, tahap berjalan = pending_duty_teacher)
+	// DITOLAK.
+	if _, err := svc.RejectRequest(ctxAs("guru", classTeachID), classTeachID, 1, created.ID, "tidak sah"); err == nil {
+		t.Fatal("expected forbidden for wrong-stage approver, got nil")
+	} else if domainStatus(t, err) != 403 {
+		t.Fatalf("expected 403, got %v", err)
+	}
+
+	// Piket (pemegang flag late_arrival_duty, tahap berjalan) BOLEH reject.
+	rejected, err := svc.RejectRequest(ctxAs("guru", dutyUserID), dutyUserID, 1, created.ID, "alasan tidak masuk akal")
+	if err != nil {
+		t.Fatalf("reject by duty stage approver: %v", err)
+	}
+	if rejected.Status != StatusRejected {
+		t.Fatalf("expected rejected, got %s", rejected.Status)
+	}
+	if rejected.Rejected == nil || rejected.Rejected.Comment != "alasan tidak masuk akal" {
+		t.Fatalf("expected reject comment saved, got %+v", rejected.Rejected)
+	}
+}
+
+// TestExitPermit_RejectByStageApprover_ClassStage — tahap 2 (guru pengajar
+// kelas siswa jam berjalan, BEDA orang dari piket tahap 1) boleh reject;
+// piket (tahap 1, sudah lewat) TIDAK boleh lagi di tahap ini.
+func TestExitPermit_RejectByStageApprover_ClassStage(t *testing.T) {
+	now := time.Date(2026, 8, 16, 8, 0, 0, 0, time.UTC)
+	svc, _, tq, _ := newFullSetup(now)
+	created, _ := svc.SubmitRequest(ctxAs(RoleSiswa, studentUserID), studentUserID, 1, "Sakit")
+	tq.issue("t-duty", dutyUserID)
+	v1, err := svc.Scan(ctxAs(RoleSiswa, studentUserID), studentUserID, 1, created.ID, "t-duty")
+	if err != nil {
+		t.Fatalf("scan duty: %v", err)
+	}
+	if v1.Status != StatusPendingClassTeacher {
+		t.Fatalf("expected pending_class_teacher, got %s", v1.Status)
+	}
+
+	// Piket (tahap 1, SAMA orang) TIDAK boleh reject tahap 2.
+	if _, err := svc.RejectRequest(ctxAs("guru", dutyUserID), dutyUserID, 1, created.ID, "coba tolak lagi"); err == nil {
+		t.Fatal("expected forbidden for same-person duty at class stage, got nil")
+	} else if domainStatus(t, err) != 422 {
+		t.Fatalf("expected 422 (validation, beda orang), got %v", err)
+	}
+
+	// Guru pengajar kelas siswa saat ini (BEDA orang) BOLEH reject.
+	rejected, err := svc.RejectRequest(ctxAs("guru", classTeachID), classTeachID, 1, created.ID, "tidak sesuai jadwal")
+	if err != nil {
+		t.Fatalf("reject by class stage approver: %v", err)
 	}
 	if rejected.Status != StatusRejected {
 		t.Fatalf("expected rejected, got %s", rejected.Status)

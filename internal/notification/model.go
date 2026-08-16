@@ -45,6 +45,8 @@ const (
 	EventExitPermitIssued    = "exitpermit.issued"
 	EventExitPermitExited    = "exitpermit.exited"
 	EventLateArrivalRecorded = "latearrival.recorded"
+	// Fase 15 GAP 3 (docs/ROADMAP.md) — reject per tahap dispensasi keluar.
+	EventExitPermitRejected = "exitpermit.rejected"
 	// Fase 14 Gelombang C (docs/12-sion-parity.md).
 	EventGradingPublished = "grading.published"
 	// Fase 14 Gelombang D (docs/12-sion-parity.md).

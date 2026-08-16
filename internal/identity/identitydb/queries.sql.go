@@ -175,6 +175,42 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteOtherSessionsByUserSchool = `-- name: DeleteOtherSessionsByUserSchool :exec
+
+DELETE FROM sessions WHERE user_id = $1 AND school_id = $2 AND token_hash != $3
+`
+
+type DeleteOtherSessionsByUserSchoolParams struct {
+	UserID    int64       `json:"user_id"`
+	SchoolID  pgtype.Int8 `json:"school_id"`
+	TokenHash []byte      `json:"token_hash"`
+}
+
+// -- Fase 15 Gap 4, docs/12-sion-parity.md "single-device login" — dipanggil
+// Login (service.go) SETELAH sesi baru dibuat, keyed token_hash sesi baru
+// itu sendiri (bukan ID — CreateSession tidak mengembalikan ID, lihat
+// catatan desain di service.go) supaya sesi yang BARU dibuat TIDAK ikut
+// terhapus.
+func (q *Queries) DeleteOtherSessionsByUserSchool(ctx context.Context, arg DeleteOtherSessionsByUserSchoolParams) error {
+	_, err := q.db.Exec(ctx, deleteOtherSessionsByUserSchool, arg.UserID, arg.SchoolID, arg.TokenHash)
+	return err
+}
+
+const deleteRolePermissionOverride = `-- name: DeleteRolePermissionOverride :exec
+DELETE FROM school_role_permissions WHERE school_id = $1 AND role = $2 AND permission = $3
+`
+
+type DeleteRolePermissionOverrideParams struct {
+	SchoolID   int64  `json:"school_id"`
+	Role       string `json:"role"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) DeleteRolePermissionOverride(ctx context.Context, arg DeleteRolePermissionOverrideParams) error {
+	_, err := q.db.Exec(ctx, deleteRolePermissionOverride, arg.SchoolID, arg.Role, arg.Permission)
+	return err
+}
+
 const deleteSessionByTokenHash = `-- name: DeleteSessionByTokenHash :exec
 DELETE FROM sessions WHERE token_hash = $1
 `
@@ -198,6 +234,25 @@ DELETE FROM sessions WHERE user_id = $1
 // lama langsung tidak berlaku lagi di device manapun.
 func (q *Queries) DeleteSessionsByUser(ctx context.Context, userID int64) error {
 	_, err := q.db.Exec(ctx, deleteSessionsByUser, userID)
+	return err
+}
+
+const deleteSessionsByUserSchool = `-- name: DeleteSessionsByUserSchool :exec
+DELETE FROM sessions WHERE user_id = $1 AND school_id = $2
+`
+
+type DeleteSessionsByUserSchoolParams struct {
+	UserID   int64       `json:"user_id"`
+	SchoolID pgtype.Int8 `json:"school_id"`
+}
+
+// Dipakai SetMemberStatus saat menonaktifkan membership — beda dari
+// DeleteSessionsByUser (dipakai AdminResetPassword) yang menghapus SEMUA
+// sesi user LINTAS SEKOLAH; di sini HANYA sesi user itu DI SEKOLAH INI
+// (user bisa punya membership aktif di sekolah lain yang tidak boleh ikut
+// kena).
+func (q *Queries) DeleteSessionsByUserSchool(ctx context.Context, arg DeleteSessionsByUserSchoolParams) error {
+	_, err := q.db.Exec(ctx, deleteSessionsByUserSchool, arg.UserID, arg.SchoolID)
 	return err
 }
 
@@ -266,6 +321,31 @@ func (q *Queries) GetInvitationByCode(ctx context.Context, code string) (Invitat
 		&i.TargetID,
 		&i.ExpiresAt,
 		&i.UsedAt,
+	)
+	return i, err
+}
+
+const getMembershipByUserSchoolRole = `-- name: GetMembershipByUserSchoolRole :one
+
+SELECT id, user_id, school_id, role, status FROM memberships WHERE user_id = $1 AND school_id = $2 AND role = $3
+`
+
+type GetMembershipByUserSchoolRoleParams struct {
+	UserID   int64  `json:"user_id"`
+	SchoolID int64  `json:"school_id"`
+	Role     string `json:"role"`
+}
+
+// -- Fase 15 Gap 6, docs/12-sion-parity.md "nonaktifkan/aktifkan user" --
+func (q *Queries) GetMembershipByUserSchoolRole(ctx context.Context, arg GetMembershipByUserSchoolRoleParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, getMembershipByUserSchoolRole, arg.UserID, arg.SchoolID, arg.Role)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.SchoolID,
+		&i.Role,
+		&i.Status,
 	)
 	return i, err
 }
@@ -588,6 +668,39 @@ func (q *Queries) ListMembersForSchool(ctx context.Context, schoolID int64) ([]L
 	return items, nil
 }
 
+const listRolePermissionOverrides = `-- name: ListRolePermissionOverrides :many
+
+SELECT school_id, role, permission, allowed FROM school_role_permissions WHERE school_id = $1
+`
+
+// -- Fase 15 Gap 2, docs/12-sion-parity.md "matrix permission per role per
+// sekolah" — pengecualian dari rolePermissions statis (rbac.go), lihat
+// migrasi 00022_role_perms_gap.sql & internal/identity/permoverride.go.
+func (q *Queries) ListRolePermissionOverrides(ctx context.Context, schoolID int64) ([]SchoolRolePermission, error) {
+	rows, err := q.db.Query(ctx, listRolePermissionOverrides, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SchoolRolePermission
+	for rows.Next() {
+		var i SchoolRolePermission
+		if err := rows.Scan(
+			&i.SchoolID,
+			&i.Role,
+			&i.Permission,
+			&i.Allowed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserIDsByRole = `-- name: ListUserIDsByRole :many
 SELECT DISTINCT user_id FROM memberships
 WHERE school_id = $1::bigint AND role = $2::text AND status = 'active'
@@ -635,6 +748,27 @@ func (q *Queries) MarkInvitationUsed(ctx context.Context, arg MarkInvitationUsed
 	return err
 }
 
+const setMembershipStatus = `-- name: SetMembershipStatus :exec
+UPDATE memberships SET status = $4 WHERE user_id = $1 AND school_id = $2 AND role = $3
+`
+
+type SetMembershipStatusParams struct {
+	UserID   int64  `json:"user_id"`
+	SchoolID int64  `json:"school_id"`
+	Role     string `json:"role"`
+	Status   string `json:"status"`
+}
+
+func (q *Queries) SetMembershipStatus(ctx context.Context, arg SetMembershipStatusParams) error {
+	_, err := q.db.Exec(ctx, setMembershipStatus,
+		arg.UserID,
+		arg.SchoolID,
+		arg.Role,
+		arg.Status,
+	)
+	return err
+}
+
 const setSuperAdmin = `-- name: SetSuperAdmin :exec
 UPDATE users SET is_super_admin = $2 WHERE id = $1
 `
@@ -674,5 +808,28 @@ type UpdateUserPasswordParams struct {
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	return err
+}
+
+const upsertRolePermissionOverride = `-- name: UpsertRolePermissionOverride :exec
+INSERT INTO school_role_permissions (school_id, role, permission, allowed)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (school_id, role, permission) DO UPDATE SET allowed = $4
+`
+
+type UpsertRolePermissionOverrideParams struct {
+	SchoolID   int64  `json:"school_id"`
+	Role       string `json:"role"`
+	Permission string `json:"permission"`
+	Allowed    bool   `json:"allowed"`
+}
+
+func (q *Queries) UpsertRolePermissionOverride(ctx context.Context, arg UpsertRolePermissionOverrideParams) error {
+	_, err := q.db.Exec(ctx, upsertRolePermissionOverride,
+		arg.SchoolID,
+		arg.Role,
+		arg.Permission,
+		arg.Allowed,
+	)
 	return err
 }

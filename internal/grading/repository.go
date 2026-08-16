@@ -58,6 +58,15 @@ type gradingRepository interface {
 	ListClassRoster(ctx context.Context, schoolID, classID int64) ([]RosterStudent, error)
 	GetStudentBasic(ctx context.Context, schoolID, studentID int64) (name, nis string, ok bool, err error)
 	StudentClassID(ctx context.Context, schoolID, academicYearID, studentID int64) (classID int64, ok bool, err error)
+	ListSubjectsWithComponentsForClass(ctx context.Context, schoolID, classID int64) ([]SubjectRef, error)
+
+	// -- report (Fase 15 GAP 1) --
+	ReplaceTPMappings(ctx context.Context, schoolID, academicYearID, classID, subjectID int64, mappings []TPMappingInput) error
+	ListTPMappingsForClassSubject(ctx context.Context, schoolID, classID, subjectID int64) ([]TPMappingRecord, error)
+	ListTPMappingsForClass(ctx context.Context, schoolID, classID int64) ([]TPMappingWithSubject, error)
+	UpsertManualScore(ctx context.Context, schoolID, academicYearID, classID, subjectID, studentID int64, kind string, score float64, note string, setBy int64) error
+	DeleteManualScore(ctx context.Context, schoolID, academicYearID, classID, subjectID, studentID int64, kind string) error
+	ListManualScoresForClassSubject(ctx context.Context, schoolID, academicYearID, classID, subjectID int64) ([]ManualScoreRecord, error)
 }
 
 var _ gradingRepository = (*Repository)(nil)

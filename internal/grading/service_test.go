@@ -24,6 +24,16 @@ type fakeRepo struct {
 	roster       map[int64][]RosterStudent // classID -> students
 	studentBasic map[int64][2]string       // studentID -> [name, nis]
 	studentClass map[[3]int64]int64        // school,year,studentID -> classID
+
+	// -- Fase 15 GAP 1 (rapor lanjutan) --
+	tpMappings   map[tpKey]TPMappingRecord
+	manualScores map[manualKey]ManualScoreRecord
+}
+
+type tpKey struct{ School, Class, Subject, Component int64 }
+type manualKey struct {
+	School, Year, Class, Subject, Student int64
+	Kind                                  string
 }
 
 func newFakeRepo() *fakeRepo {
@@ -251,6 +261,85 @@ func (f *fakeRepo) StudentClassID(ctx context.Context, schoolID, academicYearID,
 	return id, ok, nil
 }
 
+func (f *fakeRepo) ListSubjectsWithComponentsForClass(ctx context.Context, schoolID, classID int64) ([]SubjectRef, error) {
+	seen := map[int64]bool{}
+	var out []SubjectRef
+	for _, c := range f.components {
+		if c.SchoolID == schoolID && c.ClassID == classID && !seen[c.SubjectID] {
+			seen[c.SubjectID] = true
+			if sub, ok := f.subjects[c.SubjectID]; ok {
+				out = append(out, sub)
+			}
+		}
+	}
+	return out, nil
+}
+
+// -- Fase 15 GAP 1 (rapor lanjutan) --
+
+func (f *fakeRepo) ReplaceTPMappings(ctx context.Context, schoolID, academicYearID, classID, subjectID int64, mappings []TPMappingInput) error {
+	if f.tpMappings == nil {
+		f.tpMappings = map[tpKey]TPMappingRecord{}
+	}
+	for k := range f.tpMappings {
+		if k.School == schoolID && k.Class == classID && k.Subject == subjectID {
+			delete(f.tpMappings, k)
+		}
+	}
+	for _, m := range mappings {
+		f.tpMappings[tpKey{schoolID, classID, subjectID, m.ComponentID}] = TPMappingRecord{ComponentID: m.ComponentID, TPCode: m.TPCode, Description: m.Description}
+	}
+	return nil
+}
+
+func (f *fakeRepo) ListTPMappingsForClassSubject(ctx context.Context, schoolID, classID, subjectID int64) ([]TPMappingRecord, error) {
+	var out []TPMappingRecord
+	for k, v := range f.tpMappings {
+		if k.School == schoolID && k.Class == classID && k.Subject == subjectID {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) ListTPMappingsForClass(ctx context.Context, schoolID, classID int64) ([]TPMappingWithSubject, error) {
+	var out []TPMappingWithSubject
+	for k, v := range f.tpMappings {
+		if k.School == schoolID && k.Class == classID {
+			sub := f.subjects[k.Subject]
+			comp := f.components[k.Component]
+			out = append(out, TPMappingWithSubject{
+				ComponentID: v.ComponentID, SubjectID: k.Subject, SubjectName: sub.Name,
+				ComponentName: comp.Name, TPCode: v.TPCode, Description: v.Description,
+			})
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) UpsertManualScore(ctx context.Context, schoolID, academicYearID, classID, subjectID, studentID int64, kind string, score float64, note string, setBy int64) error {
+	if f.manualScores == nil {
+		f.manualScores = map[manualKey]ManualScoreRecord{}
+	}
+	f.manualScores[manualKey{schoolID, academicYearID, classID, subjectID, studentID, kind}] = ManualScoreRecord{StudentID: studentID, Kind: kind, Score: score, Note: note}
+	return nil
+}
+
+func (f *fakeRepo) DeleteManualScore(ctx context.Context, schoolID, academicYearID, classID, subjectID, studentID int64, kind string) error {
+	delete(f.manualScores, manualKey{schoolID, academicYearID, classID, subjectID, studentID, kind})
+	return nil
+}
+
+func (f *fakeRepo) ListManualScoresForClassSubject(ctx context.Context, schoolID, academicYearID, classID, subjectID int64) ([]ManualScoreRecord, error) {
+	var out []ManualScoreRecord
+	for k, v := range f.manualScores {
+		if k.School == schoolID && k.Year == academicYearID && k.Class == classID && k.Subject == subjectID {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
 // -- fake gateways --
 
 type fakeIdentity struct{ perms map[string]map[string]bool }
@@ -262,8 +351,9 @@ func (f fakeIdentity) Log(ctx context.Context, schoolID, userID *int64, action, 
 
 func defaultPerms() map[string]map[string]bool {
 	return map[string]map[string]bool{
-		RoleAdminSekolah: {PermGradingManage: true},
-		RoleGuru:         {PermGradingManage: true},
+		RoleAdminSekolah:  {PermGradingManage: true},
+		RoleGuru:          {PermGradingManage: true},
+		RoleKepalaSekolah: {PermGradingRead: true},
 	}
 }
 
@@ -678,5 +768,152 @@ func TestCreateStar_GuruNeedsClassAccess(t *testing.T) {
 	_, err = svc.CreateStar(ctx, 99, 1, StarCreateInput{StudentID: 10, Delta: 1, Visibility: VisibilityPrivate})
 	if err != nil {
 		t.Fatalf("guru dengan slot kelas harus diizinkan (mapel apa pun): %v", err)
+	}
+}
+
+// -- tests: Fase 15 GAP 5 (grading:read kepala_sekolah) --
+
+func TestRequireReadAccess_KepsekBypassesObjectLevel(t *testing.T) {
+	repo := newFakeRepo()
+	repo.classes[1] = ClassRef{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	repo.subjects[1] = SubjectRef{ID: 1, Code: "BD", Name: "Basis Data"}
+	svc, _, _, _ := newTestService(t, repo, true, 1)
+	ctx := ctxFor(1, 50, RoleKepalaSekolah) // TIDAK punya slot jadwal apa pun
+	if _, err := svc.Recap(ctx, 1, RecapQuery{ClassID: 1, SubjectID: 1}); err != nil {
+		t.Fatalf("kepsek (grading:read) harus bisa baca recap kelas-mapel APA PUN: %v", err)
+	}
+	if _, err := svc.ListComponents(ctx, 1, ListComponentsQuery{ClassID: 1, SubjectID: 1}); err != nil {
+		t.Fatalf("kepsek (grading:read) harus bisa baca components: %v", err)
+	}
+	if _, err := svc.ReportAnalysis(ctx, 1, 1, 1); err != nil {
+		t.Fatalf("kepsek (grading:read) harus bisa baca report/analysis: %v", err)
+	}
+}
+
+func TestRequireReadAccess_KepsekCannotMutate(t *testing.T) {
+	repo := newFakeRepo()
+	repo.classes[1] = ClassRef{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	repo.subjects[1] = SubjectRef{ID: 1, Code: "BD", Name: "Basis Data"}
+	svc, _, _, _ := newTestService(t, repo, true, 1)
+	ctx := ctxFor(1, 50, RoleKepalaSekolah)
+	_, err := svc.CreateComponent(ctx, 50, 1, ComponentCreateInput{ClassID: 1, SubjectID: 1, Name: "TP1", Type: ComponentTP, Weight: 30, Kktp: 75})
+	if !errors.Is(err, httpx.ErrForbidden) {
+		t.Fatalf("kepsek TIDAK boleh mutasi (POST components), got %v", err)
+	}
+}
+
+func TestRequireReadAccess_NoPermission_Forbidden(t *testing.T) {
+	repo := newFakeRepo()
+	repo.classes[1] = ClassRef{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	repo.subjects[1] = SubjectRef{ID: 1, Code: "BD", Name: "Basis Data"}
+	svc, _, _, _ := newTestService(t, repo, true, 1)
+	ctx := ctxFor(1, 50, RoleOrangTua) // TIDAK punya grading:manage maupun grading:read
+	if _, err := svc.Recap(ctx, 1, RecapQuery{ClassID: 1, SubjectID: 1}); !errors.Is(err, httpx.ErrForbidden) {
+		t.Fatalf("role tanpa grading:manage/grading:read harus 403, got %v", err)
+	}
+}
+
+// -- tests: Fase 15 GAP 1 (rapor lanjutan) --
+
+func TestPutTPMappings_ReplaceAndValidation(t *testing.T) {
+	repo := newFakeRepo()
+	repo.classes[1] = ClassRef{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	repo.subjects[1] = SubjectRef{ID: 1, Code: "BD", Name: "Basis Data"}
+	svc, _, _, _ := newTestService(t, repo, true, 1)
+	ctx := ctxFor(1, 1, RoleAdminSekolah)
+
+	tp, err := svc.CreateComponent(ctx, 1, 1, ComponentCreateInput{ClassID: 1, SubjectID: 1, Name: "TP1", Type: ComponentTP, Weight: 30, Kktp: 75})
+	if err != nil {
+		t.Fatalf("create tp component: %v", err)
+	}
+	sumatif, err := svc.CreateComponent(ctx, 1, 1, ComponentCreateInput{ClassID: 1, SubjectID: 1, Name: "Sumatif", Type: ComponentSumatif, Weight: 70, Kktp: 75})
+	if err != nil {
+		t.Fatalf("create sumatif component: %v", err)
+	}
+
+	if _, err := svc.PutTPMappings(ctx, 1, 1, 1, 1, []TPMappingInput{{ComponentID: sumatif.ID, TPCode: "X"}}); err == nil {
+		t.Fatal("harus menolak mapping komponen bertipe non-tp")
+	}
+
+	view, err := svc.PutTPMappings(ctx, 1, 1, 1, 1, []TPMappingInput{{ComponentID: tp.ID, TPCode: "10.1", Description: "Deskripsi"}})
+	if err != nil {
+		t.Fatalf("put tp mapping: %v", err)
+	}
+	if len(view.Items) != 1 || view.Items[0].TPCode != "10.1" {
+		t.Fatalf("view = %+v", view)
+	}
+
+	// Replace penuh: PUT dengan list kosong menghapus mapping sebelumnya.
+	view2, err := svc.PutTPMappings(ctx, 1, 1, 1, 1, []TPMappingInput{})
+	if err != nil {
+		t.Fatalf("put tp mapping kosong: %v", err)
+	}
+	for _, item := range view2.Items {
+		if item.TPCode != "" {
+			t.Fatalf("mapping harus sudah dihapus (replace penuh), dapat %+v", item)
+		}
+	}
+}
+
+func TestManualScores_ManualWinsOverComputed(t *testing.T) {
+	repo := newFakeRepo()
+	repo.classes[1] = ClassRef{ID: 1, Name: "XII RPL 1", AcademicYearID: 1}
+	repo.subjects[1] = SubjectRef{ID: 1, Code: "BD", Name: "Basis Data"}
+	repo.roster[1] = []RosterStudent{{ID: 10, Name: "Siswa A", NIS: "001"}, {ID: 11, Name: "Siswa B", NIS: "002"}}
+	svc, _, _, _ := newTestService(t, repo, true, 1)
+	ctx := ctxFor(1, 1, RoleAdminSekolah)
+
+	comp, err := svc.CreateComponent(ctx, 1, 1, ComponentCreateInput{ClassID: 1, SubjectID: 1, Name: "TP1", Type: ComponentTP, Weight: 100, Kktp: 75})
+	if err != nil {
+		t.Fatalf("create component: %v", err)
+	}
+	seventy := 70.0
+	if _, err := svc.PutGrades(ctx, 1, 1, comp.ID, []GradeEntryInput{{StudentID: 10, Score: &seventy}}); err != nil {
+		t.Fatalf("put grades: %v", err)
+	}
+
+	score90, score75 := 90.0, 75.0
+	if _, err := svc.PutManualScores(ctx, 1, 1, 1, 1, []ManualScoreEntryInput{
+		{StudentID: 10, Kind: ReportScoreKindManual, Score: &score90},
+		{StudentID: 11, Kind: ReportScoreKindPrevious, Score: &score75},
+	}); err != nil {
+		t.Fatalf("put manual scores: %v", err)
+	}
+
+	view, err := svc.GetManualScores(ctx, 1, 1, 1)
+	if err != nil {
+		t.Fatalf("get manual scores: %v", err)
+	}
+	byStudent := map[int64]ReportScoreRow{}
+	for _, row := range view.Items {
+		byStudent[row.StudentID] = row
+	}
+	a := byStudent[10]
+	if a.Manual == nil || a.Manual.Score != 90 {
+		t.Fatalf("siswa A manual = %+v, want 90", a.Manual)
+	}
+	if a.ComputedFinal == nil || *a.ComputedFinal != 70 {
+		t.Fatalf("siswa A computed_final = %v, want 70 (computed final TETAP disematkan meski manual menang)", a.ComputedFinal)
+	}
+	b := byStudent[11]
+	if b.Previous == nil || *b.Previous != 75 {
+		t.Fatalf("siswa B previous = %v, want 75", b.Previous)
+	}
+
+	analysis, err := svc.ReportAnalysis(ctx, 1, 1, 1)
+	if err != nil {
+		t.Fatalf("report analysis: %v", err)
+	}
+	if analysis.ResolvedSource.Manual != 1 {
+		t.Fatalf("resolved_source.manual = %d, want 1", analysis.ResolvedSource.Manual)
+	}
+	if analysis.ResolvedSource.None != 1 {
+		t.Fatalf("resolved_source.none = %d, want 1 (siswa B hanya previous, TANPA manual/computed)", analysis.ResolvedSource.None)
+	}
+	if analysis.Count != 1 {
+		t.Fatalf("count = %d, want 1 (hanya siswa yang ter-resolusi dihitung avg/min/max)", analysis.Count)
+	}
+	if analysis.Avg != 90 {
+		t.Fatalf("avg = %v, want 90 (manual MENANG atas computed final 70)", analysis.Avg)
 	}
 }

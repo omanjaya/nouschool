@@ -207,19 +207,54 @@ function ActivePermitCard({ permit, readOnly }: { permit: ExitPermit; readOnly: 
   );
 }
 
+/**
+ * Baris riwayat ditolak (GAP 3 Fase 15) — bisa diklik untuk membuka
+ * `ExitPermitStepper` (menampilkan komentar & nama penolak di tahap yang
+ * gagal), sama komponen yang dipakai kartu aktif — riwayat biasa (selesai/
+ * dibatalkan) tetap baris statis seperti sebelumnya.
+ */
+function RejectedHistoryRow({ item }: { item: ExitPermit }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <ListRow
+        className="min-h-[56px]"
+        onClick={() => setOpen((v) => !v)}
+        title={item.reason}
+        subtitle={
+          <span className="num">
+            {formatDateTime(item.created_at)}
+            {item.rejected ? ` · ${item.rejected.by_name}` : ''}
+          </span>
+        }
+        trailing={<Tag variant={EXIT_PERMIT_STATUS_TAG_VARIANT[item.status]}>{EXIT_PERMIT_STATUS_LABEL[item.status]}</Tag>}
+      />
+      {open && (
+        <div className="border-b border-line px-1 pb-4">
+          <ExitPermitStepper permit={item} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HistoryList({ items }: { items: ExitPermit[] }) {
   if (items.length === 0) return <EmptyState icon={LogOut} message="Belum ada riwayat dispensasi keluar." />;
   return (
     <div>
-      {items.map((item) => (
-        <ListRow
-          key={item.id}
-          className="min-h-[56px]"
-          title={item.reason}
-          subtitle={<span className="num">{formatDateTime(item.created_at)}</span>}
-          trailing={<Tag variant={EXIT_PERMIT_STATUS_TAG_VARIANT[item.status]}>{EXIT_PERMIT_STATUS_LABEL[item.status]}</Tag>}
-        />
-      ))}
+      {items.map((item) =>
+        item.status === 'rejected' ? (
+          <RejectedHistoryRow key={item.id} item={item} />
+        ) : (
+          <ListRow
+            key={item.id}
+            className="min-h-[56px]"
+            title={item.reason}
+            subtitle={<span className="num">{formatDateTime(item.created_at)}</span>}
+            trailing={<Tag variant={EXIT_PERMIT_STATUS_TAG_VARIANT[item.status]}>{EXIT_PERMIT_STATUS_LABEL[item.status]}</Tag>}
+          />
+        ),
+      )}
     </div>
   );
 }

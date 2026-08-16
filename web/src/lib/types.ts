@@ -152,6 +152,8 @@ export interface Student {
    * Dibuat opsional supaya tetap aman kalau field ini belum dikirim backend.
    */
   user_id?: string | null;
+  /** Fase 15 GAP 6a — sama pola `Teacher.membership_status` (opsional, hanya relevan kalau `user_id` ada). */
+  membership_status?: 'active' | 'inactive';
 }
 
 export interface StudentListResult {
@@ -183,6 +185,12 @@ export interface Teacher {
   name: string;
   email: string | null;
   nip: string | null;
+  /**
+   * Fase 15 GAP 6a — status membership (aktif/nonaktif). Belum eksplisit di
+   * kontrak `GET /api/teachers` — opsional supaya aman kalau backend belum
+   * mengirimnya (aksi nonaktifkan tetap bisa dipakai tanpa indikator status).
+   */
+  membership_status?: 'active' | 'inactive';
 }
 
 /* ---- Subject (Fase 2) ---- */
@@ -1353,6 +1361,8 @@ export interface Employee {
   email: string | null;
   username: string | null;
   nip: string | null;
+  /** Fase 15 GAP 6a — sama pola `Teacher.membership_status` (opsional). */
+  membership_status?: 'active' | 'inactive';
 }
 
 export interface EmployeeInput {
@@ -1469,6 +1479,13 @@ export interface ExitPermitStepInfo {
   at: string;
 }
 
+/** Rincian penolakan (Fase 15 GAP 3) — hanya terisi saat `status === 'rejected'`. */
+export interface ExitPermitRejectInfo {
+  by_name: string;
+  at: string;
+  comment: string;
+}
+
 /**
  * Satu baris `GET /api/exit-permits?scope=mine|active|all&date=` → `{items,total}`.
  * `gate_token` HANYA terisi untuk pemilik (siswa yang mengajukan) saat `status === 'issued'`
@@ -1483,6 +1500,7 @@ export interface ExitPermit {
   class: ExitPermitStepInfo | null;
   bk: ExitPermitStepInfo | null;
   leadership: ExitPermitStepInfo | null;
+  rejected?: ExitPermitRejectInfo | null;
   gate_token?: string | null;
   gate_expires_at: string | null;
   exited_at: string | null;
@@ -1538,7 +1556,12 @@ export interface ExitPermitGateHistoryResult {
   total: number;
 }
 
-/** POST /api/exit-permits/{id}/reject (admin only) — hanya kalau status masih pending_*. */
+/**
+ * POST /api/exit-permits/{id}/reject (Fase 15 GAP 3: admin/kepsek ATAU
+ * approver sah tahap berjalan — guru piket/pengajar/BK/pimpinan sesuai
+ * flag/jadwal; 403 kalau bukan) — hanya kalau status masih pending_*.
+ * `comment` wajib diisi (tidak lagi opsional).
+ */
 export interface ExitPermitRejectInput {
   comment: string;
 }
@@ -1765,6 +1788,82 @@ export interface GradingSettings {
   ranges: GradingRange[];
 }
 
+/* ---- Rapor lanjutan (Fase 15 GAP 1) — tab "Rapor" `/nilai`: pemetaan TP, nilai manual/semester lalu, analisis kelas ---- */
+
+/** Satu baris `GET /api/grading/report/tp-mappings?class_id=&subject_id=` — hanya komponen tipe 'tp'. */
+export interface GradingTpMappingItem {
+  component_id: string;
+  component_name: string;
+  tp_code: string;
+  description: string;
+}
+
+export interface GradingTpMappingsResult {
+  items: GradingTpMappingItem[];
+}
+
+/** PUT /api/grading/report/tp-mappings body `{mappings}`. */
+export interface GradingTpMappingInput {
+  component_id: string;
+  tp_code: string;
+  description: string;
+}
+
+export type GradingTpMappingsSaveResult = GradingTpMappingsResult;
+
+/** Satu baris `GET /api/grading/report/manual-scores?class_id=&subject_id=`. */
+export interface GradingManualScoreStudent {
+  student_id: string;
+  name: string;
+  nis: string;
+  previous: number | null;
+  manual: { score: number; note: string | null } | null;
+  computed_final: number | null;
+}
+
+export interface GradingManualScoresResult {
+  students: GradingManualScoreStudent[];
+}
+
+/** PUT /api/grading/report/manual-scores body `{items}`. */
+export interface GradingManualScoreInput {
+  student_id: string;
+  kind: 'previous' | 'manual';
+  score: number | null;
+  note?: string;
+}
+
+export type GradingManualScoresSaveResult = GradingManualScoresResult;
+
+export interface GradingAnalysisLabelRow {
+  label: string;
+  count: number;
+}
+
+export interface GradingAnalysisBelowKktpRow {
+  component_id: string;
+  name: string;
+  count: number;
+}
+
+/** `resolved_source` — jumlah siswa yang nilai akhirnya berasal dari tiap sumber (dihitung otomatis / nilai manual / belum ada). */
+export interface GradingAnalysisResolvedSource {
+  computed: number;
+  manual: number;
+  none: number;
+}
+
+/** GET /api/grading/report/analysis?class_id=&subject_id=. */
+export interface GradingAnalysisResult {
+  avg: number | null;
+  min: number | null;
+  max: number | null;
+  count: number;
+  per_label: GradingAnalysisLabelRow[];
+  below_kktp_per_component: GradingAnalysisBelowKktpRow[];
+  resolved_source: GradingAnalysisResolvedSource;
+}
+
 /* ---- Konseling BK (Fase 14 Gelombang D, docs/12-sion-parity.md Gelombang D) ---- */
 
 export interface CounselingStudentRef {
@@ -1905,4 +2004,60 @@ export interface StudentAttendanceCalendarResult {
 export interface LettersSettings {
   sp_footer_note: string;
   leave_footer_note: string;
+}
+
+/* ---- Fase 15 GAP 2: matrix hak akses per role (docs/02-identity.md) ---- */
+
+/** Satu baris permission di matrix — `key` dipakai `requirePerm` backend, `label` teks tampilan. */
+export interface RolePermissionDef {
+  key: string;
+  label: string;
+}
+
+/** Nilai efektif per role×permission — dipakai untuk render matrix `defaults`/`overrides`. */
+export type RolePermissionMatrix = Record<string, Record<string, boolean>>;
+
+/** GET /api/role-permissions (admin) — `overrides` hanya berisi sel yang eksplisit diubah dari bawaan. */
+export interface RolePermissionsData {
+  roles: string[];
+  permissions: RolePermissionDef[];
+  defaults: RolePermissionMatrix;
+  overrides: RolePermissionMatrix;
+}
+
+/** Nilai kirim PUT: `true`/`false` = override eksplisit, `null` = kembali ke bawaan. */
+export type RolePermissionOverrideValue = boolean | null;
+export type RolePermissionOverridesInput = Record<string, Record<string, RolePermissionOverrideValue>>;
+
+/* ---- Fase 15 GAP 4: keamanan sekolah — single-device login ---- */
+
+/** GET/PUT /api/settings/security (admin). */
+export interface SecuritySettings {
+  single_device: boolean;
+}
+
+/* ---- Fase 15 GAP 6a: nonaktifkan user (guru/pegawai/siswa) ---- */
+
+export type MembershipStatus = 'active' | 'inactive';
+
+/** PATCH /api/members/{userId}/status body {role, status} — respons dipakai untuk toast, bukan sumber state utama. */
+export interface MemberStatusResult {
+  user_id: string;
+  role: string;
+  status: MembershipStatus;
+}
+
+/* ---- Fase 15 GAP 6b: presence (siapa sedang online) ---- */
+
+export interface PresenceUser {
+  user_id: string;
+  name: string;
+  role: string;
+}
+
+/** GET /api/presence (admin/kepsek). */
+export interface PresenceData {
+  total: number;
+  by_role: Record<string, number>;
+  users: PresenceUser[];
 }

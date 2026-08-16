@@ -37,6 +37,7 @@ import { OutboxPage } from './features/admin/OutboxPage';
 import { PlatformAnnouncementsPage } from './features/admin/PlatformAnnouncementsPage';
 import { RevenuePage } from './features/admin/RevenuePage';
 import { SettingsPage } from './features/settings/SettingsPage';
+import { RolePermissionsPage } from './features/rolePermissions/RolePermissionsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
 import { ActivationPage } from './features/activation/ActivationPage';
 import { ImpersonatePage } from './features/impersonate/ImpersonatePage';
@@ -102,6 +103,7 @@ import { GradingPage } from './features/grading/GradingPage';
 import { GradingComponentsPage } from './features/grading/GradingComponentsPage';
 import { GradingInputPage } from './features/grading/GradingInputPage';
 import { GradingRecapPage } from './features/grading/GradingRecapPage';
+import { GradingReportPage } from './features/grading/GradingReportPage';
 import { MyGradesPage } from './features/grading/MyGradesPage';
 import { MyStarsPage } from './features/grading/MyStarsPage';
 import {
@@ -1024,6 +1026,7 @@ function AuthenticatedShell() {
         <Route path="/admin/minat" element={<InterestLeadsPage />} />
         <Route path="/tagihan" element={<BillingPage />} />
         <Route path="/pengaturan" element={<SettingsPage />} />
+        <Route path="/pengaturan/hak-akses" element={<RolePermissionsPage />} />
         <Route path="/profil" element={<ProfilePage />} />
         <Route path="/notifikasi" element={<NotificationsPage />} />
 
@@ -1106,6 +1109,7 @@ function AuthenticatedShell() {
           <Route index element={<GradingComponentsPage />} />
           <Route path="input" element={<GradingInputPage />} />
           <Route path="rekap" element={<GradingRecapPage />} />
+          <Route path="rapor" element={<GradingReportPage />} />
         </Route>
         <Route path="/nilai-saya" element={<MyGradesPage />} />
         <Route path="/bintang-saya" element={<MyStarsPage />} />

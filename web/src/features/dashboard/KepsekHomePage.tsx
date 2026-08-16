@@ -4,6 +4,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileBarChart,
+  GraduationCap,
   Megaphone,
   ReceiptText,
   ShieldAlert,
@@ -44,6 +45,7 @@ const QUICK_LINKS: QuickLink[] = [
     icon: CalendarClock,
   },
   { label: 'Pengumuman', description: 'Kelola pengumuman untuk TV & beranda.', to: '/pengumuman', icon: Megaphone },
+  { label: 'Nilai', description: 'Rekap & analisis nilai per kelas-mapel.', to: '/nilai', icon: GraduationCap },
   { label: 'Rekap Ketertiban', description: 'Persentase slot mengajar terlaksana.', to: '/monitoring/rekap', icon: FileBarChart },
   { label: 'Tagihan & Langganan', description: 'Status langganan & riwayat tagihan sekolah.', to: '/tagihan', icon: ReceiptText },
 ];
