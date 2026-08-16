@@ -781,6 +781,109 @@ func (s *Service) StudentHistory(ctx context.Context, schoolID, studentID int64,
 	}, nil
 }
 
+// -- GET /api/students/{id}/attendance/calendar (Fase 14 Gelombang D,
+// docs/12-sion-parity.md) --
+
+// statusPriorityWorst — urutan "terburuk" dipakai resolveDayStatus (docs
+// tugas: "alpa>izin>sakit>terlambat>hadir").
+var statusPriorityWorst = []string{StatusAlpa, StatusIzin, StatusSakit, StatusTerlambat, StatusHadir}
+
+// resolveDayStatus adalah fungsi MURNI (mudah dites tanpa DB, lihat
+// service_test.go) yang menentukan status "efektif" satu hari dari SELURUH
+// record hari itu (docs tugas): sesi DAILY MENANG mutlak bila ada (siswa
+// hanya bisa 1 sesi daily/hari); bila TIDAK ada daily, pakai status
+// TERBURUK di antara record subject hari itu. recs TIDAK PERNAH kosong saat
+// dipanggil (pemanggil sudah mengecek len>0).
+func resolveDayStatus(recs []CalendarRecordRow) (status, note string) {
+	for _, r := range recs {
+		if r.Type == TypeDaily {
+			return r.Status, r.Note
+		}
+	}
+	for _, want := range statusPriorityWorst {
+		for _, r := range recs {
+			if r.Status == want {
+				return r.Status, r.Note
+			}
+		}
+	}
+	// Jaring pengaman: seharusnya tidak pernah tercapai (status record selalu
+	// salah satu dari statusPriorityWorst) — fallback ke record pertama.
+	return recs[0].Status, recs[0].Note
+}
+
+func parseMonthParam(raw string, now time.Time, tz string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		local := clock.InZone(now, tz)
+		return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, time.UTC), nil
+	}
+	t, err := time.Parse("2006-01", raw)
+	if err != nil {
+		return time.Time{}, httpx.Validation("Format bulan harus YYYY-MM.")
+	}
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC), nil
+}
+
+func addDayCount(counts *HistoryCounts, status string) {
+	switch status {
+	case StatusHadir:
+		counts.Hadir++
+	case StatusTerlambat:
+		counts.Terlambat++
+	case StatusIzin:
+		counts.Izin++
+	case StatusSakit:
+		counts.Sakit++
+	case StatusAlpa:
+		counts.Alpa++
+	}
+}
+
+// StudentCalendar — GET /api/students/{id}/attendance/calendar?month=YYYY-MM.
+// Otorisasi object-level SAMA dengan StudentHistory (attendance:report ATAU
+// siswa sendiri/orang tua anaknya).
+func (s *Service) StudentCalendar(ctx context.Context, schoolID, studentID int64, monthStr string) (CalendarResult, error) {
+	role := reqctx.Role(ctx)
+	if !s.identity.HasPermission(role, PermAttendanceReport) {
+		userID := reqctx.UserID(ctx)
+		if err := s.students.CanViewStudent(ctx, userID, role, schoolID, studentID); err != nil {
+			return CalendarResult{}, err
+		}
+	}
+
+	monthStart, err := parseMonthParam(monthStr, s.clock.Now(), schoolTimezone(ctx))
+	if err != nil {
+		return CalendarResult{}, err
+	}
+	monthEnd := monthStart.AddDate(0, 1, -1)
+
+	rows, err := s.repo.StudentCalendarRecords(ctx, schoolID, studentID, monthStart, monthEnd)
+	if err != nil {
+		return CalendarResult{}, err
+	}
+	byDate := make(map[string][]CalendarRecordRow, len(rows))
+	for _, r := range rows {
+		key := r.Date.Format("2006-01-02")
+		byDate[key] = append(byDate[key], r)
+	}
+
+	counts := HistoryCounts{}
+	days := make([]CalendarDay, 0, 31)
+	for d := monthStart; !d.After(monthEnd); d = d.AddDate(0, 0, 1) {
+		recs := byDate[d.Format("2006-01-02")]
+		day := CalendarDay{Date: NewDate(d), SessionCount: int64(len(recs))}
+		if len(recs) > 0 {
+			status, note := resolveDayStatus(recs)
+			day.Status = &status
+			day.Note = &note
+			addDayCount(&counts, status)
+		}
+		days = append(days, day)
+	}
+	return CalendarResult{Days: days, Counts: counts}, nil
+}
+
 // -- QR kartu siswa (Fase 8, docs/05-attendance.md "QR kartu siswa") --
 
 // qrCardTokenBytes — 18 byte acak -> base64url TANPA padding (RawURLEncoding)

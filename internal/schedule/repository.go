@@ -39,6 +39,10 @@ type scheduleRepository interface {
 	ReplacePeriods(ctx context.Context, schoolID int64, periods []PeriodInput) ([]PeriodRecord, error)
 	UsedPeriodNumbers(ctx context.Context, schoolID int64) (map[int]bool, error)
 
+	// period_day_overrides (Fase 14 Gelombang D, docs/12-sion-parity.md)
+	ListPeriodOverridesForDay(ctx context.Context, schoolID int64, dayOfWeek int) ([]PeriodRecord, error)
+	ReplacePeriodOverridesForDay(ctx context.Context, schoolID int64, dayOfWeek int, periods []PeriodInput) ([]PeriodRecord, error)
+
 	// rooms
 	CreateRoom(ctx context.Context, schoolID int64, name, qrToken string) (RoomRecord, error)
 	UpdateRoomName(ctx context.Context, schoolID, id int64, name string) (RoomRecord, error)
@@ -241,6 +245,66 @@ func (r *Repository) ReplacePeriods(ctx context.Context, schoolID int64, periods
 			return nil, err
 		}
 		out = append(out, periodFromDB(row))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func periodOverrideFromDB(p scheduledb.PeriodDayOverride) PeriodRecord {
+	return PeriodRecord{
+		ID: p.ID, Number: int(p.Number), StartsAt: minutesToClock(minutesOfTime(p.StartsAt)),
+		EndsAt: minutesToClock(minutesOfTime(p.EndsAt)), Label: p.Label,
+	}
+}
+
+// ListPeriodOverridesForDay mengembalikan set periods ALTERNATIF sekolah utk
+// day_of_week tertentu (Fase 14 Gelombang D) — [] bila sekolah belum
+// menyimpan override utk hari itu (loader periods day-aware jatuh balik ke
+// ListPeriods, lihat Service.periodsForDay).
+func (r *Repository) ListPeriodOverridesForDay(ctx context.Context, schoolID int64, dayOfWeek int) ([]PeriodRecord, error) {
+	rows, err := r.q.ListPeriodOverridesForDay(ctx, scheduledb.ListPeriodOverridesForDayParams{SchoolID: schoolID, DayOfWeek: int32(dayOfWeek)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PeriodRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, periodOverrideFromDB(row))
+	}
+	return out, nil
+}
+
+// ReplacePeriodOverridesForDay mengganti SELURUH override day_of_week
+// tertentu dalam satu transaksi (DELETE lalu INSERT ulang, pola sama
+// ReplacePeriods) — periods kosong berarti HAPUS override hari itu (kembali
+// ke periods default, lihat Service.ReplacePeriodOverrides).
+func (r *Repository) ReplacePeriodOverridesForDay(ctx context.Context, schoolID int64, dayOfWeek int, periods []PeriodInput) ([]PeriodRecord, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.DeletePeriodOverridesForDay(ctx, scheduledb.DeletePeriodOverridesForDayParams{SchoolID: schoolID, DayOfWeek: int32(dayOfWeek)}); err != nil {
+		return nil, err
+	}
+	out := make([]PeriodRecord, 0, len(periods))
+	for _, p := range periods {
+		row, err := qtx.InsertPeriodOverride(ctx, scheduledb.InsertPeriodOverrideParams{
+			SchoolID: schoolID, DayOfWeek: int32(dayOfWeek), Number: int32(p.Number),
+			StartsAt: timeOfMinutes(mustClockMinutes(p.StartsAt)), EndsAt: timeOfMinutes(mustClockMinutes(p.EndsAt)),
+			// period_day_overrides.label adalah NOT NULL DEFAULT '' (beda dari
+			// periods.label yang nullable) — textOrNil("") akan menghasilkan
+			// NULL (pgtype.Text{Valid:false}) dan melanggar constraint, jadi
+			// SELALU Valid:true di sini (string kosong tersimpan sbg "", bukan NULL).
+			Label: pgtype.Text{String: p.Label, Valid: true},
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, periodOverrideFromDB(row))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err

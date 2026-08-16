@@ -100,6 +100,7 @@ audit_log (
 | `discipline:read` | ✅ | ✅ | ✅ | | | | |
 | `duty:manage` | ✅ | | | | | | |
 | `grading:manage` | ✅ | | ✅ | | | | |
+| `user:impersonate` | ✅ | | | | | | |
 
 \* guru: rekap kelas/jadwalnya sendiri (object-level). \** `leave:approve` efektifnya ditentukan approval chain (07) — permission hanya gerbang kasar. Siswa/orang tua TIDAK punya permission modul `discipline` — akses ke poin/surat miliknya sendiri lewat object-level (`student.CanViewStudent`, sama pola dengan `attendance:read_own`), lihat docs/12-sion-parity.md Gelombang A. `duty:manage` SENGAJA hanya admin_sekolah — kepsek TIDAK butuh kelola tugas tambahan (Fase 14 Gelombang B1). `grading:manage` (Fase 14 Gelombang C) dipegang admin_sekolah DAN guru — object-level guru dipersempit di service (`schedule.TeachesClassSubject`/`TeachesClass`, guru hanya kelas-mapel yang dia ajar TA aktif); kepala_sekolah SENGAJA TIDAK diberi akses baca pada gelombang ini (bisa ditambah permission read terpisah nanti); siswa/orang tua akses nilai/bintang milik sendiri TANPA permission lewat object-level (`GET /api/my-grades`/`GET /api/my-stars`, sama pola `attendance:read_own`).
 

@@ -65,6 +65,48 @@ func (h *Handler) ReplacePeriods(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, items)
 }
 
+// -- period_day_overrides (Fase 14 Gelombang D) --
+
+// GetPeriodOverrides — GET /api/periods/overrides?day=.
+func (h *Handler) GetPeriodOverrides(w http.ResponseWriter, r *http.Request) {
+	day, err := strconv.Atoi(r.URL.Query().Get("day"))
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("Parameter day wajib diisi angka 0-6."))
+		return
+	}
+	items, err := h.svc.GetPeriodOverrides(r.Context(), reqctx.SchoolID(r.Context()), day)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+
+type replacePeriodOverridesRequest struct {
+	DayOfWeek int                    `json:"day_of_week"`
+	Periods   []replacePeriodRequest `json:"periods"`
+}
+
+// ReplacePeriodOverrides — PUT /api/periods/overrides {day_of_week,periods}.
+func (h *Handler) ReplacePeriodOverrides(w http.ResponseWriter, r *http.Request) {
+	var req replacePeriodOverridesRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	in := make([]ReplacePeriodInput, 0, len(req.Periods))
+	for _, p := range req.Periods {
+		in = append(in, ReplacePeriodInput{Number: p.Number, StartsAt: p.StartsAt, EndsAt: p.EndsAt, Label: p.Label})
+	}
+	ctx := r.Context()
+	items, err := h.svc.ReplacePeriodOverrides(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), req.DayOfWeek, in)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+
 // -- rooms --
 
 // ListRooms — GET /api/rooms.

@@ -245,6 +245,13 @@ func (s *Service) Me(ctx context.Context) (UserView, error) {
 			}
 		}
 	}
+	// Fase 14 Gelombang D: sesi impersonasi USER -> tambahkan nama admin yang
+	// sedang "menyamar" (docs tugas "impersonated_by: {name}").
+	if adminID, ok := reqctx.ImpersonatorUserID(ctx); ok {
+		if admin, aerr := s.repo.GetUserBasic(ctx, adminID); aerr == nil {
+			view.ImpersonatedBy = &ImpersonatorView{Name: admin.Name}
+		}
+	}
 	return view, nil
 }
 

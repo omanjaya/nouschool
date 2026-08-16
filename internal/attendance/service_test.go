@@ -30,6 +30,10 @@ type fakeRepo struct {
 	// -- anomali self check-in (Fase 8): diisi langsung oleh test, bukan
 	// -- diturunkan dari records (fake ini tidak menyimpan meta per-record) --
 	anomalyRows []SelfCheckinMetaRow
+
+	// -- kalender presensi siswa (Fase 14 Gelombang D): diisi langsung oleh
+	// -- test, sama pola dengan anomalyRows --
+	calendarRows []CalendarRecordRow
 }
 
 func newFakeRepo() *fakeRepo {
@@ -188,6 +192,16 @@ func (f *fakeRepo) StudentHistory(ctx context.Context, schoolID, studentID int64
 
 func (f *fakeRepo) StudentCounts(ctx context.Context, schoolID, studentID int64, from, to time.Time) (Counts, error) {
 	return Counts{}, nil
+}
+
+func (f *fakeRepo) StudentCalendarRecords(ctx context.Context, schoolID, studentID int64, from, to time.Time) ([]CalendarRecordRow, error) {
+	var out []CalendarRecordRow
+	for _, r := range f.calendarRows {
+		if !r.Date.Before(from) && !r.Date.After(to) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeRepo) GetSettings(ctx context.Context, schoolID int64) (Settings, error) {
@@ -738,6 +752,126 @@ func TestStudentHistoryAccess(t *testing.T) {
 			t.Fatalf("expected ErrForbidden, got: %v", err)
 		}
 	})
+}
+
+// -- kalender presensi siswa (Fase 14 Gelombang D, docs/12-sion-parity.md) --
+
+func TestResolveDayStatus_DailyWinsOverSubject(t *testing.T) {
+	recs := []CalendarRecordRow{
+		{Type: TypeSubject, Status: StatusAlpa, Note: "subjek 1"},
+		{Type: TypeDaily, Status: StatusHadir, Note: "daily"},
+		{Type: TypeSubject, Status: StatusAlpa, Note: "subjek 2"},
+	}
+	status, note := resolveDayStatus(recs)
+	if status != StatusHadir || note != "daily" {
+		t.Fatalf("sesi daily harus MENANG mutlak, got status=%s note=%s", status, note)
+	}
+}
+
+func TestResolveDayStatus_WorstAmongSubjectWhenNoDaily(t *testing.T) {
+	cases := []struct {
+		name string
+		recs []CalendarRecordRow
+		want string
+	}{
+		{"alpa menang atas semua", []CalendarRecordRow{
+			{Type: TypeSubject, Status: StatusHadir}, {Type: TypeSubject, Status: StatusTerlambat}, {Type: TypeSubject, Status: StatusAlpa},
+		}, StatusAlpa},
+		{"izin menang atas sakit/terlambat/hadir", []CalendarRecordRow{
+			{Type: TypeSubject, Status: StatusHadir}, {Type: TypeSubject, Status: StatusSakit}, {Type: TypeSubject, Status: StatusIzin},
+		}, StatusIzin},
+		{"sakit menang atas terlambat/hadir", []CalendarRecordRow{
+			{Type: TypeSubject, Status: StatusTerlambat}, {Type: TypeSubject, Status: StatusSakit}, {Type: TypeSubject, Status: StatusHadir},
+		}, StatusSakit},
+		{"terlambat menang atas hadir", []CalendarRecordRow{
+			{Type: TypeSubject, Status: StatusHadir}, {Type: TypeSubject, Status: StatusTerlambat},
+		}, StatusTerlambat},
+		{"semua hadir -> hadir", []CalendarRecordRow{
+			{Type: TypeSubject, Status: StatusHadir}, {Type: TypeSubject, Status: StatusHadir},
+		}, StatusHadir},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, _ := resolveDayStatus(tc.recs)
+			if status != tc.want {
+				t.Fatalf("expected %s, got %s", tc.want, status)
+			}
+		})
+	}
+}
+
+func TestStudentCalendar_EmptyMonth(t *testing.T) {
+	repo := newFakeRepo()
+	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	result, err := svc.StudentCalendar(ctx, 1, 10, "2026-08")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Days) != 31 {
+		t.Fatalf("Agustus punya 31 hari, got %d", len(result.Days))
+	}
+	for _, d := range result.Days {
+		if d.Status != nil || d.Note != nil || d.SessionCount != 0 {
+			t.Fatalf("bulan kosong: semua hari harus status/note nil & session_count 0, got %+v", d)
+		}
+	}
+	if result.Counts != (HistoryCounts{}) {
+		t.Fatalf("bulan kosong: counts harus nol semua, got %+v", result.Counts)
+	}
+}
+
+func TestStudentCalendar_MergesRecordsPerDay(t *testing.T) {
+	repo := newFakeRepo()
+	repo.calendarRows = []CalendarRecordRow{
+		{Date: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC), Type: TypeDaily, Status: StatusHadir, Note: ""},
+		{Date: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), Type: TypeSubject, Status: StatusTerlambat, Note: "jam 1"},
+		{Date: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), Type: TypeSubject, Status: StatusAlpa, Note: "jam 3"},
+		{Date: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), Type: TypeSubject, Status: StatusHadir, Note: "jam 5"},
+	}
+	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{}, fakeSchedule{}, fakeTeachers{}, fixed)
+	ctx := ctxAs("guru", 999, "Asia/Jakarta")
+
+	result, err := svc.StudentCalendar(ctx, 1, 10, "2026-08")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	byDate := map[string]CalendarDay{}
+	for _, d := range result.Days {
+		byDate[d.Date.Format("2006-01-02")] = d
+	}
+	if got := byDate["2026-08-03"]; got.Status == nil || *got.Status != StatusHadir || got.SessionCount != 1 {
+		t.Fatalf("3 Agustus: expected hadir/1 sesi, got %+v", got)
+	}
+	if got := byDate["2026-08-05"]; got.Status == nil || *got.Status != StatusAlpa || got.SessionCount != 3 {
+		t.Fatalf("5 Agustus: expected status TERBURUK alpa dari 3 sesi subject, got %+v", got)
+	}
+	if byDate["2026-08-05"].Note == nil || *byDate["2026-08-05"].Note != "jam 3" {
+		t.Fatalf("5 Agustus: note harus dari record berstatus alpa, got %+v", byDate["2026-08-05"].Note)
+	}
+	if result.Counts.Hadir != 1 || result.Counts.Alpa != 1 {
+		t.Fatalf("counts harus 1 hadir (tgl 3) + 1 alpa (tgl 5), got %+v", result.Counts)
+	}
+}
+
+func TestStudentCalendar_ObjectLevel(t *testing.T) {
+	repo := newFakeRepo()
+	fixed := clock.Fixed{T: time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), fakeYears{id: 1}, fakeStudents{allowed: map[int64]int64{500: 10}}, fakeSchedule{}, fakeTeachers{}, fixed)
+
+	parentOwn := ctxAs("orang_tua", 500, "Asia/Jakarta")
+	if _, err := svc.StudentCalendar(parentOwn, 1, 10, "2026-08"); err != nil {
+		t.Fatalf("orang tua anak sendiri harus boleh: %v", err)
+	}
+
+	parentOther := ctxAs("orang_tua", 500, "Asia/Jakarta")
+	_, err := svc.StudentCalendar(parentOther, 1, 20, "2026-08")
+	if err != httpx.ErrForbidden {
+		t.Fatalf("orang tua anak LAIN harus ErrForbidden, got: %v", err)
+	}
 }
 
 // -- OpenSubjectSession & CreateSession(schedule_slot_id) — fase 6 --

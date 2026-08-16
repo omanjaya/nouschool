@@ -203,30 +203,36 @@ type CreateSessionInput struct {
 	ExpiresAt time.Time
 	IP        string
 	UserAgent string
+	// ImpersonatorUserID (Fase 14 Gelombang D, docs/12-sion-parity.md): nil
+	// utk sesi normal; terisi = sesi ini adalah "menyamar sebagai" UserID di
+	// atas, ATAS NAMA admin_sekolah dengan id ini — lihat internal/identity/impersonation_user.go.
+	ImpersonatorUserID *int64
 }
 
 func (r *Repository) CreateSession(ctx context.Context, in CreateSessionInput) error {
 	_, err := r.q.CreateSession(ctx, identitydb.CreateSessionParams{
-		UserID:    in.UserID,
-		SchoolID:  int8OrNil(in.SchoolID),
-		TokenHash: in.TokenHash,
-		Role:      in.Role,
-		ExpiresAt: pgtype.Timestamptz{Time: in.ExpiresAt, Valid: true},
-		Ip:        parseIP(in.IP),
-		UserAgent: textOrNil(in.UserAgent),
+		UserID:             in.UserID,
+		SchoolID:           int8OrNil(in.SchoolID),
+		TokenHash:          in.TokenHash,
+		Role:               in.Role,
+		ExpiresAt:          pgtype.Timestamptz{Time: in.ExpiresAt, Valid: true},
+		Ip:                 parseIP(in.IP),
+		UserAgent:          textOrNil(in.UserAgent),
+		ImpersonatorUserID: int8OrNil(in.ImpersonatorUserID),
 	})
 	return err
 }
 
 // SessionRow adalah hasil join sessions+users dipakai RequireAuth.
 type SessionRow struct {
-	ID           int64
-	UserID       int64
-	SchoolID     *int64
-	Role         string
-	ExpiresAt    time.Time
-	UserName     string
-	IsSuperAdmin bool
+	ID                 int64
+	UserID             int64
+	SchoolID           *int64
+	Role               string
+	ExpiresAt          time.Time
+	UserName           string
+	IsSuperAdmin       bool
+	ImpersonatorUserID *int64
 }
 
 func (r *Repository) SessionByTokenHash(ctx context.Context, hash []byte) (SessionRow, error) {
@@ -235,14 +241,30 @@ func (r *Repository) SessionByTokenHash(ctx context.Context, hash []byte) (Sessi
 		return SessionRow{}, mapNoRows(err)
 	}
 	return SessionRow{
-		ID:           row.ID,
-		UserID:       row.UserID,
-		SchoolID:     int8ToPtr(row.SchoolID),
-		Role:         row.Role,
-		ExpiresAt:    row.ExpiresAt.Time,
-		UserName:     row.UserName,
-		IsSuperAdmin: row.UserIsSuperAdmin,
+		ID:                 row.ID,
+		UserID:             row.UserID,
+		SchoolID:           int8ToPtr(row.SchoolID),
+		Role:               row.Role,
+		ExpiresAt:          row.ExpiresAt.Time,
+		UserName:           row.UserName,
+		IsSuperAdmin:       row.UserIsSuperAdmin,
+		ImpersonatorUserID: int8ToPtr(row.ImpersonatorUserID),
 	}, nil
+}
+
+// UserBasic adalah potongan info user minimal (Fase 14 Gelombang D: field
+// impersonated_by pada GET /api/me).
+type UserBasic struct {
+	ID   int64
+	Name string
+}
+
+func (r *Repository) GetUserBasic(ctx context.Context, id int64) (UserBasic, error) {
+	row, err := r.q.GetUserBasic(ctx, id)
+	if err != nil {
+		return UserBasic{}, mapNoRows(err)
+	}
+	return UserBasic{ID: row.ID, Name: row.Name}, nil
 }
 
 func (r *Repository) ExtendSession(ctx context.Context, id int64, expiresAt time.Time) error {

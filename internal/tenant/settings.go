@@ -84,6 +84,9 @@ func NewModuleSettings(module string) (Settings, bool) {
 	case "grading":
 		g := grading.DefaultSettings()
 		return &g, true
+	case "letters":
+		l := DefaultLettersSettings()
+		return &l, true
 	default:
 		return nil, false
 	}

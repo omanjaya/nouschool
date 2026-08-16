@@ -50,6 +50,17 @@ type UserView struct {
 	// SetBillingGateway). Sekolah TANPA subscription -> Subscription nil.
 	Subscription *SubscriptionView `json:"subscription,omitempty"`
 	Features     []string          `json:"features,omitempty"`
+	// ImpersonatedBy (Fase 14 Gelombang D, docs/12-sion-parity.md) — terisi
+	// HANYA bila sesi ini adalah sesi impersonasi USER (lihat
+	// impersonation_user.go) — dipakai frontend menampilkan banner "sedang
+	// masuk sebagai ... oleh {name}".
+	ImpersonatedBy *ImpersonatorView `json:"impersonated_by,omitempty"`
+}
+
+// ImpersonatorView adalah potongan info admin yang sedang mengimpersonasi
+// sesi ini (Fase 14 Gelombang D).
+type ImpersonatorView struct {
+	Name string `json:"name"`
 }
 
 // SubscriptionView adalah ringkasan status langganan sekolah pada payload

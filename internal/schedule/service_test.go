@@ -37,9 +37,15 @@ type teacherEntry struct {
 	Ref      TeacherRef
 }
 
+type overrideKey struct {
+	SchoolID  int64
+	DayOfWeek int
+}
+
 type fakeScheduleRepo struct {
 	periods      map[int64][]PeriodRecord // schoolID -> periods
 	nextPeriodID int64
+	overrides    map[overrideKey][]PeriodRecord // Fase 14 Gelombang D
 
 	rooms      map[int64]roomEntry
 	nextRoomID int64
@@ -54,12 +60,13 @@ type fakeScheduleRepo struct {
 
 func newFakeScheduleRepo() *fakeScheduleRepo {
 	return &fakeScheduleRepo{
-		periods:  map[int64][]PeriodRecord{},
-		rooms:    map[int64]roomEntry{},
-		classes:  map[int64]classEntry{},
-		subjects: map[int64]subjectEntry{},
-		teachers: map[int64]teacherEntry{},
-		slots:    map[int64]SlotRecord{},
+		periods:   map[int64][]PeriodRecord{},
+		overrides: map[overrideKey][]PeriodRecord{},
+		rooms:     map[int64]roomEntry{},
+		classes:   map[int64]classEntry{},
+		subjects:  map[int64]subjectEntry{},
+		teachers:  map[int64]teacherEntry{},
+		slots:     map[int64]SlotRecord{},
 	}
 }
 
@@ -90,6 +97,27 @@ func (f *fakeScheduleRepo) UsedPeriodNumbers(ctx context.Context, schoolID int64
 		}
 	}
 	return used, nil
+}
+
+// -- period_day_overrides (Fase 14 Gelombang D) --
+
+func (f *fakeScheduleRepo) ListPeriodOverridesForDay(ctx context.Context, schoolID int64, dayOfWeek int) ([]PeriodRecord, error) {
+	return append([]PeriodRecord{}, f.overrides[overrideKey{schoolID, dayOfWeek}]...), nil
+}
+
+func (f *fakeScheduleRepo) ReplacePeriodOverridesForDay(ctx context.Context, schoolID int64, dayOfWeek int, periods []PeriodInput) ([]PeriodRecord, error) {
+	key := overrideKey{schoolID, dayOfWeek}
+	if len(periods) == 0 {
+		delete(f.overrides, key)
+		return []PeriodRecord{}, nil
+	}
+	out := make([]PeriodRecord, 0, len(periods))
+	for _, p := range periods {
+		f.nextPeriodID++
+		out = append(out, PeriodRecord{ID: f.nextPeriodID, Number: p.Number, StartsAt: p.StartsAt, EndsAt: p.EndsAt, Label: p.Label})
+	}
+	f.overrides[key] = out
+	return append([]PeriodRecord{}, out...), nil
 }
 
 // -- rooms --
@@ -541,6 +569,125 @@ func TestCurrentPeriod_TimezoneRespected(t *testing.T) {
 	}
 	if viewWIT.Period != nil {
 		t.Fatalf("expected TIDAK ada current period utk WIT (sudah lewat jam ke-1), got %+v", viewWIT.Period)
+	}
+}
+
+// -- period_day_overrides (Fase 14 Gelombang D, docs/12-sion-parity.md) --
+
+func TestCurrentPeriod_DayOverride_FridayShorterThanDefault(t *testing.T) {
+	repo := newFakeScheduleRepo()
+	// Default: jam ke-1 07:00-07:45 (berlaku hari APA PUN kecuali di-override).
+	repo.periods[1] = []PeriodRecord{{ID: 1, Number: 1, StartsAt: "07:00", EndsAt: "07:45"}}
+
+	// Cari tanggal Jumat & Kamis terdekat (deterministik lewat time.Weekday,
+	// bukan tebak-tebak kalender) supaya test tidak rapuh thd perubahan tahun.
+	base := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC) // Senin
+	var friday, thursday time.Time
+	for i := 0; i < 7; i++ {
+		d := base.AddDate(0, 0, i)
+		switch d.Weekday() {
+		case time.Friday:
+			friday = d
+		case time.Thursday:
+			thursday = d
+		}
+	}
+
+	// Override Jumat (day_of_week=5): jam ke-1 SENGAJA jam berbeda (08:00-08:30,
+	// "jam pendek") — TIDAK overlap dgn default supaya perbedaan jelas kebaca.
+	repo.overrides[overrideKey{1, int(time.Friday)}] = []PeriodRecord{{ID: 99, Number: 1, StartsAt: "08:00", EndsAt: "08:30"}}
+
+	// 07:15 WIB pada hari Kamis -> pakai DEFAULT (07:00-07:45) -> dalam periode.
+	nowThursday := time.Date(thursday.Year(), thursday.Month(), thursday.Day(), 0, 15, 0, 0, time.UTC) // 07:15 WIB
+	svcThu := newTestService(repo, 10, nowThursday)
+	viewThu, err := svcThu.CurrentPeriod(ctxAs("guru", 1, "Asia/Jakarta"), 1, nowThursday)
+	if err != nil {
+		t.Fatalf("unexpected error (Kamis): %v", err)
+	}
+	if viewThu.Period == nil || viewThu.Period.StartsAt != "07:00" {
+		t.Fatalf("Kamis (tanpa override) harus pakai periods DEFAULT (07:00), got %+v", viewThu.Period)
+	}
+
+	// 07:15 WIB pada hari Jumat -> override berlaku (08:00-08:30) -> 07:15
+	// TIDAK termasuk periode manapun di override (beda dari default yang akan
+	// bilang "dalam periode 07:00-07:45").
+	nowFriday := time.Date(friday.Year(), friday.Month(), friday.Day(), 0, 15, 0, 0, time.UTC)
+	svcFri := newTestService(repo, 10, nowFriday)
+	viewFri, err := svcFri.CurrentPeriod(ctxAs("guru", 1, "Asia/Jakarta"), 1, nowFriday)
+	if err != nil {
+		t.Fatalf("unexpected error (Jumat): %v", err)
+	}
+	if viewFri.Period != nil {
+		t.Fatalf("Jumat (override 08:00-08:30) pada 07:15 harus TIDAK ada periode berjalan, got %+v", viewFri.Period)
+	}
+	if viewFri.NextStartsAt == nil || *viewFri.NextStartsAt != "08:00" {
+		t.Fatalf("Jumat: next_starts_at harus 08:00 (dari override), got %+v", viewFri.NextStartsAt)
+	}
+
+	// 08:15 WIB pada hari Jumat -> DI DALAM periode override (08:00-08:30).
+	nowFriday2 := time.Date(friday.Year(), friday.Month(), friday.Day(), 1, 15, 0, 0, time.UTC) // 08:15 WIB
+	svcFri2 := newTestService(repo, 10, nowFriday2)
+	viewFri2, err := svcFri2.CurrentPeriod(ctxAs("guru", 1, "Asia/Jakarta"), 1, nowFriday2)
+	if err != nil {
+		t.Fatalf("unexpected error (Jumat 08:15): %v", err)
+	}
+	if viewFri2.Period == nil || viewFri2.Period.StartsAt != "08:00" {
+		t.Fatalf("Jumat 08:15 harus DI DALAM periode override (08:00-08:30), got %+v", viewFri2.Period)
+	}
+}
+
+func TestReplacePeriodOverrides_EmptyClearsOverride(t *testing.T) {
+	repo := newFakeScheduleRepo()
+	svc := newTestService(repo, 10, time.Now())
+	ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+
+	// Set override Jumat.
+	if _, err := svc.ReplacePeriodOverrides(ctx, 1, 1, int(time.Friday), []ReplacePeriodInput{
+		{Number: 1, StartsAt: "08:00", EndsAt: "08:30"},
+	}); err != nil {
+		t.Fatalf("gagal set override: %v", err)
+	}
+	got, err := svc.GetPeriodOverrides(ctx, 1, int(time.Friday))
+	if err != nil || len(got) != 1 {
+		t.Fatalf("expected 1 override tersimpan, got %v err=%v", got, err)
+	}
+
+	// PUT [] -> hapus override hari itu (kembali ke default).
+	if _, err := svc.ReplacePeriodOverrides(ctx, 1, 1, int(time.Friday), nil); err != nil {
+		t.Fatalf("gagal hapus override: %v", err)
+	}
+	got, err = svc.GetPeriodOverrides(ctx, 1, int(time.Friday))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("expected override kosong setelah dihapus, got %v err=%v", got, err)
+	}
+}
+
+func TestReplacePeriodOverrides_ValidatesSamePatternAsReplacePeriods(t *testing.T) {
+	repo := newFakeScheduleRepo()
+	svc := newTestService(repo, 10, time.Now())
+	ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+
+	// Overlap -> ditolak.
+	_, err := svc.ReplacePeriodOverrides(ctx, 1, 1, int(time.Friday), []ReplacePeriodInput{
+		{Number: 1, StartsAt: "07:00", EndsAt: "08:00"},
+		{Number: 2, StartsAt: "07:30", EndsAt: "08:30"},
+	})
+	if err == nil {
+		t.Fatal("period overlap harus ditolak (validasi sama dgn ReplacePeriods)")
+	}
+
+	// Lompat nomor -> ditolak.
+	_, err = svc.ReplacePeriodOverrides(ctx, 1, 1, int(time.Friday), []ReplacePeriodInput{
+		{Number: 1, StartsAt: "07:00", EndsAt: "07:30"},
+		{Number: 3, StartsAt: "07:30", EndsAt: "08:00"},
+	})
+	if err == nil {
+		t.Fatal("nomor jam ke- lompat harus ditolak")
+	}
+
+	// day_of_week invalid -> ditolak.
+	if _, err := svc.ReplacePeriodOverrides(ctx, 1, 1, 7, []ReplacePeriodInput{{Number: 1, StartsAt: "07:00", EndsAt: "07:30"}}); err == nil {
+		t.Fatal("day_of_week di luar 0-6 harus ditolak")
 	}
 }
 

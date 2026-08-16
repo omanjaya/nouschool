@@ -51,6 +51,20 @@ func (q *Queries) CreateRoom(ctx context.Context, arg CreateRoomParams) (Room, e
 	return i, err
 }
 
+const deletePeriodOverridesForDay = `-- name: DeletePeriodOverridesForDay :exec
+DELETE FROM period_day_overrides WHERE school_id = $1 AND day_of_week = $2
+`
+
+type DeletePeriodOverridesForDayParams struct {
+	SchoolID  int64 `json:"school_id"`
+	DayOfWeek int32 `json:"day_of_week"`
+}
+
+func (q *Queries) DeletePeriodOverridesForDay(ctx context.Context, arg DeletePeriodOverridesForDayParams) error {
+	_, err := q.db.Exec(ctx, deletePeriodOverridesForDay, arg.SchoolID, arg.DayOfWeek)
+	return err
+}
+
 const deletePeriods = `-- name: DeletePeriods :exec
 DELETE FROM periods WHERE school_id = $1
 `
@@ -293,6 +307,43 @@ func (q *Queries) InsertPeriod(ctx context.Context, arg InsertPeriodParams) (Per
 	return i, err
 }
 
+const insertPeriodOverride = `-- name: InsertPeriodOverride :one
+INSERT INTO period_day_overrides (school_id, day_of_week, number, starts_at, ends_at, label)
+VALUES ($1, $2, $3, $4, $5, $6::text)
+RETURNING id, school_id, day_of_week, number, starts_at, ends_at, label
+`
+
+type InsertPeriodOverrideParams struct {
+	SchoolID  int64       `json:"school_id"`
+	DayOfWeek int32       `json:"day_of_week"`
+	Number    int32       `json:"number"`
+	StartsAt  pgtype.Time `json:"starts_at"`
+	EndsAt    pgtype.Time `json:"ends_at"`
+	Label     pgtype.Text `json:"label"`
+}
+
+func (q *Queries) InsertPeriodOverride(ctx context.Context, arg InsertPeriodOverrideParams) (PeriodDayOverride, error) {
+	row := q.db.QueryRow(ctx, insertPeriodOverride,
+		arg.SchoolID,
+		arg.DayOfWeek,
+		arg.Number,
+		arg.StartsAt,
+		arg.EndsAt,
+		arg.Label,
+	)
+	var i PeriodDayOverride
+	err := row.Scan(
+		&i.ID,
+		&i.SchoolID,
+		&i.DayOfWeek,
+		&i.Number,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.Label,
+	)
+	return i, err
+}
+
 const insertSlot = `-- name: InsertSlot :one
 INSERT INTO schedule_slots (school_id, academic_year_id, class_id, subject_id, teacher_id, room_id, day_of_week, period_start, period_end)
 VALUES ($1, $2, $3, $4, $5, $9::bigint, $6, $7, $8)
@@ -326,6 +377,45 @@ func (q *Queries) InsertSlot(ctx context.Context, arg InsertSlotParams) (int64, 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const listPeriodOverridesForDay = `-- name: ListPeriodOverridesForDay :many
+
+SELECT id, school_id, day_of_week, number, starts_at, ends_at, label FROM period_day_overrides WHERE school_id = $1 AND day_of_week = $2 ORDER BY number
+`
+
+type ListPeriodOverridesForDayParams struct {
+	SchoolID  int64 `json:"school_id"`
+	DayOfWeek int32 `json:"day_of_week"`
+}
+
+// -- period_day_overrides (Fase 14 Gelombang D, docs/12-sion-parity.md) --
+func (q *Queries) ListPeriodOverridesForDay(ctx context.Context, arg ListPeriodOverridesForDayParams) ([]PeriodDayOverride, error) {
+	rows, err := q.db.Query(ctx, listPeriodOverridesForDay, arg.SchoolID, arg.DayOfWeek)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PeriodDayOverride
+	for rows.Next() {
+		var i PeriodDayOverride
+		if err := rows.Scan(
+			&i.ID,
+			&i.SchoolID,
+			&i.DayOfWeek,
+			&i.Number,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.Label,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPeriods = `-- name: ListPeriods :many

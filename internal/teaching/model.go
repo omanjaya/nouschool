@@ -30,6 +30,10 @@ const (
 const (
 	FlagRoomMismatch = "room_mismatch"
 	FlagUnscheduled  = "unscheduled"
+	// FlagSubstitute — jurnal dibuka oleh guru PENGGANTI (accepted lewat
+	// internal/substitution), bukan pemilik asli slot (Fase 14 Gelombang D,
+	// docs/12-sion-parity.md).
+	FlagSubstitute = "substitute"
 )
 
 // Status jurnal (DERIVASI, bukan kolom — docs/06-teaching.md).

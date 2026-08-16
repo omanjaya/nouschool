@@ -22,6 +22,10 @@ func RegisterRoutes(
 	mux.Handle("GET /api/periods", read(h.ListPeriods))
 	mux.Handle("PUT /api/periods", manage(h.ReplacePeriods))
 
+	// -- period_day_overrides (Fase 14 Gelombang D, docs/12-sion-parity.md) --
+	mux.Handle("GET /api/periods/overrides", read(h.GetPeriodOverrides))
+	mux.Handle("PUT /api/periods/overrides", manage(h.ReplacePeriodOverrides))
+
 	// -- rooms -- (qr_token di response GET hanya utk schedule:manage — lihat
 	// Service.ListRooms; endpoint QR/regenerate/tulis tetap butuh schedule:manage)
 	mux.Handle("GET /api/rooms", read(h.ListRooms))

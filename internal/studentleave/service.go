@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -69,6 +70,14 @@ type Realtime interface {
 	PublishTo(schoolID int64, eventType string, data map[string]any, roles []string, userIDs []int64)
 }
 
+// SettingsGateway adalah kebutuhan modul studentleave dari modul tenant: baca
+// RAW json school_settings module "letters" (Fase 14 Gelombang D,
+// docs/12-sion-parity.md "template surat") — pola sama
+// internal/discipline.SettingsGateway / internal/grading.SettingsGateway.
+type SettingsGateway interface {
+	GetSetting(ctx context.Context, schoolID int64, module string) (raw []byte, found bool, err error)
+}
+
 // ErrNoActiveAcademicYear — pesan sama seperti modul lain (mis. discipline/duty).
 var ErrNoActiveAcademicYear = httpx.Validation("Sekolah belum punya tahun ajaran aktif. Aktifkan dulu di menu tahun ajaran.")
 
@@ -84,6 +93,7 @@ type Service struct {
 	clock    clock.Clock
 	notifier Notifier
 	realtime Realtime
+	settings SettingsGateway // opsional — nil = footer surat izin dilewati (Fase 14 Gelombang D)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup, branding BrandingGateway, students StudentAccess, duties DutyGateway, files *storage.Store, clk clock.Clock) *Service {
@@ -96,8 +106,9 @@ func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLo
 	return &Service{repo: repo, identity: identity, years: years, branding: branding, students: students, duties: duties, files: files, clock: clk}
 }
 
-func (s *Service) SetNotifier(n Notifier) { s.notifier = n }
-func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+func (s *Service) SetNotifier(n Notifier)               { s.notifier = n }
+func (s *Service) SetRealtime(r Realtime)               { s.realtime = r }
+func (s *Service) SetSettingsGateway(g SettingsGateway) { s.settings = g }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
 // tanpa DB) — dipakai test di package ini saja.
@@ -701,6 +712,28 @@ func (s *Service) OpenAttachment(path string) (io.ReadCloser, error) {
 
 var errLetterNotIssued = httpx.Validation("Surat izin baru tersedia setelah diterbitkan BK.")
 
+// leaveFooterNote membaca school_settings module "letters" ->
+// leave_footer_note (Fase 14 Gelombang D, docs/12-sion-parity.md "template
+// surat") — "" bila belum diset/gateway belum disuntik, DIBACA LIVE saat
+// render (bukan bagian snapshot) supaya admin bisa mengubah catatan tanpa
+// perlu menerbitkan ulang surat lama (pola sama internal/discipline.spFooterNote).
+func (s *Service) leaveFooterNote(ctx context.Context, schoolID int64) string {
+	if s.settings == nil {
+		return ""
+	}
+	raw, found, err := s.settings.GetSetting(ctx, schoolID, "letters")
+	if err != nil || !found {
+		return ""
+	}
+	var v struct {
+		LeaveFooterNote string `json:"leave_footer_note"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ""
+	}
+	return v.LeaveFooterNote
+}
+
 // LetterPDF — GET /api/student-leave/{id}/letter/pdf (issued saja). host
 // dipakai menyusun URL QR verifikasi (docs tugas: "host dari request").
 func (s *Service) LetterPDF(ctx context.Context, schoolID, requestID int64, host string) ([]byte, string, error) {
@@ -722,7 +755,7 @@ func (s *Service) LetterPDF(ctx context.Context, schoolID, requestID int64, host
 		appName = "NouSchool"
 	}
 	verifyURL := fmt.Sprintf("https://%s/verifikasi-surat?token=%s", host, detail.VerifyToken)
-	data, err := BuildLeavePDF(detail, appName, verifyURL)
+	data, err := BuildLeavePDF(detail, appName, verifyURL, s.leaveFooterNote(ctx, schoolID))
 	if err != nil {
 		return nil, "", err
 	}

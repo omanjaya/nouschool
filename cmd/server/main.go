@@ -13,6 +13,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/announcement"
 	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/billing"
+	"github.com/omanjaya/nouschool/internal/counseling"
 	"github.com/omanjaya/nouschool/internal/dashboard"
 	"github.com/omanjaya/nouschool/internal/discipline"
 	"github.com/omanjaya/nouschool/internal/duty"
@@ -34,6 +35,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/studentleave"
+	"github.com/omanjaya/nouschool/internal/substitution"
 	"github.com/omanjaya/nouschool/internal/teacherqr"
 	"github.com/omanjaya/nouschool/internal/teaching"
 	"github.com/omanjaya/nouschool/internal/tenant"
@@ -143,6 +145,10 @@ func main() {
 		disciplineRepo := discipline.NewRepository(pool)
 		disciplineSvc := discipline.NewService(disciplineRepo, identitySvc, tenantSvc, tenantSvc, studentSvc, clock.System{})
 		disciplineSvc.SetRealtime(realtimeAdapter)
+		// tenantRepo memenuhi discipline.SettingsGateway secara STRUKTURAL
+		// lewat method GetSetting (Fase 14 Gelombang D: footer surat SP, school_settings
+		// module "letters" — pola sama grading.SettingsGateway).
+		disciplineSvc.SetSettingsGateway(tenantRepo)
 		disciplineHandler := discipline.NewHandler(disciplineSvc)
 
 		// --- modul duty (tugas tambahan + capability flags — Fase 14
@@ -155,6 +161,17 @@ func main() {
 		dutyRepo := duty.NewRepository(pool)
 		dutySvc := duty.NewService(dutyRepo, identitySvc, tenantSvc)
 		dutyHandler := duty.NewHandler(dutySvc)
+
+		// --- modul counseling (sesi konseling BK: tujuan karir, deskripsi
+		// masalah, rencana tindak lanjut, bukti + laporan HTML — Fase 14
+		// Gelombang D, docs/12-sion-parity.md). identitySvc, tenantSvc, dutySvc
+		// memenuhi counseling.IdentityGateway / AcademicYearLookup / DutyGateway
+		// secara STRUKTURAL — counseling TIDAK mengimpor identity/tenant/duty
+		// untuk tipe apa pun. Dikonstruksi SETELAH dutySvc (butuh DutyGateway,
+		// flag leave_issuance = Guru BK).
+		counselingRepo := counseling.NewRepository(pool)
+		counselingSvc := counseling.NewService(counselingRepo, identitySvc, tenantSvc, dutySvc, storage.FromEnv(), clock.System{})
+		counselingHandler := counseling.NewHandler(counselingSvc)
 
 		// --- modul teacherqr (QR token guru — kebalikan QR kartu siswa/
 		// ruangan: guru tampilkan QR berumur pendek (60 detik) sekali pakai,
@@ -186,6 +203,10 @@ func main() {
 		studentLeaveRepo := studentleave.NewRepository(pool)
 		studentLeaveSvc := studentleave.NewService(studentLeaveRepo, identitySvc, tenantSvc, tenantSvc, studentSvc, dutySvc, storage.FromEnv(), clock.System{})
 		studentLeaveSvc.SetRealtime(realtimeAdapter)
+		// tenantRepo memenuhi studentleave.SettingsGateway secara STRUKTURAL
+		// (Fase 14 Gelombang D: footer surat izin, school_settings module
+		// "letters" — pola sama discipline.SettingsGateway di atas).
+		studentLeaveSvc.SetSettingsGateway(tenantRepo)
 		studentLeaveHandler := studentleave.NewHandler(studentLeaveSvc)
 
 		// --- modul schedule (jadwal pelajaran: periods, rooms+QR, slots,
@@ -200,6 +221,21 @@ func main() {
 		scheduleSvc := schedule.NewService(scheduleRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
 		scheduleSvc.SetRealtime(realtimeAdapter)
 		scheduleHandler := schedule.NewHandler(scheduleSvc)
+
+		// --- modul substitution (guru pengganti per slot+tanggal: request ->
+		// accept/reject oleh pengganti, cancel oleh pengaju selama pending —
+		// Fase 14 Gelombang D, docs/12-sion-parity.md). identitySvc memenuhi
+		// substitution.IdentityGateway secara STRUKTURAL — substitution TIDAK
+		// mengimpor identity/schedule untuk tipe apa pun (validasi kepemilikan
+		// slot & keanggotaan guru lewat join read-only LANGSUNG ke
+		// schedule_slots/teachers/memberships di repository.go sendiri, pola
+		// sama internal/discipline). Interface publik SubstituteName/
+		// IsSubstituteToday disuntik ke teachingSvc di bawah (setter
+		// SetSubstitutions, SETELAH teachingSvc dikonstruksi).
+		substitutionRepo := substitution.NewRepository(pool)
+		substitutionSvc := substitution.NewService(substitutionRepo, identitySvc, clock.System{})
+		substitutionSvc.SetRealtime(realtimeAdapter)
+		substitutionHandler := substitution.NewHandler(substitutionSvc)
 
 		// --- modul grading (penilaian: komponen berbobot+KKTP, nilai
 		// dinormalisasi, publikasi per kelas-mapel, bintang kelas — Fase 14
@@ -269,6 +305,10 @@ func main() {
 		teachingRepo := teaching.NewRepository(pool)
 		teachingSvc := teaching.NewService(teachingRepo, identitySvc, scheduleForTeaching{svc: scheduleSvc}, leaveSvc, attendanceSvc, studentSvc, clock.System{})
 		teachingSvc.SetRealtime(realtimeAdapter)
+		// substitutionSvc memenuhi teaching.SubstitutionLookup secara STRUKTURAL
+		// (signature primitif) — Fase 14 Gelombang D: scan pengganti diizinkan +
+		// nama pengganti tampil di monitoring/TV.
+		teachingSvc.SetSubstitutions(substitutionSvc)
 		teachingHandler := teaching.NewHandler(teachingSvc)
 
 		// --- modul announcement (pengumuman dashboard TV/kepsek, fase 7 —
@@ -337,6 +377,7 @@ func main() {
 		exitPermitSvc.SetNotifier(notificationSvc)
 		lateArrivalSvc.SetNotifier(notificationSvc)
 		gradingSvc.SetNotifier(notificationSvc)
+		substitutionSvc.SetNotifier(notificationSvc)
 
 		// --- modul billing (langganan tahunan, tier x bracket siswa, invoice,
 		// transfer manual + gateway Midtrans, lifecycle grace/readonly, fase
@@ -396,7 +437,7 @@ func main() {
 		}
 
 		// --- wiring routes ---
-		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin)
+		identity.RegisterRoutes(mux, identityHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		tenant.RegisterRoutes(mux, tenantHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
 		student.RegisterRoutes(mux, studentHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm,
@@ -404,12 +445,14 @@ func main() {
 		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		discipline.RegisterRoutes(mux, disciplineHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		duty.RegisterRoutes(mux, dutyHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		counseling.RegisterRoutes(mux, counselingHandler, identitySvc.RequireAuth)
 		employee.RegisterRoutes(mux, employeeHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		studentleave.RegisterRoutes(mux, studentLeaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teacherqr.RegisterRoutes(mux, teacherQRHandler, identitySvc.RequireAuth)
 		exitpermit.RegisterRoutes(mux, exitPermitHandler, identitySvc.RequireAuth)
 		latearrival.RegisterRoutes(mux, lateArrivalHandler, identitySvc.RequireAuth)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		substitution.RegisterRoutes(mux, substitutionHandler, identitySvc.RequireAuth)
 		grading.RegisterRoutes(mux, gradingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)

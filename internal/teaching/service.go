@@ -83,6 +83,23 @@ type StudentGateway interface {
 	MyTeacherID(ctx context.Context, schoolID, userID int64) (teacherID int64, ok bool, err error)
 }
 
+// SubstitutionLookup adalah kebutuhan modul teaching dari modul substitution
+// (Fase 14 Gelombang D, docs/12-sion-parity.md): status pengganti ACCEPTED
+// utk suatu slot+tanggal. Dipenuhi *substitution.Service secara STRUKTURAL
+// (signature primitif) — teaching TIDAK mengimpor package substitution.
+// Opsional (lihat SetSubstitutions): nil = jalur pengganti dilewati sama
+// sekali, perilaku scan/status IDENTIK sebelum Gelombang D ini ada.
+type SubstitutionLookup interface {
+	// SubstituteName — nama pengganti ACCEPTED utk (slotID,date), ok=false
+	// bila tidak ada (dipakai Status: "teacher_name tampil {pengganti}
+	// (pengganti)").
+	SubstituteName(ctx context.Context, schoolID, slotID int64, date string) (name string, ok bool, err error)
+	// IsSubstituteToday — daftar schedule_slot_id yang teacherUserID adalah
+	// pengganti ACCEPTED pada tanggal date (dipakai Scan: scanner BUKAN guru
+	// slot TAPI pengganti accepted -> diizinkan buka jurnal+sesi).
+	IsSubstituteToday(ctx context.Context, schoolID, teacherUserID int64, date string) (slotIDs []int64, err error)
+}
+
 // Realtime adalah kebutuhan modul teaching dari modul realtime (Fase 12, bus
 // event WebSocket read-only server->client) — consumer-side interface kecil
 // dideklarasikan di sisi PEMAKAI (lihat CLAUDE.md). TIDAK dipenuhi
@@ -94,14 +111,15 @@ type Realtime interface {
 
 // Service berisi aturan bisnis modul teaching.
 type Service struct {
-	repo       teachingRepository
-	identity   IdentityGateway
-	schedule   ScheduleGateway
-	leave      LeaveGateway
-	attendance AttendanceGateway
-	students   StudentGateway
-	clock      clock.Clock
-	realtime   Realtime // opsional — nil = event realtime dilewati (lihat SetRealtime)
+	repo          teachingRepository
+	identity      IdentityGateway
+	schedule      ScheduleGateway
+	leave         LeaveGateway
+	attendance    AttendanceGateway
+	students      StudentGateway
+	clock         clock.Clock
+	realtime      Realtime           // opsional — nil = event realtime dilewati (lihat SetRealtime)
+	substitutions SubstitutionLookup // opsional — nil = jalur pengganti dilewati (lihat SetSubstitutions)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, schedule ScheduleGateway, leave LeaveGateway, attendance AttendanceGateway, students StudentGateway, clk clock.Clock) *Service {
@@ -115,6 +133,11 @@ func NewService(repo *Repository, identity IdentityGateway, schedule ScheduleGat
 // main.go — pola yang sama dengan internal/attendance.SetNotifier; nil
 // aman/no-op — lihat emitStatus).
 func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+
+// SetSubstitutions menyuntikkan SubstitutionLookup SETELAH konstruksi
+// (opsional, disuntik main.go — pola yang sama dengan SetRealtime; nil
+// aman/no-op — lihat Scan & Status).
+func (s *Service) SetSubstitutions(sl SubstitutionLookup) { s.substitutions = sl }
 
 // emitStatus memancarkan "teaching.status" {date} ke roles
 // admin_sekolah/kepala_sekolah/display (docs tugas Fase 12: "scan / create
@@ -290,6 +313,19 @@ func (s *Service) Scan(ctx context.Context, actorUserID, schoolID int64, in Scan
 	if err != nil {
 		return ScanResult{}, err
 	}
+	// substituteFlag — TRUE bila scanner BUKAN guru pemilik slot tapi
+	// pengganti ACCEPTED utk slot+tanggal itu (Fase 14 Gelombang D,
+	// docs/12-sion-parity.md "scan pengganti diizinkan"). Dicoba HANYA bila
+	// jalur normal (guru pemilik) tidak menemukan slot berjalan.
+	substituteFlag := false
+	if !found && s.substitutions != nil {
+		var serr error
+		slot, found, serr = s.findSubstituteSlotNow(ctx, schoolID, actorUserID, room.ID, now)
+		if serr != nil {
+			return ScanResult{}, serr
+		}
+		substituteFlag = found
+	}
 	if !found {
 		r := room
 		return ScanResult{NeedsManual: true, Room: &r}, nil
@@ -316,6 +352,9 @@ func (s *Service) Scan(ctx context.Context, actorUserID, schoolID int64, in Scan
 	flags := []string{}
 	if slot.RoomID != 0 && slot.RoomID != room.ID {
 		flags = append(flags, FlagRoomMismatch)
+	}
+	if substituteFlag {
+		flags = append(flags, FlagSubstitute)
 	}
 
 	rec, err := s.repo.InsertJournal(ctx, JournalInput{
@@ -345,6 +384,43 @@ func (s *Service) Scan(ctx context.Context, actorUserID, schoolID int64, in Scan
 	}
 	s.emitStatus(schoolID, date)
 	return ScanResult{Journal: &view, AttendanceSessionID: &sessionID, NeedsManual: false}, nil
+}
+
+// findSubstituteSlotNow mencari slot yang SEDANG berjalan (period berjalan)
+// di ruangan roomID yang actorUserID adalah pengganti ACCEPTED untuknya hari
+// ini (Fase 14 Gelombang D). ok=false bila tidak ada kecocokan (bukan
+// pengganti siapa pun hari ini, atau tidak ada slot yang cocok jam+ruangan
+// saat ini) — pemanggil (Scan) memperlakukan itu sama seperti "slot tidak
+// ketemu" (needs_manual).
+func (s *Service) findSubstituteSlotNow(ctx context.Context, schoolID, actorUserID, roomID int64, now time.Time) (SlotInfo, bool, error) {
+	dateStr := schoolToday(now, schoolTimezone(ctx)).Format("2006-01-02")
+	slotIDs, err := s.substitutions.IsSubstituteToday(ctx, schoolID, actorUserID, dateStr)
+	if err != nil {
+		return SlotInfo{}, false, err
+	}
+	if len(slotIDs) == 0 {
+		return SlotInfo{}, false, nil
+	}
+	num, _, _, ok, err := s.schedule.CurrentPeriod(ctx, schoolID, now)
+	if err != nil {
+		return SlotInfo{}, false, err
+	}
+	if !ok {
+		return SlotInfo{}, false, nil
+	}
+	for _, sid := range slotIDs {
+		si, found, serr := s.schedule.SlotByID(ctx, schoolID, sid)
+		if serr != nil {
+			return SlotInfo{}, false, serr
+		}
+		if !found || si.RoomID != roomID {
+			continue
+		}
+		if si.PeriodStart <= num && num <= si.PeriodEnd {
+			return si, true, nil
+		}
+	}
+	return SlotInfo{}, false, nil
 }
 
 // -- POST /api/teaching/journals (unscheduled) --
@@ -686,6 +762,20 @@ func (s *Service) Status(ctx context.Context, schoolID int64, dateStr string) (S
 			summary.Selesai++
 		}
 
+		// Fase 14 Gelombang D: bila ada guru pengganti ACCEPTED utk slot+tanggal
+		// ini, nama guru yang tampil di monitoring/TV adalah pengganti (docs
+		// tugas: "teacher_name tampil {pengganti} (pengganti)") — ID slot
+		// pemilik TETAP sl.TeacherID (kepemilikan jadwal tidak berubah, murni
+		// perubahan tampilan siapa yang benar-benar mengajar).
+		teacherRef := TeacherRef{ID: sl.TeacherID, Name: sl.TeacherName}
+		if s.substitutions != nil {
+			if name, ok, serr := s.substitutions.SubstituteName(ctx, schoolID, sl.ID, dateForLeave); serr != nil {
+				return StatusResult{}, serr
+			} else if ok {
+				teacherRef.Name = name + " (pengganti)"
+			}
+		}
+
 		rows = append(rows, StatusRow{
 			Slot: StatusSlot{
 				ID: sl.ID, Class: ClassRef{ID: sl.ClassID, Name: sl.ClassName},
@@ -694,7 +784,7 @@ func (s *Service) Status(ctx context.Context, schoolID int64, dateStr string) (S
 				DayOfWeek: sl.DayOfWeek, PeriodStart: sl.PeriodStart, PeriodEnd: sl.PeriodEnd,
 				PeriodStartsAt: sl.PeriodStartsAt, PeriodEndsAt: sl.PeriodEndsAt,
 			},
-			Teacher:    TeacherRef{ID: sl.TeacherID, Name: sl.TeacherName},
+			Teacher:    teacherRef,
 			Status:     status,
 			JournalID:  journalID,
 			RoomActual: roomActual,

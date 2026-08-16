@@ -40,18 +40,24 @@ SELECT DISTINCT user_id FROM memberships
 WHERE school_id = sqlc.arg(school_id)::bigint AND role = sqlc.arg(role)::text AND status = 'active';
 
 -- name: CreateSession :one
-INSERT INTO sessions (user_id, school_id, token_hash, role, expires_at, ip, user_agent)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO sessions (user_id, school_id, token_hash, role, expires_at, ip, user_agent, impersonator_user_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, sqlc.narg(impersonator_user_id)::bigint)
 RETURNING *;
 
 -- name: GetSessionByTokenHash :one
 SELECT
     s.id, s.user_id, s.school_id, s.token_hash, s.role, s.expires_at, s.created_at, s.ip, s.user_agent,
+    s.impersonator_user_id,
     u.name AS user_name,
     u.is_super_admin AS user_is_super_admin
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1;
+
+-- name: GetUserBasic :one
+-- Dipakai render field impersonated_by pada GET /api/me (Fase 14 Gelombang D)
+-- — nama saja, TANPA data sensitif lain.
+SELECT id, name FROM users WHERE id = $1;
 
 -- name: ExtendSession :exec
 UPDATE sessions SET expires_at = $2 WHERE id = $1;

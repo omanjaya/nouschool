@@ -94,19 +94,20 @@ func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipPara
 }
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO sessions (user_id, school_id, token_hash, role, expires_at, ip, user_agent)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, school_id, token_hash, role, expires_at, created_at, ip, user_agent
+INSERT INTO sessions (user_id, school_id, token_hash, role, expires_at, ip, user_agent, impersonator_user_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8::bigint)
+RETURNING id, user_id, school_id, token_hash, role, expires_at, created_at, ip, user_agent, impersonator_user_id
 `
 
 type CreateSessionParams struct {
-	UserID    int64              `json:"user_id"`
-	SchoolID  pgtype.Int8        `json:"school_id"`
-	TokenHash []byte             `json:"token_hash"`
-	Role      string             `json:"role"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	Ip        *netip.Addr        `json:"ip"`
-	UserAgent pgtype.Text        `json:"user_agent"`
+	UserID             int64              `json:"user_id"`
+	SchoolID           pgtype.Int8        `json:"school_id"`
+	TokenHash          []byte             `json:"token_hash"`
+	Role               string             `json:"role"`
+	ExpiresAt          pgtype.Timestamptz `json:"expires_at"`
+	Ip                 *netip.Addr        `json:"ip"`
+	UserAgent          pgtype.Text        `json:"user_agent"`
+	ImpersonatorUserID pgtype.Int8        `json:"impersonator_user_id"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
@@ -118,6 +119,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.ExpiresAt,
 		arg.Ip,
 		arg.UserAgent,
+		arg.ImpersonatorUserID,
 	)
 	var i Session
 	err := row.Scan(
@@ -130,6 +132,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.CreatedAt,
 		&i.Ip,
 		&i.UserAgent,
+		&i.ImpersonatorUserID,
 	)
 	return i, err
 }
@@ -270,6 +273,7 @@ func (q *Queries) GetInvitationByCode(ctx context.Context, code string) (Invitat
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
 SELECT
     s.id, s.user_id, s.school_id, s.token_hash, s.role, s.expires_at, s.created_at, s.ip, s.user_agent,
+    s.impersonator_user_id,
     u.name AS user_name,
     u.is_super_admin AS user_is_super_admin
 FROM sessions s
@@ -278,17 +282,18 @@ WHERE s.token_hash = $1
 `
 
 type GetSessionByTokenHashRow struct {
-	ID               int64              `json:"id"`
-	UserID           int64              `json:"user_id"`
-	SchoolID         pgtype.Int8        `json:"school_id"`
-	TokenHash        []byte             `json:"token_hash"`
-	Role             string             `json:"role"`
-	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	Ip               *netip.Addr        `json:"ip"`
-	UserAgent        pgtype.Text        `json:"user_agent"`
-	UserName         string             `json:"user_name"`
-	UserIsSuperAdmin bool               `json:"user_is_super_admin"`
+	ID                 int64              `json:"id"`
+	UserID             int64              `json:"user_id"`
+	SchoolID           pgtype.Int8        `json:"school_id"`
+	TokenHash          []byte             `json:"token_hash"`
+	Role               string             `json:"role"`
+	ExpiresAt          pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	Ip                 *netip.Addr        `json:"ip"`
+	UserAgent          pgtype.Text        `json:"user_agent"`
+	ImpersonatorUserID pgtype.Int8        `json:"impersonator_user_id"`
+	UserName           string             `json:"user_name"`
+	UserIsSuperAdmin   bool               `json:"user_is_super_admin"`
 }
 
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error) {
@@ -304,6 +309,7 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 		&i.CreatedAt,
 		&i.Ip,
 		&i.UserAgent,
+		&i.ImpersonatorUserID,
 		&i.UserName,
 		&i.UserIsSuperAdmin,
 	)
@@ -327,6 +333,24 @@ func (q *Queries) GetStudentIDByUser(ctx context.Context, arg GetStudentIDByUser
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const getUserBasic = `-- name: GetUserBasic :one
+SELECT id, name FROM users WHERE id = $1
+`
+
+type GetUserBasicRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// Dipakai render field impersonated_by pada GET /api/me (Fase 14 Gelombang D)
+// — nama saja, TANPA data sensitif lain.
+func (q *Queries) GetUserBasic(ctx context.Context, id int64) (GetUserBasicRow, error) {
+	row := q.db.QueryRow(ctx, getUserBasic, id)
+	var i GetUserBasicRow
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one

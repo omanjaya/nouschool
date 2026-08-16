@@ -21,6 +21,19 @@ RETURNING *;
 -- name: ListSlotPeriodRanges :many
 SELECT DISTINCT period_start, period_end FROM schedule_slots WHERE school_id = $1;
 
+-- -- period_day_overrides (Fase 14 Gelombang D, docs/12-sion-parity.md) --
+
+-- name: ListPeriodOverridesForDay :many
+SELECT * FROM period_day_overrides WHERE school_id = $1 AND day_of_week = $2 ORDER BY number;
+
+-- name: DeletePeriodOverridesForDay :exec
+DELETE FROM period_day_overrides WHERE school_id = $1 AND day_of_week = $2;
+
+-- name: InsertPeriodOverride :one
+INSERT INTO period_day_overrides (school_id, day_of_week, number, starts_at, ends_at, label)
+VALUES ($1, $2, $3, $4, $5, sqlc.narg(label)::text)
+RETURNING *;
+
 -- -- rooms --
 
 -- name: CreateRoom :one

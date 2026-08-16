@@ -63,4 +63,7 @@ func RegisterRoutes(
 	// StudentAttendance sengaja hanya requireAuth: otorisasi (attendance:report
 	// ATAU object-level siswa/orang tua) ditegakkan di Service.StudentHistory.
 	mux.Handle("GET /api/students/{id}/attendance", auth(h.StudentAttendance))
+	// Fase 14 Gelombang D (docs/12-sion-parity.md) — object-level SAMA dengan
+	// StudentAttendance di atas (attendance:report ATAU siswa/orang tua sendiri).
+	mux.Handle("GET /api/students/{id}/attendance/calendar", auth(h.StudentAttendanceCalendar))
 }

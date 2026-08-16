@@ -907,6 +907,64 @@ func (q *Queries) StudentAttendanceHistory(ctx context.Context, arg StudentAtten
 	return items, nil
 }
 
+const studentCalendarRecords = `-- name: StudentCalendarRecords :many
+SELECT s.date, s.type, r.status, r.note
+FROM attendance_records r
+JOIN attendance_sessions s ON s.id = r.session_id
+WHERE r.student_id = $1::bigint AND r.school_id = $2::bigint
+  AND s.date >= $3::date AND s.date <= $4::date
+ORDER BY s.date, s.type
+`
+
+type StudentCalendarRecordsParams struct {
+	StudentID int64       `json:"student_id"`
+	SchoolID  int64       `json:"school_id"`
+	FromDate  pgtype.Date `json:"from_date"`
+	ToDate    pgtype.Date `json:"to_date"`
+}
+
+type StudentCalendarRecordsRow struct {
+	Date   pgtype.Date `json:"date"`
+	Type   string      `json:"type"`
+	Status string      `json:"status"`
+	Note   pgtype.Text `json:"note"`
+}
+
+// Dipakai GET /api/students/{id}/attendance/calendar (Fase 14 Gelombang D,
+// docs/12-sion-parity.md) — SEMUA record (daily+subject) dalam rentang bulan,
+// s.type disertakan supaya Service bisa memprioritaskan sesi daily &
+// menghitung status "terburuk" dari subject records saat daily tidak ada
+// (lihat internal/attendance/service.go resolveDayStatus).
+func (q *Queries) StudentCalendarRecords(ctx context.Context, arg StudentCalendarRecordsParams) ([]StudentCalendarRecordsRow, error) {
+	rows, err := q.db.Query(ctx, studentCalendarRecords,
+		arg.StudentID,
+		arg.SchoolID,
+		arg.FromDate,
+		arg.ToDate,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StudentCalendarRecordsRow
+	for rows.Next() {
+		var i StudentCalendarRecordsRow
+		if err := rows.Scan(
+			&i.Date,
+			&i.Type,
+			&i.Status,
+			&i.Note,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const summaryByDate = `-- name: SummaryByDate :many
 SELECT
     c.id AS class_id,

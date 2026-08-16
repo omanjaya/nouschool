@@ -55,6 +55,10 @@ const (
 	PermDisciplineRead       = "discipline:read"
 	PermDutyManage           = "duty:manage"
 	PermGradingManage        = "grading:manage"
+	// PermUserImpersonate — Fase 14 Gelombang D (docs/12-sion-parity.md
+	// "Impersonate USER oleh admin sekolah"): admin_sekolah masuk sebagai
+	// member lain sekolahnya utk mendukung/debug.
+	PermUserImpersonate = "user:impersonate"
 )
 
 // rolePermissions adalah map role->permission statis (hardcode, bukan DB —
@@ -78,6 +82,7 @@ var rolePermissions = map[string]map[string]bool{
 		PermDisciplineRead:     true,
 		PermDutyManage:         true,
 		PermGradingManage:      true,
+		PermUserImpersonate:    true,
 	},
 	RoleKepalaSekolah: {
 		PermStudentRead:        true,

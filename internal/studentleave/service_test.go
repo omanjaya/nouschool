@@ -261,6 +261,72 @@ func (f fakeDuty) UserIDsWithFlag(ctx context.Context, schoolID int64, flag stri
 	return out, nil
 }
 
+// -- fake SettingsGateway (Fase 14 Gelombang D: footer surat, school_settings
+// module "letters") --
+
+type fakeSettingsGateway struct {
+	raw   map[string][]byte
+	found map[string]bool
+	err   error
+}
+
+func (f fakeSettingsGateway) GetSetting(ctx context.Context, schoolID int64, module string) ([]byte, bool, error) {
+	if f.err != nil {
+		return nil, false, f.err
+	}
+	return f.raw[module], f.found[module], nil
+}
+
+func TestLeaveFooterNote_RenderedWhenSet(t *testing.T) {
+	svc := newTestService(newFakeRepo(), fakeStudentAccess{}, fakeDuty{})
+	svc.SetSettingsGateway(fakeSettingsGateway{
+		raw:   map[string][]byte{"letters": []byte(`{"sp_footer_note":"","leave_footer_note":"Hubungi TU bila ada pertanyaan."}`)},
+		found: map[string]bool{"letters": true},
+	})
+	ctx := ctxAs("admin_sekolah", 1)
+	if got := svc.leaveFooterNote(ctx, testSchoolID); got != "Hubungi TU bila ada pertanyaan." {
+		t.Fatalf("expected catatan terbaca dari settings, got %q", got)
+	}
+}
+
+func TestLeaveFooterNote_EmptyWhenGatewayNilOrNotFound(t *testing.T) {
+	svc := newTestService(newFakeRepo(), fakeStudentAccess{}, fakeDuty{}) // gateway TIDAK di-set (nil)
+	ctx := ctxAs("admin_sekolah", 1)
+	if got := svc.leaveFooterNote(ctx, testSchoolID); got != "" {
+		t.Fatalf("gateway nil harus menghasilkan string kosong, got %q", got)
+	}
+
+	svc.SetSettingsGateway(fakeSettingsGateway{found: map[string]bool{}})
+	if got := svc.leaveFooterNote(ctx, testSchoolID); got != "" {
+		t.Fatalf("module belum pernah tersimpan harus menghasilkan string kosong, got %q", got)
+	}
+}
+
+func TestBuildLeavePDF_FooterNoteIncreasesOutputWhenSet(t *testing.T) {
+	detail := RequestDetail{
+		LetterNumber: "IZ/2026/0001", StudentName: "Budi", StudentNIS: "22103", ClassName: "XII RPL 1",
+		Type: TypeSakit, DateStart: time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC), DateEnd: time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC),
+		Reason: "demam", VerifyToken: "tok123",
+	}
+	without, err := BuildLeavePDF(detail, "NouSchool", "https://demo.localhost/verifikasi-surat?token=tok123", "")
+	if err != nil {
+		t.Fatalf("unexpected error tanpa footer: %v", err)
+	}
+	if len(without) < 4 || string(without[:4]) != "%PDF" {
+		t.Fatal("output harus PDF valid (header %PDF)")
+	}
+	with, err := BuildLeavePDF(detail, "NouSchool", "https://demo.localhost/verifikasi-surat?token=tok123", "Catatan tambahan dari sekolah.")
+	if err != nil {
+		t.Fatalf("unexpected error dengan footer: %v", err)
+	}
+	if len(with) < 4 || string(with[:4]) != "%PDF" {
+		t.Fatal("output DENGAN footer harus tetap PDF valid")
+	}
+	if len(with) <= len(without) {
+		t.Fatalf("PDF dengan footer harus lebih besar dari tanpa footer (footer benar-benar dirender): %d vs %d", len(with), len(without))
+	}
+}
+
 // -- helpers --
 
 const testSchoolID = 1

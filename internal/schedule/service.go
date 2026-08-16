@@ -159,16 +159,14 @@ type parsedPeriod struct {
 	Label    string
 }
 
-// ReplacePeriods mengganti SELURUH set periods sekolah (docs/04-schedule.md:
-// replace-all transaksional). Validasi: number unik & berurutan mulai dari 1
-// (tanpa lompat), starts_at < ends_at, dan tidak ada dua period yang
-// tumpang-tindih jamnya. Menolak (409) bila ada nomor jam ke- yang sedang
-// dipakai schedule_slots tapi hilang dari set baru.
-func (s *Service) ReplacePeriods(ctx context.Context, actorUserID, schoolID int64, in []ReplacePeriodInput) ([]PeriodView, error) {
-	if len(in) == 0 {
-		return nil, httpx.Validation("Minimal satu jam pelajaran wajib diisi.")
-	}
-
+// parsePeriodItems memvalidasi & mengurutkan input periods (docs/04-schedule.md
+// pola "replace-all"): number unik & berurutan mulai dari 1 (tanpa lompat),
+// starts_at < ends_at, dan tidak ada dua period yang tumpang-tindih jamnya.
+// Fungsi MURNI (mudah dites tanpa DB) dipakai BERSAMA oleh ReplacePeriods
+// (periods default sekolah) dan ReplacePeriodOverrides (Fase 14 Gelombang D,
+// periods alternatif per day_of_week) — SATU aturan validasi bentuk, dua
+// tujuan penyimpanan berbeda.
+func parsePeriodItems(in []ReplacePeriodInput) ([]parsedPeriod, error) {
 	seen := make(map[int]bool, len(in))
 	items := make([]parsedPeriod, 0, len(in))
 	for _, p := range in {
@@ -206,6 +204,21 @@ func (s *Service) ReplacePeriods(ctx context.Context, actorUserID, schoolID int6
 			}
 		}
 	}
+	return items, nil
+}
+
+// ReplacePeriods mengganti SELURUH set periods sekolah (docs/04-schedule.md:
+// replace-all transaksional). Menolak (409) bila ada nomor jam ke- yang
+// sedang dipakai schedule_slots tapi hilang dari set baru.
+func (s *Service) ReplacePeriods(ctx context.Context, actorUserID, schoolID int64, in []ReplacePeriodInput) ([]PeriodView, error) {
+	if len(in) == 0 {
+		return nil, httpx.Validation("Minimal satu jam pelajaran wajib diisi.")
+	}
+
+	items, err := parsePeriodItems(in)
+	if err != nil {
+		return nil, err
+	}
 
 	used, err := s.repo.UsedPeriodNumbers(ctx, schoolID)
 	if err != nil {
@@ -238,6 +251,72 @@ func (s *Service) ReplacePeriods(ctx context.Context, actorUserID, schoolID int6
 		return nil, err
 	}
 	s.audit(ctx, schoolID, actorUserID, "schedule.periods_replace", "period", 0, nil, map[string]any{"count": len(recs)})
+	s.emitSchedule(schoolID)
+	return periodViews(recs), nil
+}
+
+// -- period_day_overrides (Fase 14 Gelombang D, docs/12-sion-parity.md: "jam
+// khusus per hari, mis. Jumat") --
+
+func validDayOfWeek(d int) bool { return d >= 0 && d <= 6 }
+
+// GetPeriodOverrides — GET /api/periods/overrides?day=: set periods
+// ALTERNATIF sekolah utk day_of_week tsb, [] berarti hari itu memakai
+// periods default (belum ada override tersimpan).
+func (s *Service) GetPeriodOverrides(ctx context.Context, schoolID int64, dayOfWeek int) ([]PeriodView, error) {
+	if !validDayOfWeek(dayOfWeek) {
+		return nil, httpx.Validation("day harus 0 (Minggu) sampai 6 (Sabtu).")
+	}
+	recs, err := s.repo.ListPeriodOverridesForDay(ctx, schoolID, dayOfWeek)
+	if err != nil {
+		return nil, err
+	}
+	return periodViews(recs), nil
+}
+
+// ReplacePeriodOverrides — PUT /api/periods/overrides {day_of_week,periods}:
+// periods=[] MENGHAPUS override hari itu (kembali ke periods default).
+// Validasi bentuk SAMA dengan ReplacePeriods (parsePeriodItems) TAPI SENGAJA
+// TANPA cek "period_in_use" (409) — beda dari ReplacePeriods yang bisa
+// MENGHAPUS nomor jam ke- dari keberadaan (periods default dipakai LANGSUNG
+// oleh schedule_slots.period_start/period_end), sedangkan override HANYA
+// mengganti WAKTU JAM (starts_at/ends_at) utk nomor yang sama pada hari
+// tertentu — nomor jam ke- itu sendiri tetap "ada" secara struktural (baik
+// dipakai override maupun tidak, angkanya tetap dikenal lewat periods
+// default), jadi slot manapun yang mereferensikan nomor itu TIDAK PERNAH
+// jadi yatim hanya karena override diganti/dihapus. **Keputusan dilaporkan**:
+// TIDAK memvalidasi bahwa nomor jam di override "cukup" utk menaungi seluruh
+// slot hari itu (mis. override Jumat hanya py period_start=1..6 padahal ada
+// slot Jumat period_start=8) — di luar scope literal tugas ini, sekolah yang
+// mengatur override diasumsikan menyesuaikan jadwalnya sendiri.
+func (s *Service) ReplacePeriodOverrides(ctx context.Context, actorUserID, schoolID int64, dayOfWeek int, in []ReplacePeriodInput) ([]PeriodView, error) {
+	if !validDayOfWeek(dayOfWeek) {
+		return nil, httpx.Validation("day_of_week harus 0 (Minggu) sampai 6 (Sabtu).")
+	}
+
+	if len(in) == 0 {
+		if _, err := s.repo.ReplacePeriodOverridesForDay(ctx, schoolID, dayOfWeek, nil); err != nil {
+			return nil, err
+		}
+		s.audit(ctx, schoolID, actorUserID, "schedule.period_overrides_clear", "period_day_override", 0, nil, map[string]any{"day_of_week": dayOfWeek})
+		s.emitSchedule(schoolID)
+		return []PeriodView{}, nil
+	}
+
+	items, err := parsePeriodItems(in)
+	if err != nil {
+		return nil, err
+	}
+	repoIn := make([]PeriodInput, 0, len(items))
+	for _, it := range items {
+		repoIn = append(repoIn, PeriodInput{Number: it.Number, StartsAt: minutesToClock(it.StartMin), EndsAt: minutesToClock(it.EndMin), Label: it.Label})
+	}
+	recs, err := s.repo.ReplacePeriodOverridesForDay(ctx, schoolID, dayOfWeek, repoIn)
+	if err != nil {
+		return nil, err
+	}
+	s.audit(ctx, schoolID, actorUserID, "schedule.period_overrides_replace", "period_day_override", 0, nil,
+		map[string]any{"day_of_week": dayOfWeek, "count": len(recs)})
 	s.emitSchedule(schoolID)
 	return periodViews(recs), nil
 }
@@ -723,13 +802,32 @@ func sortPeriodsByStart(periods []PeriodRecord) {
 // currentPeriod mencari period yang mencakup waktu lokal sekolah `at` —
 // dikembalikan juga daftar period terurut (dipakai CurrentPeriod menghitung
 // next_starts_at tanpa query ulang).
+// periodsForDay adalah SATU-SATUNYA titik pengambilan periods EFEKTIF utk
+// (schoolID, dayOfWeek): override (period_day_overrides, Fase 14 Gelombang D)
+// bila sekolah punya baris utk hari itu, else periods default sekolah.
+// SELURUH turunan waktu jam pelajaran (CurrentPeriod, SlotsToday is_now,
+// LastPeriodEndToday, derivasi status teaching, TV) WAJIB lewat fungsi ini
+// (via currentPeriod di bawah, atau langsung) — jangan panggil
+// s.repo.ListPeriods langsung di tempat lain, supaya override day-aware
+// otomatis berlaku menyeluruh tanpa perlu diduplikasi per pemanggil.
+func (s *Service) periodsForDay(ctx context.Context, schoolID int64, dayOfWeek int) ([]PeriodRecord, error) {
+	overrides, err := s.repo.ListPeriodOverridesForDay(ctx, schoolID, dayOfWeek)
+	if err != nil {
+		return nil, err
+	}
+	if len(overrides) > 0 {
+		return overrides, nil
+	}
+	return s.repo.ListPeriods(ctx, schoolID)
+}
+
 func (s *Service) currentPeriod(ctx context.Context, schoolID int64, at time.Time) (*PeriodRecord, []PeriodRecord, error) {
-	periods, err := s.repo.ListPeriods(ctx, schoolID)
+	local := clock.InZone(at, schoolTimezone(ctx))
+	periods, err := s.periodsForDay(ctx, schoolID, int(local.Weekday()))
 	if err != nil {
 		return nil, nil, err
 	}
 	sortPeriodsByStart(periods)
-	local := clock.InZone(at, schoolTimezone(ctx))
 	nowMin := local.Hour()*60 + local.Minute()
 	for i := range periods {
 		startMin, _ := clockMinutes(periods[i].StartsAt)
@@ -1025,12 +1123,15 @@ func (s *Service) TeachesClassToday(ctx context.Context, schoolID, classID, teac
 }
 
 // LastPeriodEndToday mengembalikan waktu UTC akhir period TERAKHIR (max
-// EndsAt di antara SELURUH period sekolah) pada tanggal lokal sekolah `at` —
+// EndsAt di antara periods EFEKTIF hari itu — override day-aware bila ada,
+// lihat periodsForDay, Fase 14 Gelombang D) pada tanggal lokal sekolah `at` —
 // dipakai exitpermit menghitung gate_expires_at otomatis saat izin issued
 // (docs tugas: "kedaluwarsa otomatis di akhir jam izin"). ok=false bila
 // sekolah belum punya period sama sekali (pemanggil fallback +6 jam).
 func (s *Service) LastPeriodEndToday(ctx context.Context, schoolID int64, at time.Time) (time.Time, bool, error) {
-	periods, err := s.repo.ListPeriods(ctx, schoolID)
+	tz := schoolTimezone(ctx)
+	local := clock.InZone(at, tz)
+	periods, err := s.periodsForDay(ctx, schoolID, int(local.Weekday()))
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -1050,12 +1151,10 @@ func (s *Service) LastPeriodEndToday(ctx context.Context, schoolID int64, at tim
 	if maxEndMin < 0 {
 		return time.Time{}, false, nil
 	}
-	tz := schoolTimezone(ctx)
 	loc, lerr := time.LoadLocation(tz)
 	if lerr != nil {
 		loc = time.FixedZone("WIB", 7*3600)
 	}
-	local := clock.InZone(at, tz)
 	endLocal := time.Date(local.Year(), local.Month(), local.Day(), maxEndMin/60, maxEndMin%60, 0, 0, loc)
 	return endLocal.UTC(), true, nil
 }

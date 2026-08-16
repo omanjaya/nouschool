@@ -26,6 +26,7 @@ const (
 	keyUserID
 	keyRole
 	keySuperAdmin
+	keyImpersonatorUserID
 )
 
 // WithSchool menandai request sebagai konteks tenant (host sekolah).
@@ -84,4 +85,21 @@ func Role(ctx context.Context) string {
 func IsSuperAdmin(ctx context.Context) bool {
 	v, _ := ctx.Value(keySuperAdmin).(bool)
 	return v
+}
+
+// WithImpersonator menandai request sebagai sesi impersonasi USER (Fase 14
+// Gelombang D, docs/12-sion-parity.md) — impersonatorUserID adalah admin
+// sekolah yang sedang "menyamar" sebagai user login saat ini (lihat
+// internal/identity/impersonation_user.go). TIDAK dipanggil sama sekali utk
+// sesi normal (lihat ImpersonatorUserID di bawah: ok=false berarti bukan
+// sesi impersonasi).
+func WithImpersonator(ctx context.Context, impersonatorUserID int64) context.Context {
+	return context.WithValue(ctx, keyImpersonatorUserID, impersonatorUserID)
+}
+
+// ImpersonatorUserID mengembalikan id admin yang sedang mengimpersonasi sesi
+// ini, ok=false bila sesi ini BUKAN sesi impersonasi (mayoritas request).
+func ImpersonatorUserID(ctx context.Context) (int64, bool) {
+	v, ok := ctx.Value(keyImpersonatorUserID).(int64)
+	return v, ok
 }

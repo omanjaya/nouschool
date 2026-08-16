@@ -950,7 +950,7 @@ build/vet/test ./...` hijau.
   lewat `HasFeature` sebelum/sesudah; `buildRevenueReport`: agregasi per
   bulan/plan + kasus kosong; `GetRevenueReport` default tahun berjalan).
 
-## Fase 14 — Paritas SION per-sekolah 🚧 (acuan user: docs/12-sion-parity.md; MULAI SETELAH Fase 13 P2-P6 selesai)
+## Fase 14 — Paritas SION per-sekolah ✅ (acuan: docs/12-sion-parity.md — SELURUH gelombang A-D tuntas backend+frontend)
 - ✅ Gelombang A: Kedisiplinan ✅ (backend) — terverifikasi end-to-end di
   Docker dev (`localhost:8210`, `demo.localhost`): admin login → `GET
   /api/discipline/types` (5 jenis seed: Terlambat 5, Atribut tidak lengkap
@@ -1609,7 +1609,188 @@ build/vet/test ./...` hijau.
     analisis) & UI frontend (`web/`) — DI LUAR SCOPE sesi ini (batasan tugas
     "jangan sentuh web/"), backend inti (komponen/nilai/normalisasi/
     publikasi/bintang/toggle) SUDAH LENGKAP & terverifikasi
-- ⬜ Gelombang D: Konseling BK, guru pengganti, period day overrides, kalender presensi siswa, admin impersonate user, template surat
+- ✅ Gelombang D (FINAL, backend): Konseling BK, guru pengganti, period day
+  overrides, kalender presensi siswa, admin impersonate user, template surat
+  — terverifikasi end-to-end di Docker dev (`localhost:8210`, `demo.localhost`):
+  sari (Guru BK) `POST /api/counselings` siswa Budi Santoso (NIS 22103) +
+  evidence PNG → 201 → `GET /api/counselings?student_id=3` (1 baris) +
+  `GET .../1/report/html` (200, kop NouSchool + identitas + 3 seksi) +
+  `GET .../1/evidence` (200, `image/png`, `Content-Disposition` benar) →
+  rendi (guru biasa, wali kelas — TANPA flag `leave_issuance`) `GET
+  /api/counselings` → 403 (privat BK terbukti) → rendi `POST /api/substitutions`
+  slot Senin miliknya (id 1, Basis Data XII RPL 1) ke Sari tanggal
+  2026-08-17 → 201 pending → sari `GET ?scope=for-me` (1 baris) + `GET
+  /api/notifications` (`substitution.requested` masuk) → sari `POST
+  .../1/accept` → 200 accepted → rendi `GET /api/notifications`
+  (`substitution.decided` "...telah diterima oleh Sari Wulandari" masuk) →
+  admin `PUT /api/periods/overrides` hari Jumat (day_of_week=5, 4 jam
+  pendek) → **bug ditemukan & diperbaiki saat e2e**: `period_day_overrides.label`
+  NOT NULL DEFAULT '' tapi repository memakai `textOrNil("")` (menghasilkan
+  NULL) → `internal/schedule/repository.go` diperbaiki (Valid:true selalu,
+  bukan textOrNil, utk kolom override) → retry sukses 200 → `GET
+  /api/periods/overrides?day=5` balik 4 periode persis (unit test
+  `TestCurrentPeriod_DayOverride_FridayShorterThanDefault` membuktikan
+  CurrentPeriod day-aware Jumat vs default, tidak diuji live krn hari
+  berjalan sesi ini Minggu) → admin `GET
+  /api/students/3/attendance/calendar?month=2026-08` → 200, 31 hari, tgl 16
+  berisi `status:"sakit"` (2 sesi digabung, note dari data fase 9 sebelumnya),
+  `counts.sakit:1` — kalender day-merge & bulan-penuh terbukti → admin `POST
+  /api/users/4/impersonate` (rendi) → 200, cookie berganti langsung → `GET
+  /api/me` → `role:"guru"` + `impersonated_by:{"name":"Admin Demo"}` → `POST
+  /api/auth/impersonation/stop` → 200 role admin_sekolah → `GET /api/me`
+  → kembali admin TANPA `impersonated_by` → dicoba juga `POST
+  /api/users/12/impersonate` (akun `display`) → 422 ditolak jelas (target
+  terlarang) → `PUT /api/settings/letters`
+  `{sp_footer_note,leave_footer_note}` → 200 → `GET
+  /api/discipline/letters/1/pdf` (surat SP1 lama, diterbitkan SEBELUM
+  Gelombang D ada) → 200, PDF valid, ukuran naik 1899→2170 byte (footer
+  benar-benar dirender tanpa perlu menerbitkan ulang surat) → `GET
+  /api/student-leave/1/letter/pdf` (surat izin lama) → 200 PDF valid juga
+  (footer leave ikut dirender). Seluruh audit_log baru diverifikasi lewat
+  psql: `counseling.create`, `substitution.request`, `substitution.accepted`,
+  `schedule.period_overrides_replace`, `admin.user_impersonate_started`,
+  `admin.user_impersonate_stopped`. `go build/vet/test ./...` (host DAN
+  kontainer `sekolah-api-1`) hijau — host Windows dev TIDAK bisa mengeksekusi
+  binary `go test` hasil compile sendiri (Application Control Policy
+  memblokir exe di temp folder, ditemukan sesi ini) sehingga `go test`
+  dijalankan via `docker exec sekolah-api-1 go test ./...` (build/vet tetap
+  bisa langsung di host); `go run .../sqlc@latest generate` dari host BERHASIL
+  (sqlc CLI tersedia di lingkungan ini, dikonfirmasi ulang — beda dari
+  catatan lama Gelombang A yang bilang tidak tersedia).
+  - Migrasi baru: `00018_counseling.sql` (`counselings`), `00019_substitution.sql`
+    (`teacher_substitution_requests` + partial unique aktif
+    `(schedule_slot_id,date) WHERE status IN ('pending','accepted')`),
+    `00020_period_overrides.sql` (`period_day_overrides`, UNIQUE
+    `(school_id,day_of_week,number)`), `00021_user_impersonation.sql`
+    (`sessions.impersonator_user_id bigint NULL REFERENCES users(id)`)
+  - `internal/counseling/` (modul baru, sqlc package `counselingdb`
+    DIGENERATE dari `queries.sql`): `GET /api/counselings?student_id=&page=`
+    (20/halaman), `POST /api/counselings` (multipart, evidence opsional
+    pdf/jpg/png ≤5MB pola sama `internal/leave`), `PATCH/DELETE
+    /api/counselings/{id}` (pembuat ATAU admin_sekolah — guru BK LAIN yang
+    bukan pembuat 403, dibuktikan test & bukan sekadar longgar "sesama BK"),
+    `GET .../evidence`, `GET .../report/html`. Otorisasi baca/kelola: flag
+    duty `leave_issuance` (Guru BK) ATAU role `admin_sekolah` = kelola;
+    `kepala_sekolah` = baca saja; siswa/ortu TANPA akses sama sekali (privat
+    BK, TIDAK ada jalur object-level seperti modul discipline) — consumer-side
+    interface `DutyGateway.UserHasFlag` (dipenuhi `duty.Service`)
+  - `internal/substitution/` (modul baru, sqlc package `substitutiondb`):
+    `POST /api/substitutions` (guru pemilik slot ATAU admin_sekolah,
+    tanggal ≥ hari ini lokal sekolah, tanggal harus jatuh pada
+    `day_of_week` slot, substitute WAJIB guru aktif sekolah ini, tidak boleh
+    diri sendiri), `GET ?scope=mine|for-me|all&date=` (`all` butuh
+    `schedule:manage`), `POST .../{id}/accept|reject` (HANYA pengganti yang
+    diminta), `POST .../{id}/cancel` (HANYA pengaju, selama masih pending —
+    race guard transaksional `UPDATE ... WHERE status=$from` pola sama
+    `internal/exitpermit`). Validasi kepemilikan slot & keanggotaan guru
+    lewat JOIN LANGSUNG ke `schedule_slots`/`teachers`/`memberships`
+    (read-only, pola sama `internal/discipline` — bukan consumer-side
+    interface Go baru). Interface publik `Service.SubstituteName`/
+    `IsSubstituteToday` dikonsumsi `internal/teaching` lewat consumer-side
+    interface `SubstitutionLookup` (opsional, setter `SetSubstitutions`,
+    nil-safe): (a) `teaching.Scan` — scanner BUKAN pemilik slot TAPI
+    pengganti accepted utk slot yg SEDANG berjalan di ruangan itu →
+    diizinkan, journal dapat flag baru `FlagSubstitute="substitute"`,
+    `teacher_id` journal = profil pengganti sendiri (bukan pemilik asli);
+    (b) `teaching.Status` — `TeacherRef.Name` diganti `"{pengganti}
+    (pengganti)"` bila ada substitusi accepted hari itu (ID tetap pemilik
+    asli, keputusan dilaporkan: hanya nama yang berubah, sesuai literal
+    tugas "teacher_name tampil"). Realtime: `Accept` memancarkan event
+    `"schedule"` (event YANG SAMA dipakai modul schedule sendiri, bukan
+    event baru — klien yang sudah dengar "schedule" auto-refetch). Notifikasi
+    baru `substitution.requested` (→ pengganti) & `substitution.decided`
+    (→ pengaju, berisi label keputusan diterima/ditolak/dibatalkan)
+  - `internal/schedule/`: `GET/PUT /api/periods/overrides?day=` (PUT
+    perm `schedule:manage`, `[]` = hapus override hari itu). **Loader
+    day-aware SATU TITIK**: `Service.periodsForDay(schoolID,dayOfWeek)` —
+    override bila sekolah punya baris utk hari itu, else periods default —
+    dipakai `currentPeriod` (jadi `CurrentPeriod`, `SlotsToday.is_now`, dan
+    `SlotNow` ikut day-aware otomatis) DAN `LastPeriodEndToday` (dipakai
+    `exitpermit`). Validasi bentuk override (`parsePeriodItems`, diekstrak
+    dari `ReplacePeriods` supaya SATU aturan dipakai dua endpoint) SAMA
+    dengan periods default (nomor unik+berurutan dari 1, start<end, tanpa
+    overlap) TAPI SENGAJA TANPA cek "period_in_use" 409 (keputusan
+    dilaporkan: override hanya mengganti WAKTU utk nomor yang sama, TIDAK
+    menghapus nomor jam ke- dari keberadaan struktural seperti
+    `ReplacePeriods` bisa lakukan — slot manapun yang mereferensikan nomor
+    itu tidak pernah yatim)
+  - `internal/attendance/`: `GET
+    /api/students/{id}/attendance/calendar?month=YYYY-MM` (object-level
+    SAMA `StudentHistory` — `attendance:report` ATAU siswa
+    sendiri/orang tua anaknya), query baru `StudentCalendarRecords` (semua
+    record daily+subject sebulan + `session.type`). Fungsi murni
+    `resolveDayStatus`: sesi DAILY MENANG MUTLAK bila ada; tanpa daily →
+    status TERBURUK di antara record subject hari itu
+    (alpa>izin>sakit>terlambat>hadir, note dari record berstatus itu).
+    Response SELALU berisi SELURUH hari dalam bulan (termasuk yang tanpa
+    record sama sekali, `status`/`note` null, `session_count:0`) —
+    `counts` dihitung dari status FINAL per hari (bukan per record mentah)
+  - `internal/identity/`: Fase 14 Gelombang D "Impersonate USER" —
+    **modul terpisah** `impersonation_user.go` (BEDA dari `impersonation.go`
+    fase 13 "masuk sebagai sekolah" super admin, sentinel role
+    `admin_sekolah:impersonating`): `POST /api/users/{id}/impersonate`
+    (permission baru `user:impersonate`, hanya `admin_sekolah`) — target
+    WAJIB member AKTIF sekolah ini via `PickActiveRole` (role SAMA seperti
+    Login), DITOLAK bila target admin_sekolah lain, super admin
+    (`users.is_super_admin`), role `display`, atau diri sendiri. Sesi baru
+    disimpan dengan **role ASLI target** (bukan sentinel — RBAC otomatis
+    benar tanpa translasi apa pun), TTL **1 jam PERSIS**,
+    `sessions.impersonator_user_id` = admin. Cookie diganti LANGSUNG (admin
+    & target di host tenant yang sama, beda dari token sekali-pakai lintas
+    tab fase 13). `POST /api/auth/impersonation/stop` — HANYA sesi dengan
+    `impersonator_user_id` terisi yang lolos (pesan generik SATU macam bila
+    bukan), menghapus sesi impersonasi lalu menerbitkan sesi BARU utk admin
+    dengan TTL NORMAL (`sessionTTLForRole`, sliding renewal berlaku lagi).
+    **Keputusan desain dilaporkan**: docs tugas menyarankan "reuse mekanisme
+    sentinel/renew-window 0" — DIIMPLEMENTASIKAN LEWAT KOLOM BARU
+    `impersonator_user_id`, BUKAN sentinel role, karena target session role
+    bisa salah satu dari 5 kemungkinan (beda dari fase 13 yang selalu jadi
+    admin_sekolah) — `RequireAuth` (middleware.go) mengecek kolom ini utk
+    (a) melewati sliding renewal SAMA SEKALI & (b) tidak butuh translasi
+    role apa pun. Pola fungsi MURNI (`impersonateUser`/`stopImpersonation`,
+    interface kecil `impersonateUserRepo`/`stopImpersonationRepo`) + method
+    `Service` tipis SAMA PERSIS dengan pola `impersonation.go` fase 13.
+    `GET /api/me`: field baru `impersonated_by:{name}` (dari
+    `reqctx.ImpersonatorUserID`, konteks baru diisi `RequireAuth`) — HANYA
+    terisi saat sesi impersonasi USER
+  - Settings module baru `letters` (`internal/tenant/letters.go`,
+    `LettersSettings{sp_footer_note,leave_footer_note}`, default `""`,
+    validasi maks 1000 karakter) — dibaca `internal/discipline` &
+    `internal/studentleave` lewat consumer-side interface `SettingsGateway`
+    (RAW json, pola sama `internal/grading.SettingsGateway`), disuntik
+    setter opsional `SetSettingsGateway` (nil-safe, supaya call site test
+    lama tidak berubah) — `BuildLetterPDF`/`BuildLeavePDF` dapat parameter
+    baru `footerNote`, ditambahkan di bagian bawah PDF (garis pemisah +
+    teks italic) BILA NON-KOSONG, dibaca LIVE saat render (BUKAN bagian
+    snapshot) supaya admin bisa ubah catatan tanpa menerbitkan ulang surat
+    lama — dibuktikan e2e (footer muncul di surat SP1 yang sudah lama ada)
+  - Test baru: `internal/counseling` (otorisasi BK-flag vs guru biasa 403,
+    admin OK, kepsek read-only, siswa/ortu 403 total, pembuat vs BK lain
+    utk update/delete), `internal/substitution` (state machine
+    pending→accepted/rejected/canceled, unique aktif per slot+tanggal 409,
+    validasi pemilik slot/hari/guru-aktif, scope=all butuh
+    `schedule:manage`), `internal/teaching` (scan pengganti accepted
+    diizinkan+flag `substitute`, bukan-pengganti tetap `needs_manual`,
+    status menampilkan "(pengganti)" dengan ID slot tetap pemilik asli),
+    `internal/schedule` (`TestCurrentPeriod_DayOverride_FridayShorterThanDefault`
+    Jumat vs default day-aware, validasi override sama pola `ReplacePeriods`,
+    PUT `[]` menghapus override), `internal/attendance`
+    (`resolveDayStatus` semua kombinasi prioritas terburuk, bulan kosong
+    31 hari null, merge multi-record per hari, object-level ortu),
+    `internal/identity` (target admin/super admin/display/bukan-member/diri
+    sendiri semua ditolak, TTL 1 jam PERSIS, role DI DB adalah role asli
+    BUKAN sentinel, stop mengembalikan admin dgn TTL normal, stop dua kali
+    gagal, audit start+stop terpanggil tepat sekali dgn actor yang benar),
+    `internal/discipline`+`internal/studentleave` (footer note terbaca dari
+    fake SettingsGateway, `""` saat gateway nil/module belum tersimpan,
+    PDF dengan footer LEBIH BESAR dari tanpa footer — dibuktikan byte count,
+    bukan cuma "tidak error")
+  - `sqlc.yaml` ditambah blok `counselingdb`/`substitutiondb`; blok
+    `scheduledb`/`attendancedb`/`identitydb` existing menangkap query baru
+    otomatis (queries ditambahkan ke `queries.sql` module yang sudah ada)
+  - **Ide tertunda ditambahkan sadar (DILEWATI Gelombang D ini)**: deadline
+    koreksi absensi & single-device login — lihat "Ide tertunda" di bawah
 
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
 - Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.
+- Deadline koreksi absensi (batas waktu guru boleh mengoreksi record lama sebelum "terkunci permanen" — beda dari `edit_window_hours` yang sudah ada, ini lebih ke kebijakan administratif jangka panjang) & single-device login (satu akun hanya boleh punya satu sesi aktif, cabut sesi lama saat login baru) — disebut eksplisit di docs tugas Fase 14 Gelombang D sebagai "DILEWATI sadar", butuh keputusan user (dampak UX & multi-perangkat cukup besar, terutama single-device utk akun yang dipakai bergantian keluarga/wali).

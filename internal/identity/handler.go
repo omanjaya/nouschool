@@ -197,6 +197,46 @@ func (h *Handler) AdminAuditLog(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, result)
 }
 
+// -- Fase 14 Gelombang D, docs/12-sion-parity.md "Impersonate USER oleh
+// admin sekolah" (beda dari impersonation.go fase 13 "masuk sebagai
+// sekolah") --
+
+// ImpersonateUser — POST /api/users/{id}/impersonate (host tenant, role
+// admin_sekolah — RequirePerm dipasang di routes.go). Cookie diganti
+// LANGSUNG (admin & target sama-sama di host tenant ini).
+func (h *Handler) ImpersonateUser(w http.ResponseWriter, r *http.Request) {
+	targetID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID user tidak valid."))
+		return
+	}
+	ctx := r.Context()
+	result, err := h.svc.ImpersonateUser(ctx, reqctx.UserID(ctx), reqctx.SchoolID(ctx), targetID, clientIP(r), r.UserAgent())
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	setSessionCookie(w, result.Token, result.ExpiresAt, h.svc.CookieSecure())
+	httpx.JSON(w, http.StatusOK, map[string]any{"user": result.View})
+}
+
+// StopImpersonation — POST /api/auth/impersonation/stop (host tenant, sesi
+// HARUS sesi impersonasi USER — Service.StopImpersonation menolak selainnya).
+func (h *Handler) StopImpersonation(w http.ResponseWriter, r *http.Request) {
+	var token string
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		token = cookie.Value
+	}
+	ctx := r.Context()
+	result, err := h.svc.StopImpersonation(ctx, token, clientIP(r), r.UserAgent())
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	setSessionCookie(w, result.Token, result.ExpiresAt, h.svc.CookieSecure())
+	httpx.JSON(w, http.StatusOK, map[string]any{"user": result.View})
+}
+
 type impersonateExchangeRequest struct {
 	Token string `json:"token"`
 }

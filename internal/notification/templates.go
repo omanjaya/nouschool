@@ -141,6 +141,24 @@ var registry = map[string]eventTemplate{
 		[]string{ChannelWebPush},
 		"/nilai",
 	),
+	// Fase 14 Gelombang D (docs/12-sion-parity.md). Data: teacher (pengaju),
+	// class, subject, date (YYYY-MM-DD). Dikirim ke guru yang diminta jadi
+	// pengganti.
+	EventSubstitutionRequested: mustTemplate("substitution_requested",
+		"Permintaan menjadi guru pengganti",
+		"{{.teacher}} meminta Anda menggantikan mengajar {{.subject}} {{.class}} pada {{.date}}.",
+		[]string{ChannelWebPush},
+		"/substitusi",
+	),
+	// Data: substitute, class, subject, date (YYYY-MM-DD), decision (label
+	// Indonesia, mis. "diterima"/"ditolak"/"dibatalkan"). Dikirim ke pengaju
+	// saat pengganti memutuskan.
+	EventSubstitutionDecided: mustTemplate("substitution_decided",
+		"Permintaan guru pengganti diputuskan",
+		"Permintaan pengganti {{.subject}} {{.class}} tanggal {{.date}} telah {{.decision}} oleh {{.substitute}}.",
+		[]string{ChannelWebPush},
+		"/substitusi",
+	),
 }
 
 // renderTemplate mengeksekusi title/body suatu event terhadap data — fungsi

@@ -171,6 +171,25 @@ type HistoryResult struct {
 	Items  []HistoryItem `json:"items"`
 }
 
+// -- kalender presensi siswa (Fase 14 Gelombang D, docs/12-sion-parity.md) --
+
+// CalendarDay adalah satu baris response GET
+// /api/students/{id}/attendance/calendar — Status/Note nil bila TIDAK ADA
+// record sama sekali pada tanggal itu (hari libur/belum diabsen).
+type CalendarDay struct {
+	Date         Date    `json:"date"`
+	Status       *string `json:"status"`
+	Note         *string `json:"note"`
+	SessionCount int64   `json:"session_count"`
+}
+
+// CalendarResult adalah shape response GET
+// /api/students/{id}/attendance/calendar.
+type CalendarResult struct {
+	Days   []CalendarDay `json:"days"`
+	Counts HistoryCounts `json:"counts"`
+}
+
 // -- mode per_subject (fase 6, docs/05-attendance.md & docs/06-teaching.md) --
 
 // SlotRef adalah potongan info kelas/mapel disematkan pada SlotTodayView.

@@ -171,3 +171,21 @@ sql:
         out: "internal/grading/gradingdb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/counseling/queries.sql"
+    gen:
+      go:
+        package: "counselingdb"
+        out: "internal/counseling/counselingdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/substitution/queries.sql"
+    gen:
+      go:
+        package: "substitutiondb"
+        out: "internal/substitution/substitutiondb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

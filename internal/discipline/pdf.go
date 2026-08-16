@@ -69,8 +69,11 @@ func itoaSimple(v int) string {
 
 // BuildLetterPDF menyusun PDF surat peringatan — DIRENDER dari snapshot
 // (docs/12-sion-parity.md: "surat = potret saat terbit"), pola yang sama
-// dengan internal/billing/pdf.go (fpdf, satu halaman A4).
-func BuildLetterPDF(letter LetterRecord, snap LetterSnapshot) ([]byte, error) {
+// dengan internal/billing/pdf.go (fpdf, satu halaman A4). footerNote (Fase 14
+// Gelombang D, school_settings module "letters") ditambahkan di BAGIAN BAWAH
+// halaman BILA NON-KOSONG — "" (default) = tidak ada perubahan tampilan sama
+// sekali dibanding sebelum Gelombang D ini ada.
+func BuildLetterPDF(letter LetterRecord, snap LetterSnapshot, footerNote string) ([]byte, error) {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(20, 20, 20)
 	pdf.AddPage()
@@ -125,6 +128,16 @@ func BuildLetterPDF(letter LetterRecord, snap LetterSnapshot) ([]byte, error) {
 	pdf.CellFormat(0, 6, snap.SchoolName+", "+indonesianDate(snap.IssuedOn), "", 1, "R", false, 0, "")
 	pdf.Ln(2)
 	pdf.CellFormat(0, 6, "Kepala Sekolah", "", 1, "R", false, 0, "")
+
+	if footerNote != "" {
+		pdf.Ln(10)
+		pdf.SetDrawColor(180, 180, 180)
+		y := pdf.GetY()
+		pdf.Line(20, y, 190, y)
+		pdf.Ln(4)
+		pdf.SetFont("Helvetica", "I", 9)
+		pdf.MultiCell(0, 5, footerNote, "", "L", false)
+	}
 
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {

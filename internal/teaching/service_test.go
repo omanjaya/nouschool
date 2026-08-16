@@ -447,6 +447,179 @@ func TestScan_RoomMismatchFlag(t *testing.T) {
 	}
 }
 
+// -- fakeSubstitution: implementasi SubstitutionLookup in-memory (Fase 14
+// Gelombang D) --
+
+type fakeSubstitution struct {
+	// accepted[slotID][date] = pengganti (userID, name).
+	accepted map[int64]map[string]struct {
+		userID int64
+		name   string
+	}
+}
+
+func newFakeSubstitution() *fakeSubstitution {
+	return &fakeSubstitution{accepted: map[int64]map[string]struct {
+		userID int64
+		name   string
+	}{}}
+}
+
+func (f *fakeSubstitution) acceptFor(slotID int64, date string, userID int64, name string) {
+	if f.accepted[slotID] == nil {
+		f.accepted[slotID] = map[string]struct {
+			userID int64
+			name   string
+		}{}
+	}
+	f.accepted[slotID][date] = struct {
+		userID int64
+		name   string
+	}{userID, name}
+}
+
+func (f *fakeSubstitution) SubstituteName(ctx context.Context, schoolID, slotID int64, date string) (string, bool, error) {
+	m, ok := f.accepted[slotID]
+	if !ok {
+		return "", false, nil
+	}
+	v, ok := m[date]
+	if !ok {
+		return "", false, nil
+	}
+	return v.name, true, nil
+}
+
+func (f *fakeSubstitution) IsSubstituteToday(ctx context.Context, schoolID, teacherUserID int64, date string) ([]int64, error) {
+	var out []int64
+	for slotID, m := range f.accepted {
+		if v, ok := m[date]; ok && v.userID == teacherUserID {
+			out = append(out, slotID)
+		}
+	}
+	return out, nil
+}
+
+func TestScan_SubstituteAccepted_AllowedAndFlagged(t *testing.T) {
+	repo := newFakeTeachingRepo()
+	repo.roomsByToken["tok-101"] = RoomRef{ID: 10, Name: "R-101"}
+	repo.teacherUsers[400] = 998 // pengganti (Sari)
+	repo.teacherRefs[400] = TeacherRef{ID: 400, Name: "Sari"}
+
+	slot := SlotInfo{
+		ID: 50, ClassID: 1, ClassName: "XII RPL 1", SubjectID: 5, SubjectCode: "BDT", SubjectName: "Basis Data",
+		TeacherID: 300, TeacherName: "Rendi", RoomID: 10, RoomName: "R-101", // slot MILIK Rendi
+		PeriodStart: 1, PeriodEnd: 2, PeriodStartsAt: "07:40", PeriodEndsAt: "08:20",
+	}
+	sched := fakeSchedule{
+		slotNow:   map[int64]SlotInfo{}, // Sari (pengganti) TIDAK punya slot sendiri jam ini
+		byID:      map[int64]SlotInfo{50: slot},
+		curPeriod: &CurrentPeriodInfo{Number: 1, StartsAt: "07:40", EndsAt: "08:20"},
+	}
+	att := newFakeAttendance()
+	students := fakeStudentsGW{byUser: map[int64]int64{998: 400}} // Sari -> teacherID 400
+
+	fixed := clock.Fixed{T: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)} // 08:00 WIB
+	svc := newServiceForTest(repo, newFakeIdentity(), sched, fakeLeave{}, att, students, fixed)
+	sub := newFakeSubstitution()
+	sub.acceptFor(50, "2026-08-10", 998, "Sari")
+	svc.SetSubstitutions(sub)
+
+	ctx := ctxAs("guru", 998, "Asia/Jakarta")
+	result, err := svc.Scan(ctx, 998, 1, ScanInput{RoomToken: "tok-101"})
+	if err != nil {
+		t.Fatalf("pengganti accepted harus diizinkan scan: %v", err)
+	}
+	if result.NeedsManual {
+		t.Fatal("expected needs_manual=false utk pengganti accepted")
+	}
+	if result.Journal == nil {
+		t.Fatal("expected journal terisi")
+	}
+	foundFlag := false
+	for _, f := range result.Journal.Flags {
+		if f == FlagSubstitute {
+			foundFlag = true
+		}
+	}
+	if !foundFlag {
+		t.Fatalf("expected flag %q pada journal, got %v", FlagSubstitute, result.Journal.Flags)
+	}
+	if result.Journal.Teacher.ID != 400 {
+		t.Fatalf("expected journal.teacher = profil Sari (400), got %d", result.Journal.Teacher.ID)
+	}
+}
+
+func TestScan_NonSubstitute_NeedsManual(t *testing.T) {
+	repo := newFakeTeachingRepo()
+	repo.roomsByToken["tok-101"] = RoomRef{ID: 10, Name: "R-101"}
+
+	slot := SlotInfo{
+		ID: 50, ClassID: 1, ClassName: "XII RPL 1", SubjectID: 5, SubjectCode: "BDT", SubjectName: "Basis Data",
+		TeacherID: 300, TeacherName: "Rendi", RoomID: 10, RoomName: "R-101",
+		PeriodStart: 1, PeriodEnd: 2, PeriodStartsAt: "07:40", PeriodEndsAt: "08:20",
+	}
+	sched := fakeSchedule{
+		slotNow:   map[int64]SlotInfo{},
+		byID:      map[int64]SlotInfo{50: slot},
+		curPeriod: &CurrentPeriodInfo{Number: 1, StartsAt: "07:40", EndsAt: "08:20"},
+	}
+	att := newFakeAttendance()
+	// Guru LAIN (bukan pengganti manapun) mencoba scan.
+	students := fakeStudentsGW{byUser: map[int64]int64{777: 500}}
+
+	fixed := clock.Fixed{T: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
+	svc := newServiceForTest(repo, newFakeIdentity(), sched, fakeLeave{}, att, students, fixed)
+	svc.SetSubstitutions(newFakeSubstitution()) // kosong -> tidak ada yang accepted
+
+	ctx := ctxAs("guru", 777, "Asia/Jakarta")
+	result, err := svc.Scan(ctx, 777, 1, ScanInput{RoomToken: "tok-101"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.NeedsManual {
+		t.Fatal("guru BUKAN pemilik slot & BUKAN pengganti accepted harus needs_manual=true")
+	}
+	if result.Journal != nil {
+		t.Fatal("TIDAK boleh membuat journal utk bukan-pengganti")
+	}
+}
+
+func TestStatus_SubstituteAccepted_TeacherNameShowsPengganti(t *testing.T) {
+	repo := newFakeTeachingRepo()
+	date := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	dow := int(date.Weekday())
+	dateStr := date.Format("2006-01-02")
+	now := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC) // 08:00 WIB
+
+	slot := SlotInfo{
+		ID: 501, ClassID: 501, ClassName: "XII RPL 1", SubjectID: 5, SubjectCode: "BDT", SubjectName: "Basis Data",
+		TeacherID: 301, TeacherName: "Rendi", PeriodStart: 1, PeriodEnd: 1, PeriodStartsAt: "07:40", PeriodEndsAt: "08:20",
+	}
+	repo.journals[1] = JournalRecord{ID: 1, SchoolID: 1, TeacherID: 400, ScheduleSlotID: 501, ClassID: 501, Date: date, StartedAt: now}
+
+	sched := fakeSchedule{byDay: map[int][]SlotInfo{dow: {slot}}}
+	svc := newServiceForTest(repo, newFakeIdentity(), sched, fakeLeave{}, newFakeAttendance(), fakeStudentsGW{}, clock.Fixed{T: now})
+	sub := newFakeSubstitution()
+	sub.acceptFor(501, dateStr, 998, "Sari")
+	svc.SetSubstitutions(sub)
+
+	ctx := ctxAs("admin_sekolah", 1, "Asia/Jakarta")
+	result, err := svc.Status(ctx, 1, dateStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+	if want := "Sari (pengganti)"; result.Rows[0].Teacher.Name != want {
+		t.Fatalf("expected teacher name %q, got %q", want, result.Rows[0].Teacher.Name)
+	}
+	if result.Rows[0].Teacher.ID != 301 {
+		t.Fatalf("expected teacher.id TETAP pemilik slot (301), got %d", result.Rows[0].Teacher.ID)
+	}
+}
+
 func TestScan_NeedsManual_NoSlot(t *testing.T) {
 	repo := newFakeTeachingRepo()
 	repo.roomsByToken["tok-101"] = RoomRef{ID: 10, Name: "R-101"}

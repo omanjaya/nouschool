@@ -65,8 +65,11 @@ const qrPixelSize = 300
 // BuildLeavePDF menyusun PDF surat izin (fpdf, satu halaman A4): kop
 // app_name, nomor surat, identitas siswa+kelas, jenis+rentang+alasan, jejak
 // persetujuan (wali & BK + waktu), DAN QR code verifikasi (docs tugas: PNG
-// embed berisi verifyURL + teks URL di bawahnya).
-func BuildLeavePDF(d RequestDetail, appName, verifyURL string) ([]byte, error) {
+// embed berisi verifyURL + teks URL di bawahnya). footerNote (Fase 14
+// Gelombang D, school_settings module "letters") ditambahkan di BAGIAN
+// BAWAH halaman BILA NON-KOSONG — "" (default) = tampilan IDENTIK sebelum
+// Gelombang D ini ada.
+func BuildLeavePDF(d RequestDetail, appName, verifyURL, footerNote string) ([]byte, error) {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(20, 20, 20)
 	pdf.AddPage()
@@ -143,6 +146,16 @@ func BuildLeavePDF(d RequestDetail, appName, verifyURL string) ([]byte, error) {
 	pdf.Ln(6)
 	pdf.SetFont("Helvetica", "", 9)
 	pdf.MultiCell(0, 5, "Surat ini diterbitkan oleh sistem setelah disetujui wali kelas dan Guru BK. Keasliannya dapat diverifikasi lewat QR/tautan di atas.", "", "L", false)
+
+	if footerNote != "" {
+		pdf.Ln(6)
+		pdf.SetDrawColor(180, 180, 180)
+		y := pdf.GetY()
+		pdf.Line(20, y, 190, y)
+		pdf.Ln(4)
+		pdf.SetFont("Helvetica", "I", 9)
+		pdf.MultiCell(0, 5, footerNote, "", "L", false)
+	}
 
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {

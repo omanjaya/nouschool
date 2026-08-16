@@ -104,6 +104,22 @@ type ClassroomStarEvent struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type Counseling struct {
+	ID                 int64              `json:"id"`
+	SchoolID           int64              `json:"school_id"`
+	AcademicYearID     int64              `json:"academic_year_id"`
+	StudentID          int64              `json:"student_id"`
+	CounselorID        int64              `json:"counselor_id"`
+	CareerGoals        string             `json:"career_goals"`
+	ProblemDescription string             `json:"problem_description"`
+	FollowUpPlan       string             `json:"follow_up_plan"`
+	Evidence           pgtype.Text        `json:"evidence"`
+	EvidenceName       pgtype.Text        `json:"evidence_name"`
+	EvidenceMime       pgtype.Text        `json:"evidence_mime"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
 type DisciplineLetterNumberCounter struct {
 	SchoolID int64  `json:"school_id"`
 	Year     string `json:"year"`
@@ -305,6 +321,16 @@ type Period struct {
 	Label    pgtype.Text `json:"label"`
 }
 
+type PeriodDayOverride struct {
+	ID        int64       `json:"id"`
+	SchoolID  int64       `json:"school_id"`
+	DayOfWeek int32       `json:"day_of_week"`
+	Number    int32       `json:"number"`
+	StartsAt  pgtype.Time `json:"starts_at"`
+	EndsAt    pgtype.Time `json:"ends_at"`
+	Label     string      `json:"label"`
+}
+
 type Plan struct {
 	ID       int64  `json:"id"`
 	Code     string `json:"code"`
@@ -385,15 +411,16 @@ type SchoolSetting struct {
 }
 
 type Session struct {
-	ID        int64              `json:"id"`
-	UserID    int64              `json:"user_id"`
-	SchoolID  pgtype.Int8        `json:"school_id"`
-	TokenHash []byte             `json:"token_hash"`
-	Role      string             `json:"role"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	Ip        *netip.Addr        `json:"ip"`
-	UserAgent pgtype.Text        `json:"user_agent"`
+	ID                 int64              `json:"id"`
+	UserID             int64              `json:"user_id"`
+	SchoolID           pgtype.Int8        `json:"school_id"`
+	TokenHash          []byte             `json:"token_hash"`
+	Role               string             `json:"role"`
+	ExpiresAt          pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	Ip                 *netip.Addr        `json:"ip"`
+	UserAgent          pgtype.Text        `json:"user_agent"`
+	ImpersonatorUserID pgtype.Int8        `json:"impersonator_user_id"`
 }
 
 type Student struct {
@@ -550,6 +577,19 @@ type TeacherQrToken struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	ConsumedAt pgtype.Timestamptz `json:"consumed_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type TeacherSubstitutionRequest struct {
+	ID               int64              `json:"id"`
+	SchoolID         int64              `json:"school_id"`
+	ScheduleSlotID   int64              `json:"schedule_slot_id"`
+	Date             pgtype.Date        `json:"date"`
+	RequestedBy      int64              `json:"requested_by"`
+	SubstituteUserID int64              `json:"substitute_user_id"`
+	Reason           string             `json:"reason"`
+	Status           string             `json:"status"`
+	DecidedAt        pgtype.Timestamptz `json:"decided_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 
 type TeachingJournal struct {

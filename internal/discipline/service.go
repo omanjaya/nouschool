@@ -65,6 +65,16 @@ const (
 	EventDisciplineSPIssued = "discipline.sp_issued"
 )
 
+// SettingsGateway adalah kebutuhan modul discipline dari modul tenant: baca
+// RAW json school_settings module "letters" (Fase 14 Gelombang D,
+// docs/12-sion-parity.md "template surat") — dipenuhi *tenant.Repository
+// secara struktural lewat method GetSetting (SAMA pola dengan
+// internal/grading.SettingsGateway; BUKAN lewat tenant.SettingsService,
+// parameter bertipe interface tenant.Settings tidak akan match struktural).
+type SettingsGateway interface {
+	GetSetting(ctx context.Context, schoolID int64, module string) (raw []byte, found bool, err error)
+}
+
 // Realtime adalah kebutuhan modul discipline dari modul realtime (bus event
 // WebSocket read-only server->client) — consumer-side interface kecil
 // dideklarasikan di sisi PEMAKAI. TIDAK dipenuhi *realtime.Hub secara
@@ -85,8 +95,9 @@ type Service struct {
 	branding BrandingGateway
 	students StudentAccess
 	clock    clock.Clock
-	notifier Notifier // opsional — nil = notifikasi dilewati
-	realtime Realtime // opsional — nil = event realtime dilewati
+	notifier Notifier        // opsional — nil = notifikasi dilewati
+	realtime Realtime        // opsional — nil = event realtime dilewati
+	settings SettingsGateway // opsional — nil = footer surat SP dilewati (Fase 14 Gelombang D)
 }
 
 func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLookup, branding BrandingGateway, students StudentAccess, clk clock.Clock) *Service {
@@ -96,11 +107,13 @@ func NewService(repo *Repository, identity IdentityGateway, years AcademicYearLo
 	return &Service{repo: repo, identity: identity, years: years, branding: branding, students: students, clock: clk}
 }
 
-// SetNotifier / SetRealtime menyuntikkan dependency opsional SETELAH
-// konstruksi (setter, pola yang sama dengan internal/leave.SetNotifier/
-// SetRealtime — supaya call site test tidak perlu diubah; nil aman/no-op).
-func (s *Service) SetNotifier(n Notifier) { s.notifier = n }
-func (s *Service) SetRealtime(r Realtime) { s.realtime = r }
+// SetNotifier / SetRealtime / SetSettingsGateway menyuntikkan dependency
+// opsional SETELAH konstruksi (setter, pola yang sama dengan
+// internal/leave.SetNotifier/SetRealtime — supaya call site test tidak perlu
+// diubah; nil aman/no-op).
+func (s *Service) SetNotifier(n Notifier)               { s.notifier = n }
+func (s *Service) SetRealtime(r Realtime)               { s.realtime = r }
+func (s *Service) SetSettingsGateway(g SettingsGateway) { s.settings = g }
 
 // newServiceForTest membangun Service dengan repository FAKE (in-memory,
 // tanpa DB) — dipakai test di package ini saja (service_test.go).
@@ -787,14 +800,38 @@ func (s *Service) getLetterAuthorized(ctx context.Context, schoolID, letterID in
 	return letter, snap, nil
 }
 
+// spFooterNote membaca school_settings module "letters" -> sp_footer_note
+// (Fase 14 Gelombang D, docs/12-sion-parity.md "template surat") — "" bila
+// belum diset, gateway belum disuntik, atau baris belum tersimpan (BUKAN
+// error keras, catatan footer opsional murni kosmetik).
+func (s *Service) spFooterNote(ctx context.Context, schoolID int64) string {
+	if s.settings == nil {
+		return ""
+	}
+	raw, found, err := s.settings.GetSetting(ctx, schoolID, "letters")
+	if err != nil || !found {
+		return ""
+	}
+	var v struct {
+		SPFooterNote string `json:"sp_footer_note"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ""
+	}
+	return v.SPFooterNote
+}
+
 // LetterPDF mengembalikan (bytes PDF, nama file, error) — DIRENDER dari
-// snapshot (potret saat terbit), bukan data live.
+// snapshot (potret saat terbit), bukan data live — KECUALI catatan footer
+// (school_settings "letters".sp_footer_note), yang SENGAJA dibaca LIVE saat
+// render (bukan bagian snapshot) supaya admin bisa mengubah catatan tanpa
+// perlu menerbitkan ulang surat lama.
 func (s *Service) LetterPDF(ctx context.Context, schoolID, letterID int64) ([]byte, string, error) {
 	letter, snap, err := s.getLetterAuthorized(ctx, schoolID, letterID)
 	if err != nil {
 		return nil, "", err
 	}
-	data, err := BuildLetterPDF(letter, snap)
+	data, err := BuildLetterPDF(letter, snap, s.spFooterNote(ctx, schoolID))
 	if err != nil {
 		return nil, "", err
 	}

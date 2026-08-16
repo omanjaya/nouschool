@@ -139,6 +139,19 @@ WHERE c.school_id = sqlc.arg(school_id)::bigint AND c.academic_year_id = sqlc.ar
   AND (sqlc.narg(class_id)::bigint IS NULL OR c.id = sqlc.narg(class_id)::bigint)
 ORDER BY c.name, s2.name, ses.date;
 
+-- name: StudentCalendarRecords :many
+-- Dipakai GET /api/students/{id}/attendance/calendar (Fase 14 Gelombang D,
+-- docs/12-sion-parity.md) — SEMUA record (daily+subject) dalam rentang bulan,
+-- s.type disertakan supaya Service bisa memprioritaskan sesi daily &
+-- menghitung status "terburuk" dari subject records saat daily tidak ada
+-- (lihat internal/attendance/service.go resolveDayStatus).
+SELECT s.date, s.type, r.status, r.note
+FROM attendance_records r
+JOIN attendance_sessions s ON s.id = r.session_id
+WHERE r.student_id = sqlc.arg(student_id)::bigint AND r.school_id = sqlc.arg(school_id)::bigint
+  AND s.date >= sqlc.arg(from_date)::date AND s.date <= sqlc.arg(to_date)::date
+ORDER BY s.date, s.type;
+
 -- name: StudentAttendanceCounts :one
 SELECT
     COUNT(*) FILTER (WHERE r.status = 'hadir')     AS hadir,

@@ -1,4 +1,4 @@
-﻿package discipline
+package discipline
 
 import (
 	"context"
@@ -372,6 +372,72 @@ func (f fakeStudentAccess) CanViewStudent(ctx context.Context, userID int64, rol
 
 func (f fakeStudentAccess) GuardianUserIDs(ctx context.Context, schoolID, studentID int64) ([]int64, error) {
 	return f.guardianOf[studentID], nil
+}
+
+// -- fake SettingsGateway (Fase 14 Gelombang D: footer surat, school_settings
+// module "letters") --
+
+type fakeSettingsGateway struct {
+	raw   map[string][]byte
+	found map[string]bool
+	err   error
+}
+
+func (f fakeSettingsGateway) GetSetting(ctx context.Context, schoolID int64, module string) ([]byte, bool, error) {
+	if f.err != nil {
+		return nil, false, f.err
+	}
+	return f.raw[module], f.found[module], nil
+}
+
+func TestSPFooterNote_RenderedWhenSet(t *testing.T) {
+	svc := newTestService(newFakeRepo(), fakeStudentAccess{})
+	svc.SetSettingsGateway(fakeSettingsGateway{
+		raw:   map[string][]byte{"letters": []byte(`{"sp_footer_note":"Catatan dari sekolah","leave_footer_note":""}`)},
+		found: map[string]bool{"letters": true},
+	})
+	ctx := ctxAs("admin_sekolah", 1)
+	if got := svc.spFooterNote(ctx, testSchoolID); got != "Catatan dari sekolah" {
+		t.Fatalf("expected catatan terbaca dari settings, got %q", got)
+	}
+}
+
+func TestSPFooterNote_EmptyWhenGatewayNilOrNotFound(t *testing.T) {
+	svc := newTestService(newFakeRepo(), fakeStudentAccess{}) // gateway TIDAK di-set (nil)
+	ctx := ctxAs("admin_sekolah", 1)
+	if got := svc.spFooterNote(ctx, testSchoolID); got != "" {
+		t.Fatalf("gateway nil harus menghasilkan string kosong, got %q", got)
+	}
+
+	svc.SetSettingsGateway(fakeSettingsGateway{found: map[string]bool{}})
+	if got := svc.spFooterNote(ctx, testSchoolID); got != "" {
+		t.Fatalf("module belum pernah tersimpan harus menghasilkan string kosong, got %q", got)
+	}
+}
+
+func TestBuildLetterPDF_FooterNoteIncreasesOutputWhenSet(t *testing.T) {
+	letter := LetterRecord{Level: 1, Number: "SP1/2026/0001"}
+	snap := LetterSnapshot{
+		Student:    LetterSnapshotStudent{Name: "Budi", NIS: "22103", ClassName: "XII RPL 1"},
+		SchoolName: "NouSchool", Total: 15, Threshold: 10, IssuedOn: "2026-08-16",
+	}
+	without, err := BuildLetterPDF(letter, snap, "")
+	if err != nil {
+		t.Fatalf("unexpected error tanpa footer: %v", err)
+	}
+	if len(without) < 4 || string(without[:4]) != "%PDF" {
+		t.Fatal("output harus PDF valid (header %PDF)")
+	}
+	with, err := BuildLetterPDF(letter, snap, "Catatan tambahan dari sekolah mengenai kedisiplinan.")
+	if err != nil {
+		t.Fatalf("unexpected error dengan footer: %v", err)
+	}
+	if len(with) < 4 || string(with[:4]) != "%PDF" {
+		t.Fatal("output DENGAN footer harus tetap PDF valid")
+	}
+	if len(with) <= len(without) {
+		t.Fatalf("PDF dengan footer harus lebih besar dari tanpa footer (footer benar-benar dirender): %d vs %d", len(with), len(without))
+	}
 }
 
 // -- helpers --

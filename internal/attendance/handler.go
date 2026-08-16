@@ -199,6 +199,23 @@ func (h *Handler) StudentAttendance(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, result)
 }
 
+// StudentAttendanceCalendar — GET /api/students/{id}/attendance/calendar?month=YYYY-MM
+// (Fase 14 Gelombang D, docs/12-sion-parity.md).
+func (h *Handler) StudentAttendanceCalendar(w http.ResponseWriter, r *http.Request) {
+	studentID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID siswa tidak valid."))
+		return
+	}
+	ctx := r.Context()
+	result, err := h.svc.StudentCalendar(ctx, reqctx.SchoolID(ctx), studentID, r.URL.Query().Get("month"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
 // -- QR kartu siswa (Fase 8) --
 
 type generateQRCardsRequest struct {

@@ -7,10 +7,18 @@ import (
 )
 
 // RegisterRoutes memasang route modul identity.
-func RegisterRoutes(mux *http.ServeMux, h *Handler, requireAuth, requireSuperAdmin middleware.Middleware) {
+func RegisterRoutes(mux *http.ServeMux, h *Handler, requireAuth, requireSuperAdmin middleware.Middleware, requirePerm func(perm string) middleware.Middleware) {
 	mux.HandleFunc("POST /api/auth/login", h.Login)
 	mux.HandleFunc("POST /api/auth/logout", h.Logout)
 	mux.Handle("GET /api/me", requireAuth(http.HandlerFunc(h.Me)))
+
+	// Fase 14 Gelombang D, docs/12-sion-parity.md "Impersonate USER oleh
+	// admin sekolah" — host tenant, admin_sekolah saja (permission
+	// user:impersonate). Stop HANYA butuh requireAuth: Service.StopImpersonation
+	// sendiri yang menolak sesi yang BUKAN sesi impersonasi (cek
+	// impersonator_user_id), bukan gerbang permission role.
+	mux.Handle("POST /api/users/{id}/impersonate", requireAuth(requirePerm(PermUserImpersonate)(http.HandlerFunc(h.ImpersonateUser))))
+	mux.Handle("POST /api/auth/impersonation/stop", requireAuth(http.HandlerFunc(h.StopImpersonation)))
 
 	// Impersonation (fase 13, docs/11-superadmin.md "Support"):
 	//   - issue: host platform, super admin saja.

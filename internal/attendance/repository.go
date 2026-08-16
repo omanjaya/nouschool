@@ -48,6 +48,7 @@ type attendanceRepository interface {
 	MonthlyAttendanceRecords(ctx context.Context, schoolID, academicYearID int64, from, to time.Time, classID int64) ([]MonthlyRecordRow, error)
 	StudentHistory(ctx context.Context, schoolID, studentID int64, from, to time.Time) ([]HistoryRow, error)
 	StudentCounts(ctx context.Context, schoolID, studentID int64, from, to time.Time) (Counts, error)
+	StudentCalendarRecords(ctx context.Context, schoolID, studentID int64, from, to time.Time) ([]CalendarRecordRow, error)
 
 	GetSettings(ctx context.Context, schoolID int64) (Settings, error)
 
@@ -480,6 +481,29 @@ func (r *Repository) StudentCounts(ctx context.Context, schoolID, studentID int6
 		return Counts{}, err
 	}
 	return Counts{Hadir: row.Hadir, Terlambat: row.Terlambat, Izin: row.Izin, Sakit: row.Sakit, Alpa: row.Alpa}, nil
+}
+
+// CalendarRecordRow — satu baris record (daily ATAU subject) dipakai kalender
+// presensi siswa (Fase 14 Gelombang D, docs/12-sion-parity.md).
+type CalendarRecordRow struct {
+	Date   time.Time
+	Type   string // "daily" | "subject"
+	Status string
+	Note   string
+}
+
+func (r *Repository) StudentCalendarRecords(ctx context.Context, schoolID, studentID int64, from, to time.Time) ([]CalendarRecordRow, error) {
+	rows, err := r.q.StudentCalendarRecords(ctx, attendancedb.StudentCalendarRecordsParams{
+		StudentID: studentID, SchoolID: schoolID, FromDate: dateOf(from), ToDate: dateOf(to),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CalendarRecordRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, CalendarRecordRow{Date: row.Date.Time, Type: row.Type, Status: row.Status, Note: row.Note.String})
+	}
+	return out, nil
 }
 
 // -- QR kartu siswa (Fase 8) --

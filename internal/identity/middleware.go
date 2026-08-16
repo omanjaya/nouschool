@@ -55,7 +55,15 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 			}
 		}
 
-		if sess.ExpiresAt.Sub(now) < sessionRenewWindowForRole(sess.Role) {
+		// Fase 14 Gelombang D: sesi impersonasi USER (impersonator_user_id
+		// terisi) TIDAK PERNAH diperpanjang sliding — TTL 1 jam keras sejak
+		// ImpersonateUser membuatnya, apa pun aktivitasnya (lihat
+		// impersonation_user.go). Beda dari sesi biasa (termasuk sesi
+		// impersonasi sekolah fase 13, yang memakai sentinel role
+		// impersonationSessionRole -> sessionRenewWindowForRole sudah
+		// mengembalikan 0 utk sentinel itu juga, jadi kondisi ini konsisten
+		// dgn keduanya tanpa perlu cek terpisah).
+		if sess.ImpersonatorUserID == nil && sess.ExpiresAt.Sub(now) < sessionRenewWindowForRole(sess.Role) {
 			newExpiry := now.Add(sessionTTLForRole(sess.Role))
 			if err := s.repo.ExtendSession(ctx, sess.ID, newExpiry); err == nil {
 				setSessionCookie(w, cookie.Value, newExpiry, s.cookieSecure)
@@ -74,6 +82,11 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 			effectiveRole = RoleAdminSekolah
 		}
 		ctx = reqctx.WithUser(ctx, sess.UserID, effectiveRole, sess.IsSuperAdmin)
+		// Fase 14 Gelombang D: tandai konteks sebagai sesi impersonasi USER
+		// supaya Service.Me bisa menyusun field impersonated_by (docs tugas).
+		if sess.ImpersonatorUserID != nil {
+			ctx = reqctx.WithImpersonator(ctx, *sess.ImpersonatorUserID)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
