@@ -253,6 +253,84 @@ func (r *Repository) DeleteSessionByTokenHash(ctx context.Context, hash []byte) 
 	return r.q.DeleteSessionByTokenHash(ctx, hash)
 }
 
+// DeleteSessionsByUser menghapus SEMUA sesi user (fase 13, dipakai
+// AdminResetPassword di admin.go — lihat catatan desain di sana).
+func (r *Repository) DeleteSessionsByUser(ctx context.Context, userID int64) error {
+	return r.q.DeleteSessionsByUser(ctx, userID)
+}
+
+// -- fase 13: panel super admin P4.1 (anggota) & P4.3 (audit log) --
+
+// MemberRow adalah satu baris GET /api/admin/schools/{id}/members
+// (join memberships+users+sessions).
+type MemberRow struct {
+	UserID    int64
+	Name      string
+	Email     string
+	Username  string
+	Role      string
+	Status    string
+	LastLogin *time.Time
+}
+
+func (r *Repository) ListMembersForSchool(ctx context.Context, schoolID int64) ([]MemberRow, error) {
+	rows, err := r.q.ListMembersForSchool(ctx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MemberRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, MemberRow{
+			UserID: row.UserID, Name: row.Name, Email: row.Email.String, Username: row.Username.String,
+			Role: row.Role, Status: row.Status, LastLogin: tsToPtr(row.LastLogin),
+		})
+	}
+	return out, nil
+}
+
+// AuditLogRow adalah satu baris GET /api/admin/schools/{id}/audit.
+type AuditLogRow struct {
+	ID       int64
+	UserName *string
+	Action   string
+	Entity   string
+	EntityID *int64
+	At       time.Time
+}
+
+func (r *Repository) ListAuditLogForSchool(ctx context.Context, schoolID int64, actionPrefix string, limit, offset int32) ([]AuditLogRow, error) {
+	rows, err := r.q.ListAuditLogForSchool(ctx, identitydb.ListAuditLogForSchoolParams{
+		SchoolID: schoolID, ActionPrefix: actionPrefix, LimitCount: limit, OffsetCount: offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AuditLogRow, 0, len(rows))
+	for _, row := range rows {
+		var userName *string
+		if row.UserName.Valid {
+			n := row.UserName.String
+			userName = &n
+		}
+		out = append(out, AuditLogRow{ID: row.ID, UserName: userName, Action: row.Action, Entity: row.Entity, EntityID: int8ToPtr(row.EntityID), At: row.At.Time})
+	}
+	return out, nil
+}
+
+func (r *Repository) CountAuditLogForSchool(ctx context.Context, schoolID int64, actionPrefix string) (int64, error) {
+	return r.q.CountAuditLogForSchool(ctx, identitydb.CountAuditLogForSchoolParams{SchoolID: schoolID, ActionPrefix: actionPrefix})
+}
+
+// tsToPtr mengonversi pgtype.Timestamptz nullable menjadi *time.Time (nil
+// bila NULL) — dipakai LastLogin di atas.
+func tsToPtr(v pgtype.Timestamptz) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+	t := v.Time
+	return &t
+}
+
 // -- audit --
 
 type InsertAuditLogInput struct {

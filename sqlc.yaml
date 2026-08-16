@@ -90,3 +90,12 @@ sql:
         out: "internal/billing/billingdb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/platformadmin/queries.sql"
+    gen:
+      go:
+        package: "platformadmindb"
+        out: "internal/platformadmin/platformadmindb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

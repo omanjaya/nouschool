@@ -89,3 +89,41 @@ UPDATE invitations SET used_at = $2 WHERE code = $1;
 -- student_id di /api/me & login response role siswa. Preseden: join read-only
 -- lintas tabel diperbolehkan (lihat student/queries.sql join ke users).
 SELECT id FROM students WHERE user_id = $1 AND school_id = $2;
+
+-- -- fase 13, docs/11-superadmin.md P4 "Operasional" --
+-- P4.1 (daftar anggota), P4.2 (reset password), P4.3 (audit log viewer) HANYA
+-- menyentuh tabel milik modul identity sendiri (users/memberships/sessions/
+-- audit_log) — makanya ditempatkan di sini (perluasan modul existing) alih-
+-- alih modul agregator baru (lihat catatan keputusan di internal/platformadmin).
+
+-- name: DeleteSessionsByUser :exec
+-- Dipakai AdminResetPassword — hapus SEMUA sesi user target supaya password
+-- lama langsung tidak berlaku lagi di device manapun.
+DELETE FROM sessions WHERE user_id = $1;
+
+-- name: ListMembersForSchool :many
+-- Satu baris per membership (user muncul >1 kali bila punya >1 role, mis.
+-- guru + orang_tua) — last_login = sesi TERAKHIR user itu DI SEKOLAH ini
+-- (lintas role).
+SELECT
+    m.user_id, u.name, u.email, u.username, m.role, m.status,
+    (SELECT MAX(sess.created_at) FROM sessions sess WHERE sess.user_id = m.user_id AND sess.school_id = m.school_id)::timestamptz AS last_login
+FROM memberships m
+JOIN users u ON u.id = m.user_id
+WHERE m.school_id = $1
+ORDER BY u.name, m.role;
+
+-- name: ListAuditLogForSchool :many
+-- action_prefix kosong ("") berarti tanpa filter aksi.
+SELECT a.id, u.name AS user_name, a.action, a.entity, a.entity_id, a.at
+FROM audit_log a
+LEFT JOIN users u ON u.id = a.user_id
+WHERE a.school_id = sqlc.arg(school_id)::bigint
+  AND (sqlc.arg(action_prefix)::text = '' OR a.action LIKE sqlc.arg(action_prefix)::text || '%')
+ORDER BY a.at DESC
+LIMIT sqlc.arg(limit_count)::int OFFSET sqlc.arg(offset_count)::int;
+
+-- name: CountAuditLogForSchool :one
+SELECT COUNT(*) FROM audit_log a
+WHERE a.school_id = sqlc.arg(school_id)::bigint
+  AND (sqlc.arg(action_prefix)::text = '' OR a.action LIKE sqlc.arg(action_prefix)::text || '%');

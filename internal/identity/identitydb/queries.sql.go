@@ -12,6 +12,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countAuditLogForSchool = `-- name: CountAuditLogForSchool :one
+SELECT COUNT(*) FROM audit_log a
+WHERE a.school_id = $1::bigint
+  AND ($2::text = '' OR a.action LIKE $2::text || '%')
+`
+
+type CountAuditLogForSchoolParams struct {
+	SchoolID     int64  `json:"school_id"`
+	ActionPrefix string `json:"action_prefix"`
+}
+
+func (q *Queries) CountAuditLogForSchool(ctx context.Context, arg CountAuditLogForSchoolParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogForSchool, arg.SchoolID, arg.ActionPrefix)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createInvitation = `-- name: CreateInvitation :one
 
 INSERT INTO invitations (school_id, code, role, target_id, expires_at)
@@ -160,6 +178,23 @@ DELETE FROM sessions WHERE token_hash = $1
 
 func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte) error {
 	_, err := q.db.Exec(ctx, deleteSessionByTokenHash, tokenHash)
+	return err
+}
+
+const deleteSessionsByUser = `-- name: DeleteSessionsByUser :exec
+
+DELETE FROM sessions WHERE user_id = $1
+`
+
+// -- fase 13, docs/11-superadmin.md P4 "Operasional" --
+// P4.1 (daftar anggota), P4.2 (reset password), P4.3 (audit log viewer) HANYA
+// menyentuh tabel milik modul identity sendiri (users/memberships/sessions/
+// audit_log) — makanya ditempatkan di sini (perluasan modul existing) alih-
+// alih modul agregator baru (lihat catatan keputusan di internal/platformadmin).
+// Dipakai AdminResetPassword — hapus SEMUA sesi user target supaya password
+// lama langsung tidak berlaku lagi di device manapun.
+func (q *Queries) DeleteSessionsByUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteSessionsByUser, userID)
 	return err
 }
 
@@ -408,6 +443,116 @@ func (q *Queries) ListActiveMembershipsByUserSchool(ctx context.Context, arg Lis
 			&i.SchoolID,
 			&i.Role,
 			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuditLogForSchool = `-- name: ListAuditLogForSchool :many
+SELECT a.id, u.name AS user_name, a.action, a.entity, a.entity_id, a.at
+FROM audit_log a
+LEFT JOIN users u ON u.id = a.user_id
+WHERE a.school_id = $1::bigint
+  AND ($2::text = '' OR a.action LIKE $2::text || '%')
+ORDER BY a.at DESC
+LIMIT $4::int OFFSET $3::int
+`
+
+type ListAuditLogForSchoolParams struct {
+	SchoolID     int64  `json:"school_id"`
+	ActionPrefix string `json:"action_prefix"`
+	OffsetCount  int32  `json:"offset_count"`
+	LimitCount   int32  `json:"limit_count"`
+}
+
+type ListAuditLogForSchoolRow struct {
+	ID       int64              `json:"id"`
+	UserName pgtype.Text        `json:"user_name"`
+	Action   string             `json:"action"`
+	Entity   string             `json:"entity"`
+	EntityID pgtype.Int8        `json:"entity_id"`
+	At       pgtype.Timestamptz `json:"at"`
+}
+
+// action_prefix kosong ("") berarti tanpa filter aksi.
+func (q *Queries) ListAuditLogForSchool(ctx context.Context, arg ListAuditLogForSchoolParams) ([]ListAuditLogForSchoolRow, error) {
+	rows, err := q.db.Query(ctx, listAuditLogForSchool,
+		arg.SchoolID,
+		arg.ActionPrefix,
+		arg.OffsetCount,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAuditLogForSchoolRow
+	for rows.Next() {
+		var i ListAuditLogForSchoolRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserName,
+			&i.Action,
+			&i.Entity,
+			&i.EntityID,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMembersForSchool = `-- name: ListMembersForSchool :many
+SELECT
+    m.user_id, u.name, u.email, u.username, m.role, m.status,
+    (SELECT MAX(sess.created_at) FROM sessions sess WHERE sess.user_id = m.user_id AND sess.school_id = m.school_id)::timestamptz AS last_login
+FROM memberships m
+JOIN users u ON u.id = m.user_id
+WHERE m.school_id = $1
+ORDER BY u.name, m.role
+`
+
+type ListMembersForSchoolRow struct {
+	UserID    int64              `json:"user_id"`
+	Name      string             `json:"name"`
+	Email     pgtype.Text        `json:"email"`
+	Username  pgtype.Text        `json:"username"`
+	Role      string             `json:"role"`
+	Status    string             `json:"status"`
+	LastLogin pgtype.Timestamptz `json:"last_login"`
+}
+
+// Satu baris per membership (user muncul >1 kali bila punya >1 role, mis.
+// guru + orang_tua) — last_login = sesi TERAKHIR user itu DI SEKOLAH ini
+// (lintas role).
+func (q *Queries) ListMembersForSchool(ctx context.Context, schoolID int64) ([]ListMembersForSchoolRow, error) {
+	rows, err := q.db.Query(ctx, listMembersForSchool, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMembersForSchoolRow
+	for rows.Next() {
+		var i ListMembersForSchoolRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Name,
+			&i.Email,
+			&i.Username,
+			&i.Role,
+			&i.Status,
+			&i.LastLogin,
 		); err != nil {
 			return nil, err
 		}

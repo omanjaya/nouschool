@@ -78,6 +78,39 @@ func (s *Store) Open(relPath string) (*os.File, error) {
 	return os.Open(abs)
 }
 
+// DirSize menghitung total ukuran (byte) seluruh file di bawah relPath
+// (rekursif) — dipakai panel super admin (fase 13, docs/11-superadmin.md P3
+// "storage terpakai"). Mengembalikan 0 (TANPA error) bila direktori belum
+// ada sama sekali (sekolah yang belum pernah upload apa pun).
+func (s *Store) DirSize(relPath string) (int64, error) {
+	abs, err := s.resolve(relPath)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := os.Stat(abs); errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	var total int64
+	err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 // RandomFilename menghasilkan nama file acak (32 hex char) dengan ekstensi
 // ext (tanpa titik; kosong = tanpa ekstensi).
 func RandomFilename(ext string) (string, error) {

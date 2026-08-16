@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-type StatTileVariant = 'default' | 'danger' | 'success' | 'info' | 'muted';
+type StatTileVariant = 'default' | 'danger' | 'success' | 'info' | 'warning' | 'muted';
 
 const VALUE_COLOR_CLASS: Record<StatTileVariant, string> = {
   default: 'text-ink',
@@ -9,6 +9,8 @@ const VALUE_COLOR_CLASS: Record<StatTileVariant, string> = {
   success: 'text-st-hadir',
   /** Angka netral-informatif (mis. jumlah guru izin) — token --st-izin. */
   info: 'text-st-izin',
+  /** Angka "perlu perhatian tapi belum darurat" (mis. sekolah masa grace) — token --st-terlambat. */
+  warning: 'text-st-terlambat',
   /** Angka yang belum relevan/tidak perlu ditonjolkan (mis. "belum mulai"). */
   muted: 'text-muted',
 };

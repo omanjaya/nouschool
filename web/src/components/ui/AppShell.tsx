@@ -55,7 +55,7 @@ export function AppShell({
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === '/'}
+              end={item.end ?? item.to === '/'}
               className={({ isActive }) =>
                 `flex min-h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-medium transition-colors duration-150 ${
                   isActive ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2 hover:text-ink'
@@ -98,7 +98,7 @@ export function AppShell({
               <li key={item.to} className="flex-1">
                 <NavLink
                   to={item.to}
-                  end={item.to === '/'}
+                  end={item.end ?? item.to === '/'}
                   className="relative flex min-h-[56px] flex-col items-center justify-center gap-1 py-2"
                 >
                   {({ isActive }) => (

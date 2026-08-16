@@ -8,6 +8,7 @@ import {
   School,
   Settings,
   Users,
+  MailWarning,
   type LucideIcon,
 } from 'lucide-react';
 import type { Me } from './types';
@@ -16,6 +17,13 @@ export interface NavItemDef {
   to: string;
   label: string;
   icon: LucideIcon;
+  /**
+   * Cocokkan hanya path persis (bukan prefix) — dipakai untuk item beranda yang
+   * BUKAN `/` (mis. `/admin` platform admin), supaya tidak ikut aktif saat
+   * berada di sub-rute sibling lain (`/admin/sekolah`, `/admin/outbox`, dst).
+   * Default (tidak diisi): `AppShell` memakai `to === '/'`.
+   */
+  end?: boolean;
 }
 
 /** Nav guru — juga dipakai untuk peran yang belum punya nav khusus (mis. kepala_sekolah). */
@@ -50,7 +58,9 @@ export function getNavItems(me: Me): NavItemDef[] {
 
   if (isPlatformAdmin) {
     return [
-      { to: '/admin', label: 'Sekolah', icon: School },
+      { to: '/admin', label: 'Beranda', icon: House, end: true },
+      { to: '/admin/sekolah', label: 'Sekolah', icon: School },
+      { to: '/admin/outbox', label: 'Outbox', icon: MailWarning },
       { to: '/profil', label: 'Profil', icon: User },
     ];
   }

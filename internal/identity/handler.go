@@ -100,6 +100,74 @@ func (h *Handler) AdminIssueImpersonation(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// -- fase 13, docs/11-superadmin.md P4 "Operasional" --
+
+func pathInt64(r *http.Request, name string) (int64, error) {
+	return strconv.ParseInt(r.PathValue(name), 10, 64)
+}
+
+// AdminListMembers — GET /api/admin/schools/{id}/members.
+func (h *Handler) AdminListMembers(w http.ResponseWriter, r *http.Request) {
+	schoolID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sekolah tidak valid."))
+		return
+	}
+	items, err := h.svc.ListMembers(r.Context(), schoolID)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+
+type adminResetPasswordRequest struct {
+	SchoolID int64 `json:"school_id"`
+}
+
+// AdminResetPassword — POST /api/admin/users/{id}/reset-password.
+func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
+	userID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID user tidak valid."))
+		return
+	}
+	var req adminResetPasswordRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	if req.SchoolID == 0 {
+		httpx.WriteError(w, httpx.Validation("school_id wajib diisi."))
+		return
+	}
+	ctx := r.Context()
+	tempPassword, err := h.svc.AdminResetPassword(ctx, reqctx.UserID(ctx), req.SchoolID, userID)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"temp_password": tempPassword})
+}
+
+// AdminAuditLog — GET /api/admin/schools/{id}/audit?page=&per_page=&action=.
+func (h *Handler) AdminAuditLog(w http.ResponseWriter, r *http.Request) {
+	schoolID, err := pathInt64(r, "id")
+	if err != nil {
+		httpx.WriteError(w, httpx.Validation("ID sekolah tidak valid."))
+		return
+	}
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	action := r.URL.Query().Get("action")
+	result, err := h.svc.ListAuditLog(r.Context(), schoolID, page, perPage, action)
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
 type impersonateExchangeRequest struct {
 	Token string `json:"token"`
 }

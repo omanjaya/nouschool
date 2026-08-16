@@ -1,17 +1,32 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Building2, CalendarRange, ChevronLeft, Eye, FileDown, LogIn, Receipt } from 'lucide-react';
+import {
+  Building2,
+  CalendarRange,
+  ChevronLeft,
+  Copy,
+  Eye,
+  FileDown,
+  History,
+  KeyRound,
+  LogIn,
+  Receipt,
+  Search,
+  Users,
+} from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { ListRow } from '../../components/ui/ListRow';
+import { StatTile } from '../../components/ui/StatTile';
 import { Tag } from '../../components/ui/Tag';
 import { Dialog } from '../../components/ui/Dialog';
 import { Button } from '../../components/ui/Button';
 import { Checkbox, Field, Input, Select } from '../../components/ui/Field';
 import { useToast } from '../../components/ui/Toast';
 import {
+  ROLE_LABEL,
   useAcademicYears,
   useActivateAcademicYear,
   useCreateAcademicYear,
@@ -20,15 +35,19 @@ import {
   useImpersonateSchool,
   useNotificationChannelSettings,
   usePlans,
+  useResetPassword,
+  useSchoolAudit,
   useSchoolBilling,
+  useSchoolMembers,
   useSchools,
+  useSchoolStats,
   useUpdateNotificationChannelSettings,
   useUpdateSchool,
   useVerifyInvoice,
   useVoidInvoice,
 } from './api';
 import { TIMEZONES } from '../../lib/timezones';
-import { formatDate } from '../../lib/date';
+import { formatDate, formatRelativeTime } from '../../lib/date';
 import { formatRupiah } from '../../lib/currency';
 import { ApiError } from '../../lib/api';
 import {
@@ -37,7 +56,48 @@ import {
   SUBSCRIPTION_STATUS_LABEL,
   SUBSCRIPTION_STATUS_TAG_VARIANT,
 } from '../billing/format';
-import type { AdminInvoice, NotificationChannel, School } from '../../lib/types';
+import type { AdminInvoice, AdminAuditLogItem, AdminSchoolMember, NotificationChannel, School } from '../../lib/types';
+
+/**
+ * Observer sekali-jalan (docs/11 P3: statistik "hanya agregat", tapi tetap
+ * query yang lumayan berat) — set `true` begitu elemen pertama kali masuk
+ * viewport, lalu berhenti mengamati; dipakai `StatisticsSection` supaya
+ * `GET .../stats` tidak ikut nge-fetch di render awal bersama seksi lain.
+ */
+function useInViewOnce<T extends HTMLElement>(): [RefObject<T | null>, boolean] {
+  const ref = useRef<T | null>(null);
+  const [inView, setInView] = useState(false);
+
+  useEffect(() => {
+    if (inView) return;
+    const node = ref.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [inView]);
+
+  return [ref, inView];
+}
+
+/** "3.2 KB" / "4.1 MB" — dipakai storage terpakai di `StatisticsSection` (docs/11 P3). */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
 
 export function SchoolDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -73,7 +133,7 @@ export function SchoolDetailPage() {
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[860px]">
       <div>
         <Link
-          to="/admin"
+          to="/admin/sekolah"
           className="mb-3 inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
         >
           <ChevronLeft size={16} strokeWidth={2} aria-hidden="true" />
@@ -86,9 +146,12 @@ export function SchoolDetailPage() {
       <ImpersonateButton school={school} />
 
       <SchoolEditForm school={school} />
+      <StatisticsSection schoolId={school.id} />
       <AcademicYearsSection schoolId={school.id} />
       <BillingSection schoolId={school.id} />
       <NotificationChannelsSection schoolId={school.id} />
+      <MembersSection schoolId={school.id} />
+      <AuditLogSection schoolId={school.id} />
     </div>
   );
 }
@@ -684,5 +747,304 @@ function NotificationChannelsSection({ schoolId }: { schoolId: string }) {
         Simpan Pengaturan Notifikasi
       </Button>
     </Card>
+  );
+}
+
+/**
+ * Seksi "Statistik" (Fase 13 P3, docs/11 P3) — agregat kesehatan pemakaian
+ * (bukan data per-siswa, lihat "Aturan desain yang mengikat" #3). Query hanya
+ * jalan setelah kartu ini terlihat (`useInViewOnce`) supaya detail sekolah
+ * tidak selalu menanggung fetch statistik kalau admin tidak menggulir ke sana.
+ */
+function StatisticsSection({ schoolId }: { schoolId: string }) {
+  const [ref, inView] = useInViewOnce<HTMLDivElement>();
+  const { data, isLoading, isError, refetch } = useSchoolStats(schoolId, inView);
+
+  return (
+    <div ref={ref} className="flex flex-col gap-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Statistik</p>
+      <Card className="flex flex-col gap-4">
+        {!inView || isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : isError || !data ? (
+          <ErrorState message="Gagal memuat statistik sekolah." onRetry={() => refetch()} />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <StatTile label="Guru" value={data.teachers} />
+              <StatTile label="Siswa" value={data.students} />
+              <StatTile label="Rombel" value={data.classes} />
+              <StatTile label="Sesi Absen 7 Hari" value={data.attendance_sessions_7d} />
+              <StatTile label="Jurnal 7 Hari" value={data.journals_7d} />
+              <StatTile label="Storage" value={formatBytes(data.uploads_bytes)} />
+            </div>
+
+            <div className="border-t border-line pt-3">
+              <p className="mb-2 text-[12px] font-medium text-muted">Notifikasi 30 Hari</p>
+              <div className="flex flex-wrap gap-4 text-[13px]">
+                <span className="text-st-hadir">
+                  <span className="num font-semibold">{data.notifications_30d.sent}</span> terkirim
+                </span>
+                <span className="text-st-terlambat">
+                  <span className="num font-semibold">{data.notifications_30d.failed}</span> gagal
+                </span>
+                <span className="text-danger">
+                  <span className="num font-semibold">{data.notifications_30d.dead}</span> dead
+                </span>
+              </div>
+            </div>
+
+            <div className="border-t border-line pt-3">
+              <p className="mb-2 text-[12px] font-medium text-muted">Login Terakhir per Peran</p>
+              {data.last_logins.length === 0 ? (
+                <p className="text-[13px] text-muted">Belum ada login tercatat.</p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {data.last_logins.map((entry) => (
+                    <div key={entry.role} className="flex items-center justify-between text-[13px]">
+                      <span className="text-ink">{ROLE_LABEL[entry.role] ?? entry.role}</span>
+                      <span className="text-muted">{formatRelativeTime(entry.at)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Seksi "Anggota" (Fase 13 P4, docs/11 P4) — daftar user sekolah + aksi darurat
+ * reset password (kasus paling sering: admin sekolah lupa password).
+ */
+function MembersSection({ schoolId }: { schoolId: string }) {
+  const { data, isLoading, isError, refetch } = useSchoolMembers(schoolId);
+  const [resetTarget, setResetTarget] = useState<AdminSchoolMember | null>(null);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Anggota</p>
+
+      <Card variant="plain">
+        {isLoading ? (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : isError || !data ? (
+          <ErrorState message="Gagal memuat anggota sekolah." onRetry={() => refetch()} />
+        ) : data.length === 0 ? (
+          <EmptyState icon={Users} message="Belum ada anggota terdaftar di sekolah ini." />
+        ) : (
+          <div>
+            {data.map((member) => (
+              <ListRow
+                key={member.user_id}
+                title={member.name}
+                subtitle={
+                  <>
+                    {member.email ?? member.username ?? '—'} · {ROLE_LABEL[member.role] ?? member.role} ·{' '}
+                    {member.last_login ? formatRelativeTime(member.last_login) : 'Belum pernah login'}
+                  </>
+                }
+                trailing={
+                  <Button variant="ghost" onClick={() => setResetTarget(member)}>
+                    <KeyRound size={16} strokeWidth={2} aria-hidden="true" />
+                    Reset Password
+                  </Button>
+                }
+              />
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <ResetPasswordDialog schoolId={schoolId} member={resetTarget} onClose={() => setResetTarget(null)} />
+    </div>
+  );
+}
+
+/**
+ * Dialog konfirmasi → reset → hasil (password sementara ditampilkan SEKALI,
+ * docs/11 P4). Ditutup lewat state `member` (dikendalikan `MembersSection`)
+ * supaya satu instance dialog dipakai ulang untuk anggota mana pun yang diklik.
+ */
+function ResetPasswordDialog({
+  schoolId,
+  member,
+  onClose,
+}: {
+  schoolId: string;
+  member: AdminSchoolMember | null;
+  onClose: () => void;
+}) {
+  const resetPassword = useResetPassword();
+  const { showToast } = useToast();
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+
+  function handleClose() {
+    setTempPassword(null);
+    resetPassword.reset();
+    onClose();
+  }
+
+  function handleConfirm() {
+    if (!member) return;
+    resetPassword.mutate(
+      { userId: member.user_id, schoolId },
+      {
+        onSuccess: (result) => setTempPassword(result.temp_password),
+        onError: (err) => showToast(err instanceof ApiError ? err.message : 'Gagal mereset password.', 'error'),
+      },
+    );
+  }
+
+  async function handleCopy() {
+    if (!tempPassword) return;
+    try {
+      await navigator.clipboard.writeText(tempPassword);
+      showToast('Password disalin.');
+    } catch {
+      showToast('Gagal menyalin password. Salin manual.', 'error');
+    }
+  }
+
+  if (tempPassword) {
+    return (
+      <Dialog open={member !== null} onClose={handleClose} title="Password Sementara">
+        <div className="flex flex-col gap-4">
+          <p className="text-[14px] text-ink">
+            Password sementara untuk <span className="font-medium">{member?.name}</span>.
+          </p>
+          <div className="rounded-lg border border-line bg-surface-2 px-4 py-4 text-center">
+            <span className="num select-all font-mono text-[21px] font-semibold tracking-[0.05em] text-ink">
+              {tempPassword}
+            </span>
+          </div>
+          <Button variant="secondary" onClick={handleCopy}>
+            <Copy size={16} strokeWidth={2} aria-hidden="true" />
+            Salin
+          </Button>
+          <p className="text-[12px] text-danger">
+            Tampilkan sekali — catat sekarang. Semua sesi user ini keluar otomatis.
+          </p>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <Button type="button" variant="secondary" onClick={handleClose}>
+            Tutup
+          </Button>
+        </div>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog open={member !== null} onClose={handleClose} title="Reset password?">
+      <p className="text-[14px] text-ink">
+        Password <span className="font-medium">{member?.name}</span> akan diganti dengan password sementara & semua
+        sesi user ini keluar otomatis.
+      </p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={handleClose}>
+          Batal
+        </Button>
+        <Button type="button" variant="danger" loading={resetPassword.isPending} onClick={handleConfirm}>
+          Reset Password
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+const AUDIT_PER_PAGE = 20;
+
+/**
+ * Seksi "Audit Log" (Fase 13 P4, docs/11 P4) — 20 terbaru + filter prefix
+ * action + "Muat lebih banyak" (bukan tabel kompleks, sengaja tetap ListRow).
+ * Reset filter action → halaman & akumulasi item ikut direset ke awal.
+ */
+function AuditLogSection({ schoolId }: { schoolId: string }) {
+  const [actionInput, setActionInput] = useState('');
+  const [actionFilter, setActionFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [items, setItems] = useState<AdminAuditLogItem[]>([]);
+
+  const { data, isLoading, isError, refetch } = useSchoolAudit(schoolId, {
+    page,
+    perPage: AUDIT_PER_PAGE,
+    action: actionFilter || undefined,
+  });
+
+  useEffect(() => {
+    if (!data) return;
+    setItems((prev) => (page === 1 ? data.items : [...prev, ...data.items]));
+  }, [data, page]);
+
+  function handleFilterSubmit(e: FormEvent) {
+    e.preventDefault();
+    setPage(1);
+    setItems([]);
+    setActionFilter(actionInput.trim());
+  }
+
+  const hasMore = data ? items.length < data.total : false;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Audit Log</p>
+
+      <form onSubmit={handleFilterSubmit} className="flex flex-wrap items-end gap-2">
+        <Field label="Filter action (awalan)" htmlFor="audit-action-filter" className="min-w-[200px] flex-1">
+          <Input
+            id="audit-action-filter"
+            value={actionInput}
+            onChange={(e) => setActionInput(e.target.value)}
+            placeholder="mis. billing."
+          />
+        </Field>
+        <Button type="submit" variant="secondary">
+          <Search size={16} strokeWidth={2} aria-hidden="true" />
+          Cari
+        </Button>
+      </form>
+
+      <Card variant="plain">
+        {isLoading && page === 1 ? (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : isError ? (
+          <ErrorState message="Gagal memuat audit log." onRetry={() => refetch()} />
+        ) : items.length === 0 ? (
+          <EmptyState icon={History} message="Belum ada aktivitas tercatat." />
+        ) : (
+          <div>
+            {items.map((item) => (
+              <ListRow
+                key={item.id}
+                title={<span className="font-mono text-[13px]">{item.action}</span>}
+                subtitle={`${item.user_name ?? 'Sistem'} · ${formatRelativeTime(item.at)}`}
+              />
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {hasMore && (
+        <Button
+          variant="secondary"
+          loading={isLoading && page > 1}
+          onClick={() => setPage((p) => p + 1)}
+          className="self-center"
+        >
+          Muat lebih banyak
+        </Button>
+      )}
+    </div>
   );
 }

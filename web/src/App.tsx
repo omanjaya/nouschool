@@ -12,9 +12,11 @@ import { AppShell } from './components/ui/AppShell';
 import { getNavItems } from './lib/nav';
 import { getGreeting } from './lib/greeting';
 import { Card } from './components/ui/Card';
+import { DashboardAdminPage } from './features/admin/DashboardAdminPage';
 import { SchoolsListPage } from './features/admin/SchoolsListPage';
 import { SchoolDetailPage } from './features/admin/SchoolDetailPage';
 import { InterestLeadsPage } from './features/admin/InterestLeadsPage';
+import { OutboxPage } from './features/admin/OutboxPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
 import { ActivationPage } from './features/activation/ActivationPage';
@@ -457,8 +459,10 @@ function AuthenticatedShell() {
     return (
       <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout}>
         <Routes>
-          <Route path="/admin" element={<SchoolsListPage />} />
-          <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
+          <Route path="/admin" element={<DashboardAdminPage />} />
+          <Route path="/admin/sekolah" element={<SchoolsListPage />} />
+          <Route path="/admin/sekolah/:id" element={<SchoolDetailPage />} />
+          <Route path="/admin/outbox" element={<OutboxPage />} />
           <Route path="/admin/plans" element={<PlansPage />} />
           <Route path="/admin/minat" element={<InterestLeadsPage />} />
           <Route path="/profil" element={<ProfilePage />} />
@@ -493,8 +497,14 @@ function AuthenticatedShell() {
             )
           }
         />
+        {/* Rute admin di bawah ini TIDAK dialihkan ke DashboardAdminPage/OutboxPage baru
+            (Fase 13) — hanya escape hatch existing untuk sesi impersonation super admin
+            (`me.is_super_admin && me.school`, lihat `ImpersonationBanner`), dipertahankan
+            apa adanya, sekadar disamakan path-nya dengan cabang isPlatformAdmin supaya
+            tautan "Sekolah" di SchoolDetailPage/PlansPage/InterestLeadsPage tidak putus. */}
         <Route path="/admin" element={<SchoolsListPage />} />
-        <Route path="/admin/schools/:id" element={<SchoolDetailPage />} />
+        <Route path="/admin/sekolah" element={<SchoolsListPage />} />
+        <Route path="/admin/sekolah/:id" element={<SchoolDetailPage />} />
         <Route path="/admin/plans" element={<PlansPage />} />
         <Route path="/admin/minat" element={<InterestLeadsPage />} />
         <Route path="/tagihan" element={<BillingPage />} />

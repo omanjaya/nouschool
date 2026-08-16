@@ -24,7 +24,7 @@ export function InterestLeadsPage() {
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
       <div>
         <Link
-          to="/admin"
+          to="/admin/sekolah"
           className="mb-3 inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
         >
           <ChevronLeft size={16} strokeWidth={2} aria-hidden="true" />

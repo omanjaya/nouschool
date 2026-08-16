@@ -720,12 +720,98 @@ live sebagai bonus di atas cakupan minimum.
 
 ## Fase 13 — Super Admin 🚧 (rencana lengkap: docs/11-superadmin.md)
 - 🚧 Impersonation "Masuk sebagai Sekolah Ini" — ✅ backend (token sekali-pakai 2 mnt, `POST /api/admin/schools/{id}/impersonate` + `POST /api/auth/impersonate`, session support TTL 2 jam tanpa sliding renewal, audit `admin.impersonate_issued`/`_started`, `RequireSuperAdmin` sudah menolak konteks tenant); ⬜ banner "Mode support" di UI sekolah (frontend, belum dikerjakan)
-- ⬜ P1 Dashboard platform /admin (overview + daftar perlu perhatian)
+- ✅ P1 Dashboard platform /admin (overview + daftar perlu perhatian) — backend
 - ⬜ P2 Onboarding wizard sekolah baru (+ buat akun admin sekolah)
-- ⬜ P3 Statistik kesehatan per sekolah
-- ⬜ P4 Reset password user, audit log viewer, outbox global
+- ✅ P3 Statistik kesehatan per sekolah — backend
+- ✅ P4 Reset password user, audit log viewer, outbox global — backend
 - ⬜ P5 Pengumuman platform
 - ⬜ P6 Feature override per sekolah, laporan pendapatan
+
+**Fase 13 Gelombang 1 (P1+P3+P4 backend) ✅** — terverifikasi end-to-end di
+Docker dev (`localhost:8210`, host platform): login super admin
+(`omanjaya53@gmail.com`) → `GET /api/admin/overview` (`schools_active:2`
+demo+ujibilling keduanya subscription active, `total_students:13`,
+`revenue_year:10000000` dari invoice paid demo, `leads_7d:2`,
+`schools_no_active_year` berisi ujibilling, `outbox_dead` berisi demo 8 baris,
+`last_activity` terurut null dulu) → `GET /api/admin/schools/1/stats`
+(`teachers:4`, `students:13`, `attendance_sessions_7d:3`, `journals_7d:1`,
+`notifications_30d.dead:8`, `last_logins` 7 role, `uploads_bytes:135`) →
+`GET /api/admin/schools/1/members` (12 baris) → `POST
+/api/admin/users/4/reset-password {"school_id":1}` (guru Rendi) → dapat
+`temp_password` → login Rendi password lama `guru12345` GAGAL
+(`invalid_credentials`), password sementara SUKSES → **dikembalikan**:
+bootstrap ulang (`-demo`, idempoten) → password guru demo `guru12345`
+disetel ulang, login Rendi dgn `guru12345` SUKSES lagi → `GET
+/api/admin/schools/1/audit?action=admin.reset_password` (1 baris) &
+`?action=admin.impersonate` (6 baris dari sesi sebelumnya, `issued`+`started`
+berpasangan) → `GET /api/admin/outbox?status=dead` (8 baris) → `POST
+/api/admin/outbox/8/retry` → baris itu `status:pending` (dead sisa 7) →
+`POST /api/admin/outbox/retry-all {"status":"dead"}` → `{"retried":7}`,
+outbox dead sisa 0, audit `admin.outbox_retry_all` tercatat (dicek psql
+langsung: `school_id` NULL — retry-all dipanggil TANPA `school_id`, action
+platform-wide, BUKAN bug). `go build/vet/test ./...` hijau.
+- **Keputusan pembagian modul** (dilaporkan sesuai instruksi tugas): DUA
+  tempat, bukan satu.
+  1. **`internal/identity` diperluas** (`internal/identity/admin.go`) untuk
+     P4.1 (`GET /api/admin/schools/{id}/members`), P4.2 (`POST
+     /api/admin/users/{id}/reset-password`), P4.3 (`GET
+     /api/admin/schools/{id}/audit`) — KETIGANYA hanya menyentuh tabel yang
+     SUDAH dimiliki modul identity sendiri (`users`/`memberships`/`sessions`/
+     `audit_log`), jadi tidak ada alasan bikin modul baru untuk itu.
+  2. **Modul baru `internal/platformadmin`** untuk P1 (`GET
+     /api/admin/overview`), P3 (`GET /api/admin/schools/{id}/stats`), P4.4
+     (outbox global) — SEMUA butuh JOIN lintas tabel milik BANYAK modul lain
+     (schools/subscriptions/invoices/students/interest_leads/
+     notification_outbox/sessions/attendance_sessions/teaching_journals),
+     dieksekusi sebagai SQL agregasi READ-ONLY langsung di
+     `internal/platformadmin/queries.sql` — EKSPLISIT diizinkan instruksi
+     tugas ("preseden dashboard/tv-board") supaya tidak perlu puluhan
+     consumer-side interface primitif + N+1 query per sekolah. Mutasi
+     (retry outbox) HANYA menyentuh `notification_outbox` (status flag,
+     dipahami worker existing `internal/notification/worker.go`, TIDAK
+     menduplikasi logika bisnis). Catatan desain lengkap ada di package doc
+     `internal/platformadmin/model.go`.
+- ✅ `internal/platformadmin/` (modul baru, sqlc package `platformadmindb`):
+  `GET /api/admin/overview` (`Service.Overview` + `bucketSchools` — status
+  efektif per sekolah: `suspended` menang dari `schools.status`, selain itu
+  status `subscriptions.status` dgn fallback `readonly` bila TANPA
+  subscription ATAU status `canceled`, `grace_until` dihitung
+  `ends_on + gracePeriodDays` konst lokal 14 — REDEFINISI nilai
+  `billing.GracePeriodDays`, pola sama `billing.PermBillingView` vs
+  `identity.PermBillingView`), `GET /api/admin/schools/{id}/stats`
+  (`uploads_bytes` via `storage.Store.DirSize` baru, best-effort/0 bila
+  belum ada folder), `GET /api/admin/outbox` + `POST
+  /api/admin/outbox/{id}/retry` (422 bila status bukan failed/dead, set
+  pending+`next_retry_at=now` TANPA reset attempts) + `POST
+  /api/admin/outbox/retry-all` (`{school_id?, status}`, audit
+  `admin.outbox_retry_all` SAJA — `AuditLogger` consumer-side interface
+  dipenuhi `*identity.Service` struktural, diinject `cmd/server/main.go`
+  TANPA adapter karena signature primitif langsung cocok)
+- ✅ `internal/identity/admin.go` (perluasan modul identity): `ListMembers`
+  (join `memberships+users+sessions`, satu baris per membership),
+  `AdminResetPassword` (implementasi murni testable `adminResetPassword` —
+  tolak `is_super_admin`, wajib member aktif sekolah target, generate
+  password 10 char charset `abcdefghijkmnpqrstuvwxyz23456789` TANPA
+  `0/o/1/l`, `DeleteSessionsByUser` query baru dipanggil SELALU setelah
+  reset, audit `admin.reset_password`), `ListAuditLog` (implementasi murni
+  `listAuditLogPage` — page/per_page default 1/50 maks 200, filter
+  `action` prefix-match via `LIKE '<prefix>%'`)
+- ✅ `platform/storage.Store.DirSize(relPath)` (helper baru, `filepath.WalkDir`
+  rekursif, 0+nil bila direktori belum ada)
+- ✅ Migrasi: TIDAK ADA migrasi baru — Gelombang 1 murni membaca/menulis tabel
+  yang sudah ada (schools/subscriptions/invoices/students/interest_leads/
+  notification_outbox/sessions/attendance_sessions/teaching_journals/
+  memberships/users/audit_log)
+- ✅ Test (fake repo, tanpa DB): `internal/platformadmin/service_test.go`
+  (bucket status subscription — active/grace/readonly eksplisit/fallback
+  tanpa-subscription/canceled/suspended, `grace_until` = +14 hari; transisi
+  outbox dead→pending & failed→pending; pending/sent DITOLAK 422; retry-all
+  audit dipanggil tepat sekali), `internal/identity/admin_test.go`
+  (`adminResetPassword`: sukses+audit+DeleteSessionsByUser dipanggil sekali,
+  tolak super admin TANPA hapus sesi/audit, tolak bukan-member, user tidak
+  ditemukan; `generateTempPassword`: panjang 10 & charset tanpa 0/o/1/l lewat
+  50 sampel; `listAuditLogPage`: pagination lintas halaman, filter prefix
+  action, default & clamp page/per_page)
 
 ## Fase 14 — Paritas SION per-sekolah ⬜ (acuan user: docs/12-sion-parity.md; MULAI SETELAH Fase 13 P2-P6 selesai)
 - ⬜ Gelombang A: Kedisiplinan (master pelanggaran+poin, catat pelanggaran, ambang SP1/2/3 per TA, surat peringatan snapshot+nomor unik+PDF, rekap/export, view siswa/ortu)

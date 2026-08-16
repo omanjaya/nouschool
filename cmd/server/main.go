@@ -23,6 +23,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/platform/httpx"
 	"github.com/omanjaya/nouschool/internal/platform/middleware"
 	"github.com/omanjaya/nouschool/internal/platform/storage"
+	"github.com/omanjaya/nouschool/internal/platformadmin"
 	"github.com/omanjaya/nouschool/internal/realtime"
 	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
@@ -251,6 +252,21 @@ func main() {
 		identitySvc.SetBillingGateway(billingSvc)
 		notificationSvc.SetFeatureGate(billingSvc)
 
+		// --- modul platformadmin (fase 13, docs/11-superadmin.md P1/P3/P4.4:
+		// dashboard platform, statistik sekolah, outbox global) — modul BARU,
+		// agregator lintas modul dengan SQL read-only sendiri (lihat catatan
+		// desain di internal/platformadmin/model.go). identitySvc memenuhi
+		// platformadmin.AuditLogger secara STRUKTURAL (dipakai HANYA untuk
+		// audit retry-all) — platformadmin TIDAK mengimpor identity/billing/
+		// tenant/student/attendance/teaching/notification untuk tipe apa pun,
+		// query lintas tabelnya langsung ke skema bersama (queries.sql).
+		// P4.1/P4.2/P4.3 (anggota/reset password/audit viewer) SENGAJA
+		// ditempatkan di modul identity sendiri, bukan di sini — lihat
+		// internal/identity/admin.go.
+		platformAdminRepo := platformadmin.NewRepository(pool)
+		platformAdminSvc := platformadmin.NewService(platformAdminRepo, identitySvc, storage.FromEnv(), clock.System{})
+		platformAdminHandler := platformadmin.NewHandler(platformAdminSvc)
+
 		// TickOnce sekali saat startup (docs/09-billing.md "job harian ...
 		// idempoten") — supaya transisi grace/readonly yang seharusnya sudah
 		// terjadi sebelum server restart langsung tercermin, tanpa menunggu
@@ -273,6 +289,7 @@ func main() {
 			billingSvc.RequireFeature(billing.FeatureTVDashboard))
 		notification.RegisterRoutes(mux, notificationHandler, identitySvc.RequireAuth)
 		billing.RegisterRoutes(mux, billingHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin, identitySvc.RequirePerm)
+		platformadmin.RegisterRoutes(mux, platformAdminHandler, identitySvc.RequireAuth, identitySvc.RequireSuperAdmin)
 		realtime.RegisterRoutes(mux, realtimeHandler, identitySvc.RequireAuth)
 
 		// Worker outbox — poll tiap 10 detik, batch 50 (docs/08-notification.md).

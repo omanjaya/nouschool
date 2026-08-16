@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Building2, Mail, Plus, ShieldAlert, Tags } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Building2, ChevronLeft, Mail, Plus, ShieldAlert, Tags } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -34,8 +34,15 @@ export function SchoolsListPage() {
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1120px]">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
+          <Link
+            to="/admin"
+            className="mb-3 inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+          >
+            <ChevronLeft size={16} strokeWidth={2} aria-hidden="true" />
+            Beranda
+          </Link>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Platform</p>
           <h1 className="text-[21px] font-semibold text-ink">Sekolah</h1>
         </div>
@@ -77,7 +84,7 @@ export function SchoolsListPage() {
                   {school.status === 'active' ? 'Aktif' : 'Nonaktif'}
                 </Tag>
               }
-              onClick={() => navigate(`/admin/schools/${school.id}`)}
+              onClick={() => navigate(`/admin/sekolah/${school.id}`)}
             />
           ))}
         </div>

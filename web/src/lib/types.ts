@@ -927,3 +927,137 @@ export interface PlanUpdateInput {
   features: Record<string, boolean>;
   prices: PlanPrice[];
 }
+
+/* ---- Panel super admin: beranda platform, statistik & operasional (Fase 13, docs/11 P1/P3/P4) ---- */
+
+export interface AdminOverviewStats {
+  schools_active: number;
+  schools_grace: number;
+  schools_readonly: number;
+  schools_suspended: number;
+  total_students: number;
+  revenue_year: number;
+  leads_7d: number;
+}
+
+export interface AdminAttentionInvoice {
+  invoice_id: string;
+  number: string;
+  school_id: string;
+  school_name: string;
+  amount: number;
+}
+
+export interface AdminAttentionSchoolGrace {
+  school_id: string;
+  name: string;
+  ends_on: string;
+  grace_until: string;
+}
+
+/** Bentuk minimal sekolah pada beberapa daftar "perlu perhatian" (readonly, tanpa TA aktif). */
+export interface AdminAttentionSchoolRef {
+  school_id: string;
+  name: string;
+}
+
+export interface AdminAttentionOutboxDead {
+  school_id: string;
+  school_name: string;
+  dead_count: number;
+}
+
+export interface AdminOverviewAttention {
+  invoices_awaiting: AdminAttentionInvoice[];
+  schools_grace: AdminAttentionSchoolGrace[];
+  schools_readonly: AdminAttentionSchoolRef[];
+  schools_no_active_year: AdminAttentionSchoolRef[];
+  outbox_dead: AdminAttentionOutboxDead[];
+}
+
+export interface AdminLastActivity {
+  school_id: string;
+  name: string;
+  last_login: string | null;
+  last_attendance_session: string | null;
+}
+
+/** GET /api/admin/overview (super admin, docs/11 P1) — satu fetch untuk beranda platform. */
+export interface AdminOverview {
+  stats: AdminOverviewStats;
+  attention: AdminOverviewAttention;
+  last_activity: AdminLastActivity[];
+}
+
+/** GET /api/admin/schools/{id}/stats (super admin, docs/11 P3). */
+export interface AdminSchoolStats {
+  teachers: number;
+  students: number;
+  classes: number;
+  attendance_sessions_7d: number;
+  journals_7d: number;
+  notifications_30d: {
+    sent: number;
+    failed: number;
+    dead: number;
+  };
+  last_logins: { role: string; at: string }[];
+  uploads_bytes: number;
+}
+
+/** GET /api/admin/schools/{id}/members (super admin, docs/11 P4). */
+export interface AdminSchoolMember {
+  user_id: string;
+  name: string;
+  email: string | null;
+  username: string | null;
+  role: string;
+  status: string;
+  last_login: string | null;
+}
+
+/** POST /api/admin/users/{id}/reset-password (super admin) — password sementara, tampil sekali. */
+export interface ResetPasswordResult {
+  temp_password: string;
+}
+
+/** Item `GET /api/admin/schools/{id}/audit` (super admin, docs/11 P4). */
+export interface AdminAuditLogItem {
+  id: string;
+  user_name: string | null;
+  action: string;
+  entity: string;
+  entity_id: string;
+  at: string;
+}
+
+export interface AdminAuditLogResult {
+  items: AdminAuditLogItem[];
+  total: number;
+}
+
+/** Status antrean pesan keluar (docs/08-notification.md — outbox pluggable). */
+export type OutboxStatus = 'pending' | 'sent' | 'failed' | 'dead';
+
+/** Item `GET /api/admin/outbox` (super admin, docs/11 P4) — antrean notifikasi lintas sekolah. */
+export interface OutboxItem {
+  id: string;
+  school_id: string;
+  school_name: string;
+  event: string;
+  channel: NotificationChannel;
+  user_name: string | null;
+  status: OutboxStatus;
+  attempts: number;
+  next_retry_at: string | null;
+  created_at: string;
+}
+
+export interface OutboxListResult {
+  items: OutboxItem[];
+  total: number;
+}
+
+export interface OutboxRetryAllResult {
+  retried: number;
+}

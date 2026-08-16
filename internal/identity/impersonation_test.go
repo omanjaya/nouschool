@@ -41,8 +41,8 @@ func (f *fakeAudit) Log(ctx context.Context, schoolID, userID *int64, action, en
 }
 
 type fakeImpersonationUserRepo struct {
-	users    map[int64]User
-	sessions []CreateSessionInput
+	users     map[int64]User
+	sessions  []CreateSessionInput
 	createErr error
 }
 
