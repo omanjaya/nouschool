@@ -27,16 +27,6 @@ import type {
   School,
 } from '../../lib/types';
 
-/** Label peran (kamus existing, lihat `features/profile/ProfilePage.tsx`) — dipakai statistik/anggota sekolah di panel super admin. */
-export const ROLE_LABEL: Record<string, string> = {
-  admin_sekolah: 'Admin Sekolah',
-  kepala_sekolah: 'Kepala Sekolah',
-  guru: 'Guru',
-  siswa: 'Siswa',
-  orang_tua: 'Orang Tua',
-  display: 'Display',
-};
-
 export const SCHOOLS_QUERY_KEY = ['admin', 'schools'] as const;
 
 /** GET /api/admin/schools — tidak ada endpoint GET satuan, detail diambil dari daftar ini. */

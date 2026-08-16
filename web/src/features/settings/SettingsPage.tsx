@@ -20,6 +20,22 @@ import { LettersSettingsSection } from './LettersSettingsSection';
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
+/**
+ * Anchor nav sekunder khusus desktop (`lg`) — halaman ini menumpuk 6+ seksi
+ * panjang, jadi kolom kiri sticky memberi jalan pintas lompat-ke-seksi tanpa
+ * scroll panjang. Link biasa (`href="#id"` + `scroll-mt-6` di seksi) — tanpa
+ * IntersectionObserver supaya tetap sederhana & stabil (tidak ada state aktif
+ * yang bisa salah sinkron dengan posisi scroll).
+ */
+const SETTINGS_SECTIONS = [
+  { id: 'branding', label: 'Branding' },
+  { id: 'domain', label: 'Domain' },
+  { id: 'absensi', label: 'Absensi' },
+  { id: 'izin', label: 'Izin' },
+  { id: 'penilaian', label: 'Penilaian' },
+  { id: 'surat', label: 'Surat' },
+] as const;
+
 /** /pengaturan — hanya admin_sekolah, area sekolah (host tenant). */
 export function SettingsPage() {
   const { data: me, isLoading } = useMe();
@@ -42,38 +58,54 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-8 px-5 py-6">
-      <BrandingForm />
-      <div className="flex flex-col gap-4 border-t border-line pt-6">
-        <CustomDomainSection />
-      </div>
-      <div className="flex flex-col gap-4 border-t border-line pt-6">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Absensi</p>
-          <h2 className="text-[18px] font-semibold text-ink">Pengaturan Absensi</h2>
+    <div className="mx-auto max-w-[640px] px-5 py-6 lg:max-w-[960px] lg:grid lg:grid-cols-[200px_1fr] lg:items-start lg:gap-8">
+      <nav aria-label="Bagian pengaturan" className="hidden lg:sticky lg:top-6 lg:flex lg:flex-col lg:gap-1">
+        {SETTINGS_SECTIONS.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className="rounded-lg px-3 py-2 text-[13px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+          >
+            {section.label}
+          </a>
+        ))}
+      </nav>
+
+      <div className="flex flex-col gap-8">
+        <div id="branding" className="max-w-[680px] scroll-mt-6">
+          <BrandingForm />
         </div>
-        <AttendanceSettingsSection />
-      </div>
-      <div className="flex flex-col gap-4 border-t border-line pt-6">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Izin</p>
-          <h2 className="text-[18px] font-semibold text-ink">Pengaturan Izin Guru</h2>
+        <div id="domain" className="flex max-w-[680px] scroll-mt-6 flex-col gap-4 border-t border-line pt-6">
+          <CustomDomainSection />
         </div>
-        <LeaveSettingsSection />
-      </div>
-      <div className="flex flex-col gap-4 border-t border-line pt-6">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Penilaian</p>
-          <h2 className="text-[18px] font-semibold text-ink">Pengaturan Penilaian</h2>
+        <div id="absensi" className="flex max-w-[680px] scroll-mt-6 flex-col gap-4 border-t border-line pt-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Absensi</p>
+            <h2 className="text-[18px] font-semibold text-ink">Pengaturan Absensi</h2>
+          </div>
+          <AttendanceSettingsSection />
         </div>
-        <GradingSettingsSection />
-      </div>
-      <div className="flex flex-col gap-4 border-t border-line pt-6">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Surat</p>
-          <h2 className="text-[18px] font-semibold text-ink">Catatan Kaki Surat</h2>
+        <div id="izin" className="flex max-w-[680px] scroll-mt-6 flex-col gap-4 border-t border-line pt-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Izin</p>
+            <h2 className="text-[18px] font-semibold text-ink">Pengaturan Izin Guru</h2>
+          </div>
+          <LeaveSettingsSection />
         </div>
-        <LettersSettingsSection />
+        <div id="penilaian" className="flex max-w-[680px] scroll-mt-6 flex-col gap-4 border-t border-line pt-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Penilaian</p>
+            <h2 className="text-[18px] font-semibold text-ink">Pengaturan Penilaian</h2>
+          </div>
+          <GradingSettingsSection />
+        </div>
+        <div id="surat" className="flex max-w-[680px] scroll-mt-6 flex-col gap-4 border-t border-line pt-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Surat</p>
+            <h2 className="text-[18px] font-semibold text-ink">Catatan Kaki Surat</h2>
+          </div>
+          <LettersSettingsSection />
+        </div>
       </div>
     </div>
   );

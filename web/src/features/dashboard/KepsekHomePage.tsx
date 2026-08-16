@@ -105,7 +105,7 @@ export function KepsekHomePage({ me }: { me: Me }) {
 
       <Card variant="plain">
         <p className="mb-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-muted">Jalan Pintas</p>
-        <div>
+        <div className="grid gap-x-6 lg:grid-cols-2">
           {QUICK_LINKS.map((link) => (
             <ListRow
               key={link.to}

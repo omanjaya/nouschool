@@ -7,6 +7,8 @@ interface AppShellProps {
   children: ReactNode;
   navItems: NavItemDef[];
   userName?: string;
+  /** Label peran di bawah nama (blok user sidebar desktop), mis. "Admin Sekolah" — lihat `lib/roles.ts`. */
+  roleLabel?: string;
   onLogout?: () => void;
   /** Angka badge per path nav (mis. unread notifikasi) — 0/undefined = tidak tampil. */
   badgeCounts?: Record<string, number>;
@@ -36,6 +38,7 @@ export function AppShell({
   children,
   navItems,
   userName,
+  roleLabel,
   onLogout,
   badgeCounts,
   appName = 'NouSchool',
@@ -45,8 +48,15 @@ export function AppShell({
     <div className="min-h-dvh bg-bg text-ink lg:flex">
       <aside className="hidden lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-line lg:py-6 print:hidden">
         <div className="flex items-center gap-2 px-5 pb-6">
-          {logoUrl && (
-            <img src={logoUrl} alt="" className="h-6 w-6 shrink-0 rounded object-contain" />
+          {logoUrl ? (
+            <img src={logoUrl} alt="" className="h-8 w-8 shrink-0 rounded-lg object-contain" />
+          ) : (
+            <span
+              aria-hidden="true"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-[14px] font-semibold text-primary"
+            >
+              {appName.charAt(0).toUpperCase()}
+            </span>
           )}
           <span className="truncate text-[18px] font-semibold text-ink">{appName}</span>
         </div>
@@ -71,7 +81,10 @@ export function AppShell({
 
         {userName && (
           <div className="mt-auto flex items-center justify-between gap-2 border-t border-line px-5 pt-4">
-            <span className="truncate text-[14px] font-medium text-ink">{userName}</span>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-[14px] font-medium text-ink">{userName}</span>
+              {roleLabel && <span className="truncate text-[11px] text-muted">{roleLabel}</span>}
+            </span>
             {onLogout && (
               <button
                 type="button"

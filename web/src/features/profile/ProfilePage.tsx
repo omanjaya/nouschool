@@ -7,13 +7,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { useToast } from '../../components/ui/Toast';
 import { useLogout, useMe } from '../auth/api';
 import { disablePush, enablePush, getPushState, isIOS, isStandalone, type PushState } from '../../lib/push';
-
-const ROLE_LABEL: Record<string, string> = {
-  admin_sekolah: 'Admin Sekolah',
-  guru: 'Guru',
-  siswa: 'Siswa',
-  orang_tua: 'Orang Tua',
-};
+import { ROLE_LABEL } from '../../lib/roles';
 
 /** Halaman Profil — juga tempat keluar di mobile (sidebar desktop sudah punya tombol keluar sendiri). */
 export function ProfilePage() {

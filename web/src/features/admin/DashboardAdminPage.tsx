@@ -55,7 +55,7 @@ export function DashboardAdminPage() {
         <>
           <Card className="flex flex-col gap-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Ringkasan</p>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:[grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
               <StatTile label="Sekolah Aktif" value={data.stats.schools_active} variant="success" />
               <StatTile label="Grace" value={data.stats.schools_grace} variant="warning" />
               <StatTile label="Readonly" value={data.stats.schools_readonly} variant="danger" />

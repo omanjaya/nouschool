@@ -20,7 +20,7 @@ interface TabsProps {
 /** Tab hairline (bukan SegmentedControl) — dipakai untuk sub-navigasi di dalam satu area, mis. /data. */
 export function Tabs({ items }: TabsProps) {
   return (
-    <nav aria-label="Tab" className="overflow-x-auto border-b border-line">
+    <nav aria-label="Tab" className="scrollbar-none overflow-x-auto border-b border-line">
       <div className="flex w-max min-w-full">
         {items.map((item) => (
           <NavLink

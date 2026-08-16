@@ -95,7 +95,7 @@ export function OutboxPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PER_PAGE)) : 1;
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[900px]">
+    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Platform</p>

@@ -155,6 +155,7 @@ import {
 } from './features/substitution/SubstitutionListPage';
 import { SUBSTITUTION_KEY } from './features/substitution/api';
 import { useStopImpersonation } from './features/impersonateuser/api';
+import { ROLE_LABEL } from './lib/roles';
 import type { Me } from './lib/types';
 
 /**
@@ -410,7 +411,7 @@ function BerandaPage({ me }: { me: Me }) {
   const canRequestSubstitution = me.role === 'guru';
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
+    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[960px]">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Beranda</p>
         <h1 className="text-[21px] font-semibold text-ink">
@@ -420,6 +421,7 @@ function BerandaPage({ me }: { me: Me }) {
 
       <PushPromptBanner />
 
+      <div className="grid gap-4 lg:grid-cols-2">
       {isSiswa && <SelfCheckinCard me={me} />}
 
       {canScanQr && (
@@ -695,6 +697,7 @@ function BerandaPage({ me }: { me: Me }) {
             <p className="text-[14px] text-ink">Belum ada modul lain untuk ditampilkan di sini.</p>
           </Card>
         )}
+      </div>
     </div>
   );
 }
@@ -939,6 +942,9 @@ function AuthenticatedShell() {
   }
 
   const isPlatformAdmin = me.is_super_admin && !me.school;
+  // Blok user sidebar desktop (AppShell) — "Admin Platform" untuk super admin
+  // di host platform, selain itu label peran dari kamus bersama `lib/roles.ts`.
+  const roleLabel = isPlatformAdmin ? 'Admin Platform' : (ROLE_LABEL[me.role] ?? me.role);
   const badgeCounts = hasNotificationsNav ? { '/notifikasi': unreadCount ?? 0 } : undefined;
   // Host platform (admin.nouschool.id) tidak punya branding sekolah — AppShell
   // jatuh ke default "NouSchool" (docs/01 §branding).
@@ -961,7 +967,7 @@ function AuthenticatedShell() {
   // via allowlist ErrTenantOnlyEndpoint), jadi jangan pernah dirender.
   if (isPlatformAdmin) {
     return (
-      <AppShell navItems={navItems} userName={me.name} onLogout={handleLogout}>
+      <AppShell navItems={navItems} userName={me.name} roleLabel={roleLabel} onLogout={handleLogout}>
         <Routes>
           <Route path="/admin" element={<DashboardAdminPage />} />
           <Route path="/admin/sekolah" element={<SchoolsListPage />} />
@@ -983,6 +989,7 @@ function AuthenticatedShell() {
     <AppShell
       navItems={navItems}
       userName={me.name}
+      roleLabel={roleLabel}
       onLogout={handleLogout}
       badgeCounts={badgeCounts}
       appName={brandName}

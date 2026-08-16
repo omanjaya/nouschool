@@ -28,8 +28,8 @@ import { Button } from '../../components/ui/Button';
 import { Checkbox, Field, Input, Select } from '../../components/ui/Field';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { useToast } from '../../components/ui/Toast';
+import { ROLE_LABEL } from '../../lib/roles';
 import {
-  ROLE_LABEL,
   useAcademicYears,
   useActivateAcademicYear,
   useCreateAcademicYear,

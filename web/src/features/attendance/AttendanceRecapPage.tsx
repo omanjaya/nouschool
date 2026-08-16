@@ -55,7 +55,7 @@ export function AttendanceRecapPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
+    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Absensi</p>
         <h1 className="text-[21px] font-semibold text-ink">Rekap Harian</h1>

@@ -49,7 +49,7 @@ export function RevenuePage() {
   const planName = (code: string) => plans?.find((p) => p.code === code)?.name ?? code;
 
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[900px]">
+    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6 lg:max-w-[1000px]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link

@@ -35,6 +35,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Sembunyikan scrollbar pada container yang tetap bisa discroll (mis. baris
+   Tabs) — di Windows/Chrome scrollbar horizontal tipis muncul sebagai
+   artefak visual yang tidak sesuai design system "Rapor" (docs/10). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 html {
   font-family: var(--font-sans);
 }
