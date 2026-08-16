@@ -8,7 +8,7 @@ Auth & session, dashboard per role, master data (TA/kelas/mapel/jam/ruangan), da
 
 ## GAP — ada di SION, belum di NouSchool (urutan usulan build)
 
-### Gelombang A — Kedisiplinan / Pelanggaran (modul baru `discipline`)
+### Gelombang A — Kedisiplinan / Pelanggaran (modul baru `discipline`) ✅ backend selesai (Fase 14)
 - Master jenis pelanggaran + poin (per sekolah)
 - Catat pelanggaran siswa (opsional tertaut sesi presensi; unik per sesi+siswa+jenis), catatan
 - Ambang SP1/SP2/SP3 per tahun ajaran (validasi sp1<sp2<sp3)

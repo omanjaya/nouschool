@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -149,6 +150,31 @@ func (s *Service) SchoolStatusAndSlug(ctx context.Context, id int64) (status, sl
 		return "", "", false, err
 	}
 	return sch.Status, sch.Slug, true, nil
+}
+
+// BrandingAppName mengembalikan nama aplikasi branding sekolah (tipe
+// primitif, default "NouSchool" bila sekolah belum pernah menyimpan
+// settings-nya sendiri — lihat DefaultBrandingSettings) — dipakai modul
+// discipline (Fase 14 Gelombang A, docs/12-sion-parity.md: kop surat
+// peringatan PDF/HTML) lewat consumer-side interface BrandingGateway, TANPA
+// discipline mengimpor package tenant untuk tipe apa pun (lihat CLAUDE.md).
+// Pola baca yang SAMA dengan SettingsService.Get (default lalu timpa bila
+// baris tersimpan ada), sengaja diduplikasi kecil di sini karena
+// SettingsService adalah struct TERPISAH dari Service (lihat main.go) dan
+// menambahkannya sebagai dependency baru Service hanya untuk satu method
+// primitif ini dianggap berlebihan.
+func (s *Service) BrandingAppName(ctx context.Context, schoolID int64) (string, error) {
+	raw, found, err := s.repo.GetSetting(ctx, schoolID, "branding")
+	if err != nil {
+		return "", err
+	}
+	b := DefaultBrandingSettings()
+	if found {
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return "", err
+		}
+	}
+	return b.AppName, nil
 }
 
 // CreateAcademicYear menambah tahun ajaran baru (tidak otomatis aktif —

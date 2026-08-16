@@ -95,7 +95,10 @@ audit_log (
 | `billing:view` | ✅ | ✅ | | | | |
 | `announcement:manage` | ✅ | ✅ | | | | |
 | `dashboard:school` | ✅ | ✅ | | | | |
+| `discipline:manage` | ✅ | | | | | |
+| `discipline:record` | ✅ | | ✅ | | | |
+| `discipline:read` | ✅ | ✅ | ✅ | | | |
 
-\* guru: rekap kelas/jadwalnya sendiri (object-level). \** `leave:approve` efektifnya ditentukan approval chain (07) — permission hanya gerbang kasar.
+\* guru: rekap kelas/jadwalnya sendiri (object-level). \** `leave:approve` efektifnya ditentukan approval chain (07) — permission hanya gerbang kasar. Siswa/orang tua TIDAK punya permission modul `discipline` — akses ke poin/surat miliknya sendiri lewat object-level (`student.CanViewStudent`, sama pola dengan `attendance:read_own`), lihat docs/12-sion-parity.md Gelombang A.
 
 Permission baru = tambah konstanta + baris di map + baris di tabel dokumen ini.

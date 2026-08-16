@@ -14,6 +14,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/billing"
 	"github.com/omanjaya/nouschool/internal/dashboard"
+	"github.com/omanjaya/nouschool/internal/discipline"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/leave"
 	"github.com/omanjaya/nouschool/internal/notification"
@@ -122,6 +123,21 @@ func main() {
 		leaveSvc.SetRealtime(realtimeAdapter)
 		leaveHandler := leave.NewHandler(leaveSvc)
 
+		// --- modul discipline (kedisiplinan siswa: master pelanggaran+poin,
+		// catat pelanggaran, ambang SP1/2/3 per TA, surat peringatan
+		// otomatis — Fase 14 Gelombang A, docs/12-sion-parity.md) ---
+		// identitySvc, tenantSvc, studentSvc memenuhi discipline.IdentityGateway
+		// / discipline.AcademicYearLookup+BrandingGateway / discipline.StudentAccess
+		// secara STRUKTURAL (consumer-side interface dideklarasikan di
+		// internal/discipline — lihat CLAUDE.md) — discipline TIDAK mengimpor
+		// identity/tenant/student untuk tipe apa pun. tenantSvc.BrandingAppName
+		// adalah method BARU (internal/tenant/service.go) khusus kop surat
+		// PDF/HTML. Dikonstruksi SETELAH studentSvc (butuh StudentAccess).
+		disciplineRepo := discipline.NewRepository(pool)
+		disciplineSvc := discipline.NewService(disciplineRepo, identitySvc, tenantSvc, tenantSvc, studentSvc, clock.System{})
+		disciplineSvc.SetRealtime(realtimeAdapter)
+		disciplineHandler := discipline.NewHandler(disciplineSvc)
+
 		// --- modul schedule (jadwal pelajaran: periods, rooms+QR, slots,
 		// deteksi bentrok, copy, import, query kunci SlotNow/SlotsToday/CurrentPeriod) ---
 		// identitySvc, tenantSvc, studentSvc memenuhi schedule.IdentityGateway /
@@ -225,6 +241,7 @@ func main() {
 		// struktural lewat *notification.Service.Notify.
 		attendanceSvc.SetNotifier(notificationSvc)
 		leaveSvc.SetNotifier(notificationSvc)
+		disciplineSvc.SetNotifier(notificationSvc)
 
 		// --- modul billing (langganan tahunan, tier x bracket siswa, invoice,
 		// transfer manual + gateway Midtrans, lifecycle grace/readonly, fase
@@ -290,6 +307,7 @@ func main() {
 		attendance.RegisterRoutes(mux, attendanceHandler, identitySvc.RequireAuth, identitySvc.RequirePerm,
 			billingSvc.RequireFeature(billing.FeatureQRCard), billingSvc.RequireFeature(billing.FeatureSelfCheckin))
 		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		discipline.RegisterRoutes(mux, disciplineHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)

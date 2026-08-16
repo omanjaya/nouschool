@@ -43,6 +43,9 @@ const (
 	PermBillingView          = "billing:view"
 	PermAnnouncementManage   = "announcement:manage"
 	PermDashboardSchool      = "dashboard:school"
+	PermDisciplineManage     = "discipline:manage"
+	PermDisciplineRecord     = "discipline:record"
+	PermDisciplineRead       = "discipline:read"
 )
 
 // rolePermissions adalah map role->permission statis (hardcode, bukan DB —
@@ -61,6 +64,9 @@ var rolePermissions = map[string]map[string]bool{
 		PermBillingView:        true,
 		PermAnnouncementManage: true,
 		PermDashboardSchool:    true,
+		PermDisciplineManage:   true,
+		PermDisciplineRecord:   true,
+		PermDisciplineRead:     true,
 	},
 	RoleKepalaSekolah: {
 		PermStudentRead:        true,
@@ -71,6 +77,7 @@ var rolePermissions = map[string]map[string]bool{
 		PermBillingView:        true,
 		PermAnnouncementManage: true,
 		PermDashboardSchool:    true,
+		PermDisciplineRead:     true,
 	},
 	RoleGuru: {
 		PermStudentRead:          true,
@@ -80,6 +87,8 @@ var rolePermissions = map[string]map[string]bool{
 		PermTeachingJournalWrite: true,
 		PermLeaveRequest:         true,
 		PermLeaveApprove:         true,
+		PermDisciplineRecord:     true,
+		PermDisciplineRead:       true,
 	},
 	RoleSiswa: {
 		PermScheduleRead:        true,

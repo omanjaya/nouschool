@@ -950,8 +950,122 @@ build/vet/test ./...` hijau.
   lewat `HasFeature` sebelum/sesudah; `buildRevenueReport`: agregasi per
   bulan/plan + kasus kosong; `GetRevenueReport` default tahun berjalan).
 
-## Fase 14 — Paritas SION per-sekolah ⬜ (acuan user: docs/12-sion-parity.md; MULAI SETELAH Fase 13 P2-P6 selesai)
-- ⬜ Gelombang A: Kedisiplinan (master pelanggaran+poin, catat pelanggaran, ambang SP1/2/3 per TA, surat peringatan snapshot+nomor unik+PDF, rekap/export, view siswa/ortu)
+## Fase 14 — Paritas SION per-sekolah 🚧 (acuan user: docs/12-sion-parity.md; MULAI SETELAH Fase 13 P2-P6 selesai)
+- ✅ Gelombang A: Kedisiplinan ✅ (backend) — terverifikasi end-to-end di
+  Docker dev (`localhost:8210`, `demo.localhost`): admin login → `GET
+  /api/discipline/types` (5 jenis seed: Terlambat 5, Atribut tidak lengkap
+  10, Membolos 15, Merokok 50, Berkelahi 75) → `PUT /api/discipline/sp-settings
+  {10,20,30}` → `POST /api/discipline/records` siswa NIS 22101 "Membolos" (15
+  poin → total 15 ≥ sp1=10 → surat SP1 terbit otomatis `SP1/2026/0001`) →
+  record siswa NIS 22103 (Budi, guardian `ortu.budi` — password tidak
+  terdokumentasi, direset via script sekali pakai `cmd/resetpw` dijalankan
+  lalu DIHAPUS, sama pola catatan Fase 9) "Membolos" → `SP1/2026/0002` →
+  `GET /api/notifications` sbg ortu → `discipline.recorded` DAN
+  `discipline.sp_issued` muncul → record kedua 22101 "Merokok" 50 poin (total
+  65 ≥ sp3=30 → **SP3 terbit langsung, SP2 DILEWATI** sesuai keputusan "hanya
+  level tertinggi yang terlampaui & belum ada surat", `SP3/2026/0003`) → `GET
+  letters` (3 surat: SP1×2 + SP3) → `letters/{id}/pdf` (`application/pdf`,
+  PDF valid 1 halaman) & `/html` (200, render dari snapshot) → `GET
+  /api/students/1/discipline` sbg SISWA sendiri (200, `sp_level_reached:3`)
+  & siswa lain (403) → `DELETE /api/discipline/types/3` yang sudah dipakai →
+  409 → guru login → `POST records` (guru punya `discipline:record`) → total
+  70 → **SP2 "menyusul" terbit** (`SP2/2026/0004`, level yang dilewati saat
+  lompat SEBELUMNYA otomatis menyusul di panggilan berikutnya selama masih
+  di atas ambang & belum pernah bersurat — lihat catatan desain di
+  `Service.evaluateAndIssueLetter`) → guru coba `GET sp-settings` → 403
+  (butuh `discipline:manage`) → `GET summary` (2 siswa, urut poin desc) +
+  `GET export` (200 xlsx valid) → `DELETE records/1` → `GET letters/1/html`
+  SEBELUM/SESUDAH delete → snapshot (Total Poin 15) TIDAK berubah (immutable
+  terbukti) → sp-settings dikembalikan `{25,50,75}`. `go build/vet/test
+  ./...` hijau; test service (fake repo): auto-terbit sekali per level +
+  "menyusul" level yang dilewati saat lompat (`TestAutoIssueLetter_OncePerLevel`),
+  lompat langsung ke level tertinggi dlm SATU catatan (`TestAutoIssueLetter_LevelJump_HanyaLevelTertinggi`),
+  nomor urut per sekolah+tahun lintas siswa (`TestLetterNumber_Sequential`),
+  unik per sesi presensi (`TestRecordViolation_UniquePerSession`),
+  object-level ortu anak lain 403 (`TestStudentDiscipline_ObjectLevel_GuardianOtherChild403`),
+  hapus jenis dipakai → 409 (`TestDeleteViolationType_InUse409`), snapshot
+  immutable saat record dihapus (`TestDeleteRecord_SnapshotImmutable`),
+  validasi urutan ambang, default sp-settings tanpa baris, gerbang permission
+  `discipline:record`.
+  - Migrasi `00014_discipline.sql`: `violation_types` (UNIQUE
+    school_id+name), `student_violations` (partial UNIQUE
+    `attendance_session_id,student_id,violation_type_id` WHERE
+    attendance_session_id NOT NULL — anti dobel dalam SATU sesi, boleh
+    berulang tanpa sesi), `discipline_sp_settings` (PK school_id+academic_year_id,
+    CHECK sp1<sp2<sp3), `discipline_letter_number_counters` (counter atomik
+    PER SEKOLAH per tahun — beda dari `invoice_number_counters` billing yang
+    global lintas tenant, karena nomor surat dokumen resmi sekolah masing-masing),
+    `discipline_warning_letters` (UNIQUE school_id+academic_year_id+student_id+level
+    — sekali per level per TA per siswa; kolom `snapshot jsonb` IMMUTABLE)
+  - Permission baru (`internal/identity/rbac.go` + docs/02-identity.md):
+    `discipline:manage` (admin_sekolah), `discipline:record` (admin_sekolah,
+    guru), `discipline:read` (admin_sekolah, kepala_sekolah, guru) — siswa/ortu
+    TANPA permission modul ini, akses via object-level `student.CanViewStudent`
+    (pola sama `attendance:read_own`)
+  - `internal/discipline/` (modul baru, sqlc package `disciplinedb` DITULIS
+    TANGAN — **sqlc CLI TIDAK tersedia** di host Windows dev maupun
+    kontainer `sekolah-api-1`, dikonfirmasi ulang sesi ini sama seperti
+    Fase 12/13; models.go HANYA memuat 4 tabel milik modul ini, bukan
+    seluruh skema seperti output sqlc asli, karena Go tidak butuh model
+    tabel yang tidak pernah discan langsung — dicatat di komentar
+    `disciplinedb/models.go`): `GET/POST/PATCH/DELETE /api/discipline/types`,
+    `GET/PUT /api/discipline/sp-settings` (default 25/50/75 dikembalikan
+    TANPA menulis baris bila sekolah belum pernah menyimpan), `POST
+    /api/discipline/records` (validasi siswa/jenis/sesi milik sekolah,
+    default `occurred_on` = hari ini lokal sekolah, hitung ULANG total poin
+    TA aktif dari `ListViolationsForStudentYear` — sumber tunggal dipakai
+    juga oleh `GET /api/students/{id}/discipline` supaya tidak ada 2 cara
+    menghitung total yang bisa berbeda), `DELETE /api/discipline/records/{id}`
+    (audit old value, TIDAK menyentuh surat), `GET /api/discipline/records`
+    (filter student_id/class_id/from/to/page — kelas SELALU dari enrollment
+    TA AKTIF, TIDAK di-scope TA seperti endpoint siswa tunggal — keputusan
+    sendiri, rentang tanggal bebas lintas TA), `GET /api/students/{id}/discipline`
+    (read ATAU object-level, DI-SCOPE TA aktif: total_points/records/letters
+    semuanya dari TA yang sama karena ambang SP per-TA), `GET
+    /api/discipline/letters` + `/{id}/pdf` + `/{id}/html` (bentuk URL
+    diadaptasi jadi segmen terpisah `.../pdf` & `.../html` — Go net/http
+    ServeMux 1.22+ TIDAK mengizinkan wildcard `{id}` menempel ekstensi
+    `{id}.pdf` dalam satu segmen, pola yang SAMA dengan
+    `/api/rooms/{id}/qr.png` & `/api/billing/invoices/{id}/pdf` yang sudah
+    ada), `GET /api/discipline/summary` + `/export` (xlsx, pola dua-lapis
+    sama `attendance/export.go`)
+  - **Keputusan lompat level** (dilaporkan sesuai instruksi tugas): SATU
+    catatan yang melewati >1 ambang sekaligus HANYA menerbitkan level
+    TERTINGGI yang terlampaui & belum ada surat SAAT ITU juga (bukan
+    SP1+SP2+SP3 sekaligus). NAMUN karena `evaluateAndIssueLetter`
+    mengevaluasi ULANG semua level dari nol setiap `POST records` dipanggil,
+    level yang sempat terlewati "menyusul" terbit pada catatan BERIKUTNYA
+    selama masih di atas ambangnya & belum pernah bersurat (dibuktikan e2e:
+    SP2 menyusul setelah SP1+SP3 sudah ada) — begitu semua level relevan
+    sudah bersurat, tidak ada surat baru lagi walau poin terus bertambah.
+  - Nomor surat `SP{level}/{tahun}/{seq}` — `{tahun}` = tahun kalender saat
+    terbit (`clock.Now().Year()`, pola sama `billing.nextInvoiceNumber`
+    "INV/YYYY/NNNN"), `{seq}` atomik PER SEKOLAH PER TAHUN lintas SEMUA
+    level (bukan counter terpisah per level) — dibuktikan e2e: SP1, SP1, SP3
+    dapat seq 0001/0002/0003 berurutan.
+  - Notifikasi baru (`internal/notification/model.go` + `templates.go`):
+    `discipline.recorded` (→ ortu, webpush) & `discipline.sp_issued` (→
+    ortu + wali kelas, webpush+email) — wali kelas diresolusi via join
+    langsung `enrollments→classes→teachers` di `internal/discipline/queries.sql`
+    (`GetHomeroomTeacherUserID`), BUKAN lewat consumer-side interface baru
+    ke modul student (pola sama modul lain yang join langsung ke
+    students/classes/users untuk data tampilan read-only)
+  - Realtime: event `discipline` `{student_id}` ke roles
+    admin_sekolah/kepala_sekolah/guru + `user_ids` ortu (via
+    `SetRealtime`/`PublishTo`, pola SAMA modul lain — TIDAK diverifikasi
+    lewat probe WebSocket live sesi ini, hanya compile+service test hijau,
+    di luar cakupan WAJIB e2e curl tugas ini)
+  - Interface publik baru `tenant.Service.BrandingAppName` (kop surat
+    PDF/HTML, default "NouSchool") — dipenuhi lewat consumer-side interface
+    `discipline.BrandingGateway`
+  - Bootstrap idempoten (`cmd/bootstrap/ensureDemoDiscipline`, DIJALANKAN via
+    SQL langsung sesi ini karena menjalankan ulang `cmd/bootstrap` penuh akan
+    menimpa password super admin/akun demo lain dgn nilai baru — risiko yang
+    dihindari, fungsi Go tetap ditambahkan untuk instalasi BARU/`-demo`
+    berikutnya): 5 jenis pelanggaran + sp-settings TA aktif 25/50/75,
+    diverifikasi idempoten (jalan 2× → 0 baris baru kedua kali)
+  - `sqlc.yaml` ditambah blok `disciplinedb` (supaya `make sqlc` regenerate
+    identik begitu sqlc CLI tersedia)
 - ⬜ Gelombang B: Izin siswa 3 alur + duties/capability flags + role pegawai + QR token guru + verifikasi surat publik + gate security
 - ⬜ Gelombang C: Penilaian (komponen berbobot+KKTP, normalisasi, publikasi, bintang kelas, konfigurasi rapor, toggle per sekolah)
 - ⬜ Gelombang D: Konseling BK, guru pengganti, period day overrides, kalender presensi siswa, admin impersonate user, template surat

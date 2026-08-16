@@ -18,6 +18,7 @@ import (
 
 	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/billing"
+	"github.com/omanjaya/nouschool/internal/discipline"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
@@ -250,6 +251,63 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("langganan demo siap (plan pro, status active, invoice paid)", "school_id", schoolID)
+
+	// --- fase 14 gelombang A (discipline): 5 jenis pelanggaran contoh +
+	// ambang SP1/2/3 default untuk TA aktif (docs/12-sion-parity.md) ---
+	disciplineRepo := discipline.NewRepository(pool)
+	if err := ensureDemoDiscipline(ctx, disciplineRepo, schoolID, activeYear.ID); err != nil {
+		slog.Error("gagal menyiapkan data kedisiplinan demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("data kedisiplinan demo siap (5 jenis pelanggaran, ambang SP 25/50/75)", "school_id", schoolID)
+}
+
+// ensureDemoDiscipline menyiapkan 5 jenis pelanggaran contoh (docs tugas
+// Fase 14 Gelombang A) + ambang SP1/2/3 default (25/50/75) untuk TA aktif —
+// idempoten: jenis pelanggaran dilewati bila NAMA sudah ada (UNIQUE
+// school_id+name), ambang SP dilewati bila sekolah SUDAH punya baris
+// tersimpan (tidak menimpa kustomisasi admin, pola sama
+// ensureDemoAttendanceSettings).
+func ensureDemoDiscipline(ctx context.Context, repo *discipline.Repository, schoolID, academicYearID int64) error {
+	seedTypes := []struct {
+		Name   string
+		Points int
+	}{
+		{"Terlambat", 5},
+		{"Atribut tidak lengkap", 10},
+		{"Membolos", 15},
+		{"Merokok", 50},
+		{"Berkelahi", 75},
+	}
+	existing, err := repo.ListViolationTypes(ctx, schoolID)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]bool, len(existing))
+	for _, t := range existing {
+		byName[t.Name] = true
+	}
+	for _, st := range seedTypes {
+		if byName[st.Name] {
+			continue
+		}
+		if _, err := repo.CreateViolationType(ctx, schoolID, st.Name, st.Points, ""); err != nil {
+			return fmt.Errorf("buat jenis pelanggaran %q: %w", st.Name, err)
+		}
+	}
+
+	_, found, err := repo.GetSPSettings(ctx, schoolID, academicYearID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if _, err := repo.UpsertSPSettings(ctx, schoolID, academicYearID, discipline.SPSettings{
+			SP1: discipline.DefaultSP1, SP2: discipline.DefaultSP2, SP3: discipline.DefaultSP3,
+		}); err != nil {
+			return fmt.Errorf("simpan ambang SP demo: %w", err)
+		}
+	}
+	return nil
 }
 
 // ensureDemoSubscription memberi sekolah demo langganan Pro AKTIF 1 tahun

@@ -73,5 +73,7 @@ type Provider interface {
 | `leave.decided` | guru pengaju | push, in_app, email |
 | `invitation.created` | (via kode cetak — bukan notifikasi) | — |
 | `billing.invoice_due` / `billing.grace` | admin sekolah, kepsek | email, wa, in_app |
+| `discipline.recorded` (Fase 14 Gelombang A) | ortu | push, in_app |
+| `discipline.sp_issued` (Fase 14 Gelombang A) | ortu, wali kelas | push, email, in_app |
 
 Aturan: modul lain menambah event = daftarkan konstanta event + template + baris di tabel ini. Kirim WA massal (blast promosi) BUKAN scope modul ini.

@@ -36,6 +36,8 @@ const (
 	EventAttendanceStudentAbsent = "attendance.student_absent"
 	EventLeaveSubmitted          = "leave.submitted"
 	EventLeaveDecided            = "leave.decided"
+	EventDisciplineRecorded      = "discipline.recorded"
+	EventDisciplineSPIssued      = "discipline.sp_issued"
 )
 
 // Status kanonik notification_outbox.status (docs/08-notification.md).

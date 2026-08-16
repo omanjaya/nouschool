@@ -58,6 +58,25 @@ var registry = map[string]eventTemplate{
 		[]string{ChannelWebPush, ChannelEmail},
 		"/izin",
 	),
+	// Data: student, type (nama jenis pelanggaran), points (int).
+	// Fase 14 Gelombang A (docs/12-sion-parity.md) — dikirim ke orang tua
+	// SETIAP catatan pelanggaran (routine, webpush saja — beda dari surat SP
+	// di bawah yang formal/jarang).
+	EventDisciplineRecorded: mustTemplate("discipline_recorded",
+		"Catatan pelanggaran {{.student}}",
+		"{{.student}} mendapat catatan pelanggaran: {{.type}} (+{{.points}} poin).",
+		[]string{ChannelWebPush},
+		"/kedisiplinan",
+	),
+	// Data: student, level (int 1-3).
+	// Dikirim ke orang tua DAN wali kelas saat surat peringatan terbit
+	// otomatis — dokumen formal, webpush + email (pola sama leave.decided).
+	EventDisciplineSPIssued: mustTemplate("discipline_sp_issued",
+		"Surat Peringatan SP{{.level}}",
+		"Surat Peringatan SP{{.level}} diterbitkan untuk {{.student}}.",
+		[]string{ChannelWebPush, ChannelEmail},
+		"/kedisiplinan",
+	),
 }
 
 // renderTemplate mengeksekusi title/body suatu event terhadap data — fungsi

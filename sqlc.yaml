@@ -99,3 +99,12 @@ sql:
         out: "internal/platformadmin/platformadmindb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/discipline/queries.sql"
+    gen:
+      go:
+        package: "disciplinedb"
+        out: "internal/discipline/disciplinedb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

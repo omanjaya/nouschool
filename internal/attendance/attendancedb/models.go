@@ -78,6 +78,33 @@ type Class struct {
 	HomeroomTeacherID pgtype.Int8 `json:"homeroom_teacher_id"`
 }
 
+type DisciplineLetterNumberCounter struct {
+	SchoolID int64  `json:"school_id"`
+	Year     string `json:"year"`
+	Seq      int32  `json:"seq"`
+}
+
+type DisciplineSpSetting struct {
+	SchoolID       int64 `json:"school_id"`
+	AcademicYearID int64 `json:"academic_year_id"`
+	Sp1            int32 `json:"sp1"`
+	Sp2            int32 `json:"sp2"`
+	Sp3            int32 `json:"sp3"`
+}
+
+type DisciplineWarningLetter struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	StudentID      int64              `json:"student_id"`
+	Level          int32              `json:"level"`
+	Number         string             `json:"number"`
+	PointsSnapshot int32              `json:"points_snapshot"`
+	Snapshot       []byte             `json:"snapshot"`
+	CreatedBy      pgtype.Int8        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Enrollment struct {
 	ID        int64              `json:"id"`
 	SchoolID  int64              `json:"school_id"`
@@ -332,6 +359,19 @@ type StudentQrToken struct {
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
 }
 
+type StudentViolation struct {
+	ID                  int64              `json:"id"`
+	SchoolID            int64              `json:"school_id"`
+	AcademicYearID      int64              `json:"academic_year_id"`
+	StudentID           int64              `json:"student_id"`
+	ViolationTypeID     int64              `json:"violation_type_id"`
+	AttendanceSessionID pgtype.Int8        `json:"attendance_session_id"`
+	NotedBy             int64              `json:"noted_by"`
+	Note                string             `json:"note"`
+	OccurredOn          pgtype.Date        `json:"occurred_on"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
 type Subject struct {
 	ID       int64  `json:"id"`
 	SchoolID int64  `json:"school_id"`
@@ -384,4 +424,13 @@ type User struct {
 	Phone        pgtype.Text        `json:"phone"`
 	IsSuperAdmin bool               `json:"is_super_admin"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type ViolationType struct {
+	ID       int64  `json:"id"`
+	SchoolID int64  `json:"school_id"`
+	Name     string `json:"name"`
+	Points   int32  `json:"points"`
+	Category string `json:"category"`
+	Active   bool   `json:"active"`
 }
