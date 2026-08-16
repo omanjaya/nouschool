@@ -4,27 +4,25 @@ SaaS multi-tenant untuk sekolah: absensi siswa, monitoring guru mengajar, izin g
 
 ## Menjalankan (dev)
 
-Cara tercepat: Docker untuk backend + Postgres, frontend jalan langsung di host.
+SEMUA komponen jalan di Docker — satu perintah, log terpusat.
 
 ```sh
-# 1. Nyalakan db + api (hot reload via Air) di Docker
+# 1. Nyalakan semuanya: db + api (hot reload Air) + web (Vite dev server)
 make docker-up
+# → app: http://demo.localhost:5173 (tenant demo) & http://localhost:5173 (platform)
 # → api: http://localhost:8210/api/health
 # → db:  localhost:5434 (postgres/nouschool/nouschool)
 
 # 2. Migrasi database (goose dijalankan dari host, connect ke db yang dipublish container)
 make docker-migrate
 
-# 3. Frontend — tetap dijalankan di host, bukan di container
-cd web && npm install && npm run dev
-# → http://localhost:5173 (proxy /api → backend, lihat VITE_API_PROXY)
+# 3. Cek log kapan pun (semua service, atau sebut satu: `docker compose logs -f web`)
+make docker-logs
 ```
 
-Perintah Docker lain: `make docker-logs` (ikuti log db+api), `make docker-down` (matikan container, data db tetap tersimpan di volume `nouschool_pgdata`).
+`make docker-down` mematikan container (data db tetap tersimpan di volume `nouschool_pgdata`).
 
-Kode Go di-mount ke container `api` dan di-rebuild otomatis oleh [Air](https://github.com/air-verse/air) tiap kali file `.go` berubah — tidak perlu restart manual.
-
-Ingin frontend juga ikut di container (mis. testing dari device lain di jaringan yang sama)? `docker compose --profile full up -d` menambahkan service `web` di `http://localhost:5173`.
+Hot reload dua-duanya otomatis: kode Go di-rebuild [Air](https://github.com/air-verse/air), frontend di-HMR Vite — keduanya memakai polling karena bind mount Windows tidak meneruskan file event. `node_modules` frontend hidup di volume container sendiri (binary native Linux ≠ Windows) — `npm install` di host hanya perlu untuk tooling editor.
 
 <details>
 <summary>Alternatif: jalankan backend langsung di host (tanpa Docker untuk api)</summary>

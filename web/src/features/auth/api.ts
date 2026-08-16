@@ -1,14 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import type { Me } from '../../lib/types';
 
 export const ME_QUERY_KEY = ['me'] as const;
 
-/** GET /api/me — sesi berjalan. 401 kalau belum login. */
+/**
+ * GET /api/me — sesi berjalan. 401 = "belum login": kondisi NORMAL, bukan
+ * error — dikembalikan sebagai data `null` supaya query settle di status
+ * 'success'. Kalau 401 dilempar sebagai error, setiap guard route yang
+ * mount/unmount (RequireLogin → Navigate → LoginPage) memicu refetch-on-mount
+ * + cancel-revert tanpa henti → banjir request /api/me (bug loop yang pernah
+ * terjadi: ±170 req/detik). Jangan diubah kembali menjadi throw.
+ */
 export function useMe() {
   return useQuery({
     queryKey: ME_QUERY_KEY,
-    queryFn: () => api.get<Me>('/me'),
+    queryFn: async (): Promise<Me | null> => {
+      try {
+        return await api.get<Me>('/me');
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return null;
+        throw err;
+      }
+    },
     staleTime: 5 * 60 * 1000,
     retry: false,
   });

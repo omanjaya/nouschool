@@ -1,7 +1,6 @@
-# NouSchool — lingkungan dev Docker.
-# Default `docker compose up` hanya menjalankan db + api.
-# Frontend (web) biasanya dijalankan langsung di host (`cd web && npm run dev`);
-# service `web` di sini hanya opsional lewat profile "full" bila ingin semuanya dalam container.
+# NouSchool — lingkungan dev Docker. SEMUA komponen jalan di container:
+# `docker compose up -d` = db + api (hot reload Air) + web (Vite dev server).
+# Log terpusat: `docker compose logs -f` (atau per service: `logs -f web`).
 #
 # Catatan port host: 7929-8171 direserve Hyper-V. Port 5432 & 5433 dipakai project
 # Docker lain di mesin ini, jadi db dipublish ke 5434.
@@ -42,14 +41,19 @@ services:
         condition: service_healthy
 
   web:
-    profiles: ["full"]
     image: node:24-alpine
     working_dir: /app
     volumes:
       - ./web:/app
+      # node_modules TERPISAH dari host: binary native (rolldown/vite) beda
+      # platform Windows vs Linux — jangan pernah berbagi folder ini.
+      - nouschool_node_modules:/app/node_modules
     command: sh -c "npm install && npm run dev -- --host"
     environment:
       VITE_API_PROXY: http://api:8080
+      # Bind mount Windows tidak meneruskan file event ke container (sama
+      # seperti Air di api) — paksa Vite memakai polling.
+      VITE_FORCE_POLLING: "1"
     ports:
       - "5173:5173"
     depends_on:
@@ -58,3 +62,4 @@ services:
 volumes:
   nouschool_pgdata:
   nouschool_gocache:
+  nouschool_node_modules:

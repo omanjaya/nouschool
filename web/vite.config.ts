@@ -44,6 +44,12 @@ export default defineConfig({
   ],
   server: {
     host: true,
+    // Dev server kini jalan di container (docker-compose service `web`):
+    // terima Host apa pun (dev only — mis. demo.localhost, custom *.localhost).
+    allowedHosts: true,
+    // Bind mount Windows→Linux tidak meneruskan file event — container set
+    // VITE_FORCE_POLLING=1 supaya HMR tetap jalan (sama seperti Air `poll`).
+    watch: process.env.VITE_FORCE_POLLING ? { usePolling: true, interval: 300 } : undefined,
     // Backend dev di 8210 (8080 direserve Hyper-V — lihat README).
     // Di dalam docker compose, set VITE_API_PROXY=http://api:8080
     proxy: {
