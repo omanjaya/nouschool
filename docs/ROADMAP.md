@@ -1464,7 +1464,151 @@ build/vet/test ./...` hijau.
       undangan NIS 22103, tertaut guardian `ortu.budi` — dipakai verifikasi
       notifikasi ortu exit-permit & late-arrival, siswa demo NIS 22101 TETAP
       tanpa ortu sejak B1)
-- ⬜ Gelombang C: Penilaian (komponen berbobot+KKTP, normalisasi, publikasi, bintang kelas, konfigurasi rapor, toggle per sekolah)
+- ✅ Gelombang C: Penilaian (modul baru `grading`, toggle per sekolah) ✅ backend selesai (Fase 14)
+  Backend terverifikasi end-to-end di Docker dev (`demo.localhost`): admin
+  login → `GET /api/grading/status` (`enabled:true`, seed sudah aktif) →
+  rendi login → `GET /api/grading/components?class_id=1&subject_id=1` → 3
+  komponen seed (TP1 w30/Sumatif w50/Praktik w20, kktp 75 semua),
+  `total_weight:100` → `POST` komponen baru "Tugas" weight 20 kktp 70 → 201,
+  `total_weight` jadi 120 (normalisasi, BUKAN /100 — boleh) → `PUT
+  .../components/4/grades` nilai siswa 1 (90) & siswa 2 (85) → `GET
+  /api/grading/recap?class_id=1&subject_id=1` → final DIVERIFIKASI MANUAL:
+  siswa 1 (semua 4 komponen terisi) = (80×30+85×50+78×20+90×20)/120 =
+  **83.4167** → label "B" (bulat half-up 83); siswa 3/Budi (3 komponen
+  terisi, Tugas kosong) = (60×30+65×50+55×20)/100 = **61.5** → label "C",
+  `below_kktp:[1,2,3]` (semua di bawah kktp 75); siswa 2/Siti (TP1+Tugas+
+  Sumatif, Praktik kosong) = (70×30+75×50+85×20)/100 = **75.5** → label "B",
+  `below_kktp:[1]` (hanya TP1 70<75) — SEMUA angka cocok dengan hasil API →
+  sari coba `PATCH /api/grading/components/1` (Basis Data XII RPL 1,
+  bukan miliknya) → 403 (object-level `schedule.TeachesClassSubject`
+  terbukti benar) → `PUT /api/grading/publication` publish → siswa
+  (`siswa`/`siswa12345`, student_id 1) `GET /api/my-grades` → muncul 1 mapel
+  (Basis Data) final 83.4167 label B + 4 komponen lengkap → ortu.budi (password
+  direset sekali pakai via `POST /api/admin/users/{id}/reset-password`,
+  endpoint RESMI host platform — beda dari catatan Fase 9/14A/B1 yang butuh
+  script sekali pakai) `GET /api/my-grades?student_id=3` (anaknya Budi) →
+  200, final 61.5 label C vs `?student_id=1` (BUKAN anaknya) → 403 → stars:
+  rendi `POST /api/grading/stars` siswa 1 delta+1 visibility=private → siswa
+  `GET /api/my-stars` → `total:2` (HANYA 2 bintang seed visibility=student
+  yang tampil, bintang private BARU TIDAK ikut — keputusan "total & items
+  sama-sama hanya visible" terbukti benar) → admin `GET
+  /api/grading/stars?student_id=1` (raw, admin/guru lihat SEMUA termasuk
+  private, 3 baris) & `?class_id=1` (total per siswa) → rendi `DELETE
+  .../stars/3` (miliknya sendiri) → 200 → `GET /api/grading/export` → 200
+  xlsx (6590 bytes, `Microsoft Excel 2007+` valid) → admin `PUT
+  /api/settings/grading {enabled:false}` → `GET /api/grading/components` →
+  404 `grading_disabled` (SEMUA endpoint lain digerbang, `GET
+  /api/grading/status` TETAP 200 `enabled:false`) → `PUT` kembali
+  `{enabled:true}` → components bisa diakses lagi. `go build/vet/test ./...`
+  hijau; test service (fake repo/gateway): normalisasi bobot ≠100, siswa
+  sebagian komponen terisi, siswa tanpa nilai sama sekali (final null), label
+  ranges (batas persis 74/75/84/85 + pembulatan half-up termasuk kasus .5),
+  validasi ranges settings (celah/tumpang-tindih/tidak mulai 0/tidak
+  berakhir 100 ditolak), guard disabled → 404 grading_disabled, object-level
+  guru (kelas-mapel bukan miliknya 403, dengan slot diizinkan, admin bebas
+  bypass), publish → notif target TEPAT (siswa ber-akun + SEMUA ortu, siswa
+  tanpa akun di-skip; unpublish TIDAK mengirim notif), stars visibility
+  (siswa TIDAK lihat private, total HANYA dari visible), delta=0 ditolak,
+  guru butuh `TeachesClass` (kelas, mapel apa pun) utk bintang.
+  - ✅ Migrasi `00017_grading.sql`: `assessment_components` (class_id/
+    subject_id FK, type CHECK tp/sumatif/praktik/lainnya, weight>0, kktp
+    0..100), `student_grades` (score numeric(5,2) NOT NULL — baris HANYA ada
+    bila nilai terisi, UNIQUE component_id+student_id, FK component_id ON
+    DELETE CASCADE), `grade_publications` (PK school+TA+class+subject),
+    `classroom_star_events` (delta CHECK !=0, visibility CHECK
+    private/student)
+  - ✅ **Keputusan desain**: kolom `student_grades.score` (numeric) SELALU
+    di-cast `::float8` di setiap query `internal/grading/queries.sql` supaya
+    sqlc menghasilkan Go `float64` murni — TIDAK ADA kode di repo ini yang
+    menangani `pgtype.Numeric` (presisi 2 desimal cukup direpresentasikan
+    float64 pada skala nilai 0..100)
+  - ✅ Settings module `grading` (`{enabled bool, ranges:[{min,max,label}]}`,
+    default `{enabled:false, ranges:[{0,74,C},{75,84,B},{85,100,A}]}`,
+    validasi ranges menutup 0..100 persis tanpa celah/tumpang-tindih & urut)
+    terdaftar `tenant.NewModuleSettings` — mutasi lewat endpoint GENERIK
+    yang sudah ada `GET/PUT /api/settings/grading` (auth semua role baca,
+    `settings:manage` tulis), TIDAK ada endpoint khusus baru untuk settings
+    itu sendiri
+  - ✅ `internal/grading/`: `GET /api/grading/status` (auth SEMUA role, TANPA
+    requirePerm & TANPA guard disabled — dipakai klien mengecek nyala/
+    tidaknya modul); SELURUH endpoint lain digerbang `requirePerm(grading:manage)`
+    (admin_sekolah + guru) DAN `Service.requireEnabled` (404
+    `{code:"grading_disabled"}` bila settings.enabled=false, dicek PALING
+    AWAL tiap method service — keputusan dilaporkan: kepala_sekolah TIDAK
+    diberi akses baca pada gelombang ini, bisa ditambah nanti); CRUD
+    komponen (`GET/POST/PATCH/DELETE /api/grading/components[/{id}]`,
+    DELETE cascade nilai via FK, publikasi TIDAK mem-freeze mutasi komponen/
+    nilai — docs/12: "nilai bisa diedit lalu publikasi tetap"); nilai
+    (`GET/PUT .../components/{id}/grades` bulk upsert transaksional per-baris,
+    `score:null` = hapus baris, validasi siswa harus anggota rombel & skor
+    0..100); rekap (`GET /api/grading/recap` — final = normalisasi HANYA
+    komponen siswa itu TERISI, label dari `settings.Ranges` dibulatkan
+    half-up, `below_kktp` HANYA dari komponen berskor); publikasi (`PUT
+    /api/grading/publication` upsert/delete row + notif `grading.published`
+    ke siswa ber-akun & SEMUA ortu kelas + realtime); `GET /api/my-grades`
+    (siswa sendiri via `student.MyStudentID`, ortu via `?student_id=` +
+    `CanViewStudent`, HANYA subjek yang published, kelas = enrollment TA
+    aktif); bintang (`POST/DELETE /api/grading/stars[/{id}]` DELETE
+    pembuat/admin, `GET ?student_id=|class_id=` raw admin/guru lihat SEMUA
+    termasuk private, `GET /api/my-stars` HANYA visibility=student utk items
+    DAN total — keputusan dilaporkan sesuai instruksi tugas); export xlsx
+    (`GET /api/grading/export`, excelize, header menyertakan bobot per
+    komponen, pola dua-lapis sama `internal/discipline/export.go`)
+  - ✅ Permission baru `grading:manage` (admin_sekolah + guru,
+    `internal/identity/rbac.go` + tabel `docs/02-identity.md`) — object-level
+    guru DIPERSEMPIT di service (bukan cuma gerbang RBAC kasar)
+  - ✅ Interface publik baru `schedule.Service`: `TeachesClassSubject` (guru
+    punya slot (class_id,subject_id) TA aktif — dipakai komponen/nilai/
+    publikasi) & `TeachesClass` (guru punya slot di kelas itu, MAPEL APA
+    PUN, lebih longgar — dipakai bintang kelas sesuai instruksi tugas
+    "guru punya slot di KELAS siswa (mapel apa pun) -> boleh") — KEDUANYA
+    primitif (`schoolID, teacherUserID, classID[, subjectID] -> bool`),
+    dipenuhi `*schedule.Service` LANGSUNG oleh `grading.ScheduleGateway`
+    TANPA adapter (beda dari exitpermit/latearrival yang butuh
+    `b2ScheduleGateway` — grading tidak butuh data kaya SlotView, cukup bool)
+  - ✅ `grading.SettingsGateway` (baca RAW json `school_settings` module
+    "grading") dipenuhi `*tenant.Repository` LANGSUNG (method `GetSetting`
+    primitif `(ctx,schoolID,module string)->([]byte,bool,error)`, sudah ada
+    sejak Fase 1) — **keputusan desain dilaporkan**: grading TIDAK bisa
+    memenuhi parameter bertipe `tenant.Settings` (interface lintas modul)
+    lewat consumer-side interface karena aturan "hanya primitif" (CLAUDE.md),
+    jadi `Service.loadSettings` mereplikasi logika default-bila-belum-ada
+    `tenant.SettingsService.Get` secara lokal di `internal/grading/service.go`
+  - ✅ Notifikasi baru `grading.published` (→ siswa kelas ber-akun + SEMUA
+    orang tua kelas, webpush, "Nilai {mapel} telah dipublikasikan") —
+    didaftarkan `internal/notification/model.go` + `templates.go`
+  - ✅ Realtime event baru `grading` `{class_id}` — **keputusan desain
+    dilaporkan**: broadcast RINGAN by-role (admin_sekolah/kepala_sekolah/
+    guru) SAJA, BUKAN menghimpun user_id siswa+ortu kelas satu per satu
+    (docs tugas eksplisit menyarankan "cukup broadcast sekolah — ringan") —
+    dipancarkan saat `PutGrades` & `PutPublication`, TIDAK saat CRUD
+    komponen (scope literal tugas "publish/nilai berubah")
+  - ✅ `sqlc.yaml` ditambah blok `gradingdb` — sqlc CLI TERSEDIA & DIPAKAI
+    (`go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate` dari host,
+    BERHASIL, sama seperti Gelombang B1/B2) — seluruh kode `*db` package
+    GENERATED
+  - ✅ Bootstrap idempoten (`cmd/bootstrap/ensureDemoGrading`): aktifkan
+    toggle grading (TIDAK menimpa bila sudah enabled — pola sama
+    `ensureDemoAttendanceSettings`), 3 komponen XII RPL 1 x Basis Data (idempoten
+    by nama), nilai 3 siswa (NIS 22101 LENGKAP 80/85/78 sesuai instruksi
+    tugas; NIS 22102 SEBAGIAN tanpa Praktik untuk mendemokan normalisasi;
+    NIS 22103/Budi lengkap tapi SEMUA di bawah kktp untuk mendemokan
+    below_kktp — `UpsertGrade` idempoten by component+student), publikasikan
+    kelas-mapel itu, 2 bintang visibility=student siswa NIS 22101 (idempoten:
+    dilewati bila siswa itu SUDAH punya bintang sama sekali — TIDAK ada
+    UNIQUE constraint di `classroom_star_events`, cek manual menegakkannya)
+  - ✅ **Keputusan dilaporkan (kepsek read)**: docs tugas eksplisit meminta
+    "JANGAN rumit: grading:manage saja + kepsek TIDAK (bisa nyusul);
+    laporkan" — diikuti persis, kepala_sekolah TIDAK diberi akses baca modul
+    grading pada gelombang ini
+  - ✅ **Keputusan dilaporkan (stars total)**: docs tugas bertanya "total
+    tetap semua?" lalu memutuskan sendiri "total & items sama-sama hanya
+    visible" — diikuti persis di `Service.MyStars` (BEDA dari `ListStars`
+    raw admin/guru yang tetap menampilkan SEMUA termasuk private)
+  - ⬜ Konfigurasi rapor lanjutan (pemetaan TP, nilai manual/sebelumnya,
+    analisis) & UI frontend (`web/`) — DI LUAR SCOPE sesi ini (batasan tugas
+    "jangan sentuh web/"), backend inti (komponen/nilai/normalisasi/
+    publikasi/bintang/toggle) SUDAH LENGKAP & terverifikasi
 - ⬜ Gelombang D: Konseling BK, guru pengganti, period day overrides, kalender presensi siswa, admin impersonate user, template surat
 
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)

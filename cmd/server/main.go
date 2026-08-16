@@ -18,6 +18,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/duty"
 	"github.com/omanjaya/nouschool/internal/employee"
 	"github.com/omanjaya/nouschool/internal/exitpermit"
+	"github.com/omanjaya/nouschool/internal/grading"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/latearrival"
 	"github.com/omanjaya/nouschool/internal/leave"
@@ -200,6 +201,26 @@ func main() {
 		scheduleSvc.SetRealtime(realtimeAdapter)
 		scheduleHandler := schedule.NewHandler(scheduleSvc)
 
+		// --- modul grading (penilaian: komponen berbobot+KKTP, nilai
+		// dinormalisasi, publikasi per kelas-mapel, bintang kelas — Fase 14
+		// Gelombang C, docs/12-sion-parity.md, toggle per sekolah lewat
+		// school_settings module "grading"). identitySvc, tenantSvc, studentSvc
+		// memenuhi grading.IdentityGateway / grading.AcademicYearLookup /
+		// grading.StudentAccess secara STRUKTURAL; scheduleSvc memenuhi
+		// grading.ScheduleGateway LANGSUNG TANPA adapter (TeachesClassSubject/
+		// TeachesClass keduanya sudah primitif, method BARU di
+		// internal/schedule/service.go); tenantRepo memenuhi
+		// grading.SettingsGateway secara STRUKTURAL lewat method GetSetting
+		// (RAW json school_settings — BUKAN lewat tenant.SettingsService,
+		// parameter bertipe interface tenant.Settings tidak akan match
+		// struktural, lihat catatan di internal/grading/service.go) — grading
+		// TIDAK mengimpor identity/tenant/student/schedule untuk tipe apa pun.
+		// Dikonstruksi SETELAH scheduleSvc (butuh ScheduleGateway).
+		gradingRepo := grading.NewRepository(pool)
+		gradingSvc := grading.NewService(gradingRepo, identitySvc, tenantSvc, tenantRepo, studentSvc, scheduleSvc, clock.System{})
+		gradingSvc.SetRealtime(realtimeAdapter)
+		gradingHandler := grading.NewHandler(gradingSvc)
+
 		// --- modul exitpermit & latearrival (izin dispensasi keluar rantai
 		// QR 4 tahap + izin terlambat — Fase 14 Gelombang B2,
 		// docs/12-sion-parity.md alur 2 & 3). identitySvc, tenantSvc,
@@ -315,6 +336,7 @@ func main() {
 		studentLeaveSvc.SetNotifier(notificationSvc)
 		exitPermitSvc.SetNotifier(notificationSvc)
 		lateArrivalSvc.SetNotifier(notificationSvc)
+		gradingSvc.SetNotifier(notificationSvc)
 
 		// --- modul billing (langganan tahunan, tier x bracket siswa, invoice,
 		// transfer manual + gateway Midtrans, lifecycle grace/readonly, fase
@@ -388,6 +410,7 @@ func main() {
 		exitpermit.RegisterRoutes(mux, exitPermitHandler, identitySvc.RequireAuth)
 		latearrival.RegisterRoutes(mux, lateArrivalHandler, identitySvc.RequireAuth)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		grading.RegisterRoutes(mux, gradingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		dashboard.RegisterRoutes(mux, dashboardHandler, identitySvc.RequireAuth, identitySvc.RequirePerm,

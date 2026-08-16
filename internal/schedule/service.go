@@ -1059,3 +1059,67 @@ func (s *Service) LastPeriodEndToday(ctx context.Context, schoolID int64, at tim
 	endLocal := time.Date(local.Year(), local.Month(), local.Day(), maxEndMin/60, maxEndMin%60, 0, 0, loc)
 	return endLocal.UTC(), true, nil
 }
+
+// TeachesClassSubject melaporkan apakah user (guru) punya SLOT jadwal untuk
+// (classID, subjectID) pada TA AKTIF — dipakai modul grading (Fase 14
+// Gelombang C, docs/12-sion-parity.md) sebagai object-level: guru hanya
+// boleh kelola komponen/nilai/publikasi kelas-mapel yang dia ajar.
+// ok=false (TANPA error) bila user bukan guru di sekolah ini ATAU sekolah
+// belum punya TA aktif — pemanggil (grading.requireClassSubjectAccess)
+// menerjemahkan menjadi 403.
+func (s *Service) TeachesClassSubject(ctx context.Context, schoolID, teacherUserID, classID, subjectID int64) (bool, error) {
+	teacherID, ok, err := s.students.MyTeacherID(ctx, schoolID, teacherUserID)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	yearID, err := s.resolveYear(ctx, schoolID, 0)
+	if err != nil {
+		if errors.Is(err, ErrNoActiveAcademicYear) {
+			return false, nil
+		}
+		return false, err
+	}
+	all, err := s.repo.ListSlotsForYear(ctx, schoolID, yearID)
+	if err != nil {
+		return false, err
+	}
+	for _, sl := range all {
+		if sl.ClassID == classID && sl.SubjectID == subjectID && sl.TeacherID == teacherID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// TeachesClass adalah versi LEBIH LONGGAR TeachesClassSubject (mapel APA
+// PUN) — dipakai modul grading utk bintang kelas (docs tugas: "guru punya
+// slot di KELAS siswa (mapel apa pun) -> boleh").
+func (s *Service) TeachesClass(ctx context.Context, schoolID, teacherUserID, classID int64) (bool, error) {
+	teacherID, ok, err := s.students.MyTeacherID(ctx, schoolID, teacherUserID)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	yearID, err := s.resolveYear(ctx, schoolID, 0)
+	if err != nil {
+		if errors.Is(err, ErrNoActiveAcademicYear) {
+			return false, nil
+		}
+		return false, err
+	}
+	all, err := s.repo.ListSlotsForYear(ctx, schoolID, yearID)
+	if err != nil {
+		return false, err
+	}
+	for _, sl := range all {
+		if sl.ClassID == classID && sl.TeacherID == teacherID {
+			return true, nil
+		}
+	}
+	return false, nil
+}

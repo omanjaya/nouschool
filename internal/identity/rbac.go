@@ -54,6 +54,7 @@ const (
 	PermDisciplineRecord     = "discipline:record"
 	PermDisciplineRead       = "discipline:read"
 	PermDutyManage           = "duty:manage"
+	PermGradingManage        = "grading:manage"
 )
 
 // rolePermissions adalah map role->permission statis (hardcode, bukan DB —
@@ -76,6 +77,7 @@ var rolePermissions = map[string]map[string]bool{
 		PermDisciplineRecord:   true,
 		PermDisciplineRead:     true,
 		PermDutyManage:         true,
+		PermGradingManage:      true,
 	},
 	RoleKepalaSekolah: {
 		PermStudentRead:        true,
@@ -98,6 +100,7 @@ var rolePermissions = map[string]map[string]bool{
 		PermLeaveApprove:         true,
 		PermDisciplineRecord:     true,
 		PermDisciplineRead:       true,
+		PermGradingManage:        true,
 	},
 	RoleSiswa: {
 		PermScheduleRead:        true,

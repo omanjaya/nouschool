@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/omanjaya/nouschool/internal/attendance"
+	"github.com/omanjaya/nouschool/internal/grading"
 	"github.com/omanjaya/nouschool/internal/leave"
 	"github.com/omanjaya/nouschool/internal/notification"
 	"github.com/omanjaya/nouschool/internal/teaching"
@@ -80,6 +81,9 @@ func NewModuleSettings(module string) (Settings, bool) {
 	case "notification":
 		n := notification.DefaultSettings()
 		return &n, true
+	case "grading":
+		g := grading.DefaultSettings()
+		return &g, true
 	default:
 		return nil, false
 	}

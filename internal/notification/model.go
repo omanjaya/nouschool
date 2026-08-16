@@ -45,6 +45,8 @@ const (
 	EventExitPermitIssued    = "exitpermit.issued"
 	EventExitPermitExited    = "exitpermit.exited"
 	EventLateArrivalRecorded = "latearrival.recorded"
+	// Fase 14 Gelombang C (docs/12-sion-parity.md).
+	EventGradingPublished = "grading.published"
 )
 
 // Status kanonik notification_outbox.status (docs/08-notification.md).

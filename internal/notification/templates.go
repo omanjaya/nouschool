@@ -132,6 +132,15 @@ var registry = map[string]eventTemplate{
 		[]string{ChannelWebPush},
 		"/keterlambatan",
 	),
+	// Fase 14 Gelombang C (docs/12-sion-parity.md). Data: subject (nama
+	// mapel). Dikirim ke SELURUH siswa kelas (yang sudah aktivasi akun) +
+	// orang tua mereka saat guru/admin mempublikasikan nilai kelas-mapel.
+	EventGradingPublished: mustTemplate("grading_published",
+		"Nilai {{.subject}} dipublikasikan",
+		"Nilai {{.subject}} telah dipublikasikan.",
+		[]string{ChannelWebPush},
+		"/nilai",
+	),
 }
 
 // renderTemplate mengeksekusi title/body suatu event terhadap data — fungsi

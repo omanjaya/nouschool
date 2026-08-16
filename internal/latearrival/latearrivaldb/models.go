@@ -30,6 +30,20 @@ type Announcement struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type AssessmentComponent struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	ClassID        int64              `json:"class_id"`
+	SubjectID      int64              `json:"subject_id"`
+	Name           string             `json:"name"`
+	Type           string             `json:"type"`
+	Weight         int32              `json:"weight"`
+	Kktp           int32              `json:"kktp"`
+	CreatedBy      pgtype.Int8        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type AttendanceRecord struct {
 	ID        int64              `json:"id"`
 	SchoolID  int64              `json:"school_id"`
@@ -76,6 +90,18 @@ type Class struct {
 	Grade             string      `json:"grade"`
 	Major             pgtype.Text `json:"major"`
 	HomeroomTeacherID pgtype.Int8 `json:"homeroom_teacher_id"`
+}
+
+type ClassroomStarEvent struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	StudentID      int64              `json:"student_id"`
+	GivenBy        int64              `json:"given_by"`
+	Delta          int32              `json:"delta"`
+	Note           string             `json:"note"`
+	Visibility     string             `json:"visibility"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
 type DisciplineLetterNumberCounter struct {
@@ -135,6 +161,15 @@ type Enrollment struct {
 	StudentID int64              `json:"student_id"`
 	ClassID   int64              `json:"class_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type GradePublication struct {
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	ClassID        int64              `json:"class_id"`
+	SubjectID      int64              `json:"subject_id"`
+	PublishedAt    pgtype.Timestamptz `json:"published_at"`
+	PublishedBy    pgtype.Int8        `json:"published_by"`
 }
 
 type Guardian struct {
@@ -397,6 +432,16 @@ type StudentExitPermit struct {
 	ExitedBy       pgtype.Int8        `json:"exited_by"`
 	ExitedAt       pgtype.Timestamptz `json:"exited_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type StudentGrade struct {
+	ID          int64              `json:"id"`
+	SchoolID    int64              `json:"school_id"`
+	ComponentID int64              `json:"component_id"`
+	StudentID   int64              `json:"student_id"`
+	Score       pgtype.Numeric     `json:"score"`
+	GradedBy    pgtype.Int8        `json:"graded_by"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type StudentLateArrival struct {

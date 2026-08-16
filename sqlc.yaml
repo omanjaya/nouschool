@@ -162,3 +162,12 @@ sql:
         out: "internal/latearrival/latearrivaldb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/grading/queries.sql"
+    gen:
+      go:
+        package: "gradingdb"
+        out: "internal/grading/gradingdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

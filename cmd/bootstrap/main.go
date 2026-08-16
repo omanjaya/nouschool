@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/discipline"
 	"github.com/omanjaya/nouschool/internal/duty"
 	"github.com/omanjaya/nouschool/internal/employee"
+	"github.com/omanjaya/nouschool/internal/grading"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
@@ -290,6 +292,16 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("tugas tambahan demo siap (Wali Kelas/Guru BK/Guru Piket/Pimpinan/Security)", "school_id", schoolID)
+
+	// --- fase 14 gelombang C (grading): aktifkan toggle + 3 komponen
+	// penilaian XII RPL 1 x Basis Data + nilai siswa 1 (80/85/78) + publikasi
+	// + 2 bintang siswa 1 (docs/12-sion-parity.md) ---
+	gradingRepo := grading.NewRepository(pool)
+	if err := ensureDemoGrading(ctx, tenantRepo, gradingRepo, studentRepo, schoolID, activeYear.ID, demoAdminID, rendiUserID, classIDs); err != nil {
+		slog.Error("gagal menyiapkan data penilaian demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("data penilaian demo siap (grading enabled, 3 komponen XII RPL 1 x Basis Data, dipublikasikan)", "school_id", schoolID)
 }
 
 // ensureDemoEmployee membuat akun pegawai demo "Pak Satpam" (username
@@ -429,6 +441,134 @@ func ensureDemoDiscipline(ctx context.Context, repo *discipline.Repository, scho
 			return fmt.Errorf("simpan ambang SP demo: %w", err)
 		}
 	}
+	return nil
+}
+
+// ensureDemoGrading menyiapkan data penilaian demo (Fase 14 Gelombang C,
+// docs/12-sion-parity.md): aktifkan toggle school_settings module "grading"
+// (idempoten — TIDAK menimpa kustomisasi admin bila sudah pernah enabled),
+// 3 komponen penilaian XII RPL 1 x Basis Data (TP1/Sumatif/Praktik, kktp 75
+// semua — idempoten by NAMA komponen), nilai 3 siswa (NIS 22101/22102/22103
+// — 22101 LENGKAP 80/85/78 sesuai instruksi tugas, 22102 SEBAGIAN
+// TP1+Sumatif saja tanpa Praktik untuk mendemokan normalisasi komponen
+// terisi, 22103 lengkap tapi SEMUA di bawah KKTP untuk mendemokan
+// below_kktp — UpsertGrade idempoten by (component_id, student_id)),
+// publikasikan kelas-mapel itu, dan 2 bintang visibility=student untuk
+// siswa 22101 (idempoten: DILEWATI bila siswa itu SUDAH punya bintang sama
+// sekali, supaya re-run tidak menumpuk baris — TIDAK ada UNIQUE constraint
+// di classroom_star_events, checking manual di sini yang menegakkannya).
+func ensureDemoGrading(ctx context.Context, tenantRepo *tenant.Repository, gradingRepo *grading.Repository, studentRepo *student.Repository, schoolID, academicYearID, actorUserID, teacherUserID int64, classIDs map[string]int64) error {
+	raw, found, err := tenantRepo.GetSetting(ctx, schoolID, "grading")
+	if err != nil {
+		return err
+	}
+	settings := grading.DefaultSettings()
+	if found {
+		if err := json.Unmarshal(raw, &settings); err != nil {
+			return err
+		}
+	}
+	if !settings.Enabled {
+		settings.Enabled = true
+		settingsSvc := tenant.NewSettingsService(tenantRepo, nil)
+		if err := settingsSvc.Put(ctx, schoolID, actorUserID, "grading", &settings); err != nil {
+			return fmt.Errorf("aktifkan grading demo: %w", err)
+		}
+	}
+
+	classID, ok := classIDs["XII RPL 1"]
+	if !ok {
+		return fmt.Errorf("kelas XII RPL 1 tidak ditemukan utk seeding grading demo")
+	}
+	subject, err := studentRepo.GetSubjectByCode(ctx, schoolID, "BDT")
+	if err != nil {
+		return fmt.Errorf("mapel BDT tidak ditemukan utk seeding grading demo: %w", err)
+	}
+
+	seedComponents := []struct {
+		Name   string
+		Type   string
+		Weight int
+		Kktp   int
+	}{
+		{"TP1", grading.ComponentTP, 30, 75},
+		{"Sumatif", grading.ComponentSumatif, 50, 75},
+		{"Praktik", grading.ComponentPraktik, 20, 75},
+	}
+	existing, err := gradingRepo.ListComponentsRaw(ctx, schoolID, classID, subject.ID)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]grading.ComponentRecord, len(existing))
+	for _, c := range existing {
+		byName[c.Name] = c
+	}
+	componentIDs := make(map[string]int64, len(seedComponents))
+	for _, sc := range seedComponents {
+		if rec, ok := byName[sc.Name]; ok {
+			componentIDs[sc.Name] = rec.ID
+			continue
+		}
+		rec, err := gradingRepo.CreateComponent(ctx, grading.CreateComponentInput{
+			SchoolID: schoolID, AcademicYearID: academicYearID, ClassID: classID, SubjectID: subject.ID,
+			Name: sc.Name, Type: sc.Type, Weight: sc.Weight, Kktp: sc.Kktp, CreatedBy: actorUserID,
+		})
+		if err != nil {
+			return fmt.Errorf("buat komponen penilaian %q demo: %w", sc.Name, err)
+		}
+		componentIDs[sc.Name] = rec.ID
+	}
+
+	seedGrades := []struct {
+		NIS                   string
+		TP1, Sumatif, Praktik float64
+		HasPraktik            bool
+	}{
+		{"22101", 80, 85, 78, true},
+		{"22102", 70, 75, 0, false},
+		{"22103", 60, 65, 55, true},
+	}
+	for _, sg := range seedGrades {
+		st, err := studentRepo.GetStudentByNIS(ctx, schoolID, sg.NIS)
+		if err != nil {
+			return fmt.Errorf("siswa NIS %s tidak ditemukan utk seeding nilai demo: %w", sg.NIS, err)
+		}
+		if err := gradingRepo.UpsertGrade(ctx, schoolID, componentIDs["TP1"], st.ID, sg.TP1, teacherUserID); err != nil {
+			return fmt.Errorf("nilai TP1 NIS %s: %w", sg.NIS, err)
+		}
+		if err := gradingRepo.UpsertGrade(ctx, schoolID, componentIDs["Sumatif"], st.ID, sg.Sumatif, teacherUserID); err != nil {
+			return fmt.Errorf("nilai Sumatif NIS %s: %w", sg.NIS, err)
+		}
+		if sg.HasPraktik {
+			if err := gradingRepo.UpsertGrade(ctx, schoolID, componentIDs["Praktik"], st.ID, sg.Praktik, teacherUserID); err != nil {
+				return fmt.Errorf("nilai Praktik NIS %s: %w", sg.NIS, err)
+			}
+		}
+	}
+
+	if err := gradingRepo.UpsertPublication(ctx, schoolID, academicYearID, classID, subject.ID, actorUserID); err != nil {
+		return fmt.Errorf("publikasikan nilai demo: %w", err)
+	}
+
+	siswa1, err := studentRepo.GetStudentByNIS(ctx, schoolID, "22101")
+	if err != nil {
+		return fmt.Errorf("siswa NIS 22101 tidak ditemukan utk seeding bintang demo: %w", err)
+	}
+	existingStars, err := gradingRepo.ListStarsForStudent(ctx, schoolID, siswa1.ID, false)
+	if err != nil {
+		return err
+	}
+	if len(existingStars) == 0 {
+		for _, note := range []string{"Aktif bertanya di kelas", "Membantu teman sekelompok"} {
+			if _, err := gradingRepo.CreateStar(ctx, grading.CreateStarInput{
+				SchoolID: schoolID, AcademicYearID: academicYearID, StudentID: siswa1.ID, GivenBy: teacherUserID,
+				Delta: 1, Note: note, Visibility: grading.VisibilityStudent,
+			}); err != nil {
+				return fmt.Errorf("buat bintang demo: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
