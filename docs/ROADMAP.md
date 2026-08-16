@@ -1901,7 +1901,7 @@ build/vet/test ./...` hijau.
     saat verifikasi) → guru `GET /api/presence` → 403 (`teaching:monitor` bukan milik guru)
 
 ## Fase 16 — Perombakan UI admin & super admin (feedback user 16 Agu 2026: "masih banyak kosong, sidebar ikut scroll, terlalu banyak whitespace, menu super admin harus lengkap") ⬜
-- ⬜ AppShell: sidebar & top bar STICKY (h-dvh, sidebar fixed/sticky, konten yang scroll) — bug nyata
+- ⬜ AppShell: sidebar & top bar STICKY — AKAR (audit): AppShell.tsx:163 wrapper `min-h-dvh lg:flex` + sidebar `lg:h-dvh` TANPA `lg:sticky lg:top-0` dan konten `lg:min-h-0` tanpa `lg:h-dvh lg:overflow-y-auto` → seluruh halaman yang scroll, sidebar ikut naik. Fix: wrapper `lg:h-dvh lg:overflow-hidden`, sidebar `lg:sticky lg:top-0 lg:h-dvh`, area konten `lg:h-dvh lg:overflow-y-auto`, top bar `sticky top-0` di dalam area konten
 - ⬜ Hapus batas lebar konten di layar admin/super admin (pakai lebar penuh dengan padding; docs/10 §5 direvisi: 640px hanya utk form/detail personal)
 - ⬜ Super admin: nav LENGKAP bergrup — Beranda; Sekolah (daftar, tambah/onboarding, minat); Langganan (plans, pendapatan, invoice menunggu); Operasional (outbox, pengumuman platform, audit); Akun (profil) — semua fitur P1-P6 punya menu, bukan hanya kartu
 - ⬜ Admin sekolah: nav sidebar desktop LENGKAP bergrup (Akademik: siswa/rombel/guru/pegawai/mapel/jadwal/jam/ruangan/tugas; Kegiatan: absensi/izin/izin siswa/kedisiplinan/nilai/konseling/pengganti/monitoring/pengumuman; Sistem: pengaturan/hak akses/tagihan) — mobile tetap 5 tab
