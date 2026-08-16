@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import {
+  CalendarClock,
   ChevronRight,
   ClipboardCheck,
   FileBarChart,
@@ -35,6 +36,12 @@ const QUICK_LINKS: QuickLink[] = [
     description: 'Catatan pelanggaran, rekap poin & Surat Peringatan siswa.',
     to: '/kedisiplinan',
     icon: ShieldAlert,
+  },
+  {
+    label: 'Izin Siswa',
+    description: 'Surat izin, dispensasi keluar & keterlambatan siswa.',
+    to: '/izin-siswa',
+    icon: CalendarClock,
   },
   { label: 'Pengumuman', description: 'Kelola pengumuman untuk TV & beranda.', to: '/pengumuman', icon: Megaphone },
   { label: 'Rekap Ketertiban', description: 'Persentase slot mengajar terlaksana.', to: '/monitoring/rekap', icon: FileBarChart },

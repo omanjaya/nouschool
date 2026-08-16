@@ -23,7 +23,10 @@ export type RealtimeEventType =
   | 'billing'
   | 'students'
   | 'discipline'
-  | 'studentleave';
+  | 'studentleave'
+  | 'teacherqr'
+  | 'exitpermit'
+  | 'latearrival';
 
 const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'attendance.session',
@@ -37,6 +40,9 @@ const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'students',
   'discipline',
   'studentleave',
+  'teacherqr',
+  'exitpermit',
+  'latearrival',
 ];
 
 /** Bentuk minimal `data` per tipe event, sesuai kontrak — dipakai hanya untuk keputusan kecil (mis. cocokkan `session_id`), bukan sumber tampilan. */
@@ -54,6 +60,12 @@ export interface RealtimeEventDataMap {
   discipline: { student_id: string | number };
   /** Fase 14 Gelombang B1 (docs/12-sion-parity.md Gelombang B) — pengajuan izin siswa berubah status. */
   studentleave: { request_id: string | number };
+  /** Fase 14 Gelombang B2 — QR token guru dipakai siswa (scan) → guru pemilik harus regenerate token segera. */
+  teacherqr: Record<string, never>;
+  /** Fase 14 Gelombang B2 — dispensasi keluar (rantai QR) berubah tahap/status. */
+  exitpermit: { permit_id: string | number };
+  /** Fase 14 Gelombang B2 — laporan keterlambatan berubah tahap/status. */
+  latearrival: Record<string, never>;
 }
 
 export interface RealtimeEvent<T extends RealtimeEventType = RealtimeEventType> {

@@ -8,7 +8,7 @@ Multi-tenant SaaS untuk sekolah (target awal SMA/SMK/MA): absensi siswa, monitor
 
 1. **Centang ROADMAP**: setiap item selesai → update `docs/ROADMAP.md` (⬜ → ✅, atau 🚧 saat mulai). Ini satu-satunya sumber kebenaran progres.
 2. **Commit git per unit kerja**: selesai satu unit logis (satu item roadmap / satu perbaikan) → langsung `git add` + `git commit` dengan pesan jelas berbahasa Indonesia (mis. `fase-1: middleware resolusi tenant`). Jangan menumpuk banyak pekerjaan tanpa commit.
-3. **Pembagian model**: sesi utama/orchestrator memakai **Fable**; setiap subagent paralel (Agent tool, workflow, Explore) jalankan dengan **model `sonnet`** — kecuali user minta lain.
+3. **Pembagian model (aturan tegas dari user)**: sesi utama memakai **Fable** dengan peran ORCHESTRATOR + AUDITOR SAJA — menyusun kontrak API, memecah pekerjaan, memverifikasi (build/test/e2e), rekonsiliasi mismatch kontrak, ROADMAP, commit/push. **SEMUA pekerjaan menulis kode dikerjakan subagent `sonnet`** (Agent tool / Explore) — termasuk perbaikan bug dan fix integrasi; Fable hanya boleh menyentuh kode langsung untuk rekonsiliasi mikro (≤ beberapa baris) yang ditemukan saat audit.
 
 ## Stack (sudah final, jangan diganti)
 

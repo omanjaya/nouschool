@@ -9,6 +9,7 @@ import {
   Settings,
   Users,
   MailWarning,
+  DoorOpen,
   type LucideIcon,
 } from 'lucide-react';
 import type { Me } from './types';
@@ -52,6 +53,19 @@ const ORANG_TUA_NAV: NavItemDef[] = [
   { to: '/profil', label: 'Profil', icon: User },
 ];
 
+/**
+ * Nav pegawai (Fase 14 Gelombang B2, docs/12-sion-parity.md Gelombang B) —
+ * staf non-guru (mis. security gerbang, `internal/employee`). Sebelumnya
+ * `getNavItems` jatuh ke `GURU_NAV` untuk peran ini (belum punya nav
+ * khusus); sekarang diberi nav sendiri karena satu-satunya tugas produknya
+ * (scan gate izin keluar) tidak relevan dengan nav guru (Absensi/Izin guru).
+ */
+const PEGAWAI_NAV: NavItemDef[] = [
+  { to: '/', label: 'Beranda', icon: House },
+  { to: '/gerbang', label: 'Gerbang', icon: DoorOpen },
+  { to: '/profil', label: 'Profil', icon: User },
+];
+
 /** Nav per peran — lihat docs/10-design-system.md #5 untuk daftar lengkap per role. */
 export function getNavItems(me: Me): NavItemDef[] {
   const isPlatformAdmin = me.is_super_admin && !me.school;
@@ -77,6 +91,7 @@ export function getNavItems(me: Me): NavItemDef[] {
 
   if (me.role === 'siswa') return SISWA_NAV;
   if (me.role === 'orang_tua') return ORANG_TUA_NAV;
+  if (me.role === 'pegawai') return PEGAWAI_NAV;
 
   return GURU_NAV;
 }

@@ -1,7 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { Megaphone, MonitorPlay, QrCode, MapPin, ReceiptText, ShieldAlert, CalendarClock, CalendarDays } from 'lucide-react';
+import {
+  Megaphone,
+  MonitorPlay,
+  QrCode,
+  MapPin,
+  ReceiptText,
+  ShieldAlert,
+  CalendarClock,
+  CalendarDays,
+  DoorOpen,
+  LogOut,
+  AlarmClock,
+} from 'lucide-react';
 import { formatTimeOfDay } from './lib/date';
 import { hasFeature } from './lib/features';
 import { useRealtimeConnection, useRealtimeEvents, useRealtimeState } from './lib/realtime';
@@ -68,10 +80,20 @@ import { DutiesListPage } from './features/duties/DutiesListPage';
 import { EmployeesListPage } from './features/employees/EmployeesListPage';
 import { MyStudentLeavePage } from './features/studentleave/MyStudentLeavePage';
 import { StudentLeaveDetailPage } from './features/studentleave/StudentLeaveDetailPage';
+import { StudentLeaveAdminLayout } from './features/studentleave/StudentLeaveAdminLayout';
 import { StudentLeaveQueuePage } from './features/studentleave/StudentLeaveQueuePage';
 import { StudentLeaveReviewDetailPage } from './features/studentleave/StudentLeaveReviewDetailPage';
 import { LeaveVerifyPage } from './features/studentleave/LeaveVerifyPage';
 import { STUDENT_LEAVE_KEY } from './features/studentleave/api';
+import { TeacherQrPage } from './features/teacherqr/TeacherQrPage';
+import { MyExitPermitPage } from './features/exitpermit/MyExitPermitPage';
+import { ExitPermitAdminPage } from './features/exitpermit/ExitPermitAdminPage';
+import { GatePage } from './features/exitpermit/GatePage';
+import { EXIT_PERMIT_GATE_HISTORY_KEY, EXIT_PERMIT_KEY } from './features/exitpermit/api';
+import { MyLateArrivalPage } from './features/latearrival/MyLateArrivalPage';
+import { LateArrivalAdminPage } from './features/latearrival/LateArrivalAdminPage';
+import { LateArrivalRecapPage } from './features/latearrival/LateArrivalRecapPage';
+import { LATE_ARRIVAL_KEY, LATE_ARRIVAL_SUMMARY_KEY } from './features/latearrival/api';
 import { Button } from './components/ui/Button';
 import { PeriodsPage } from './features/schedule/PeriodsPage';
 import { RoomsPage } from './features/schedule/RoomsPage';
@@ -85,7 +107,7 @@ import { MonitoringPage } from './features/teaching/MonitoringPage';
 import { ComplianceRecapPage } from './features/teaching/ComplianceRecapPage';
 import { TEACHING_STATUS_QUERY_KEY, TEACHING_COMPLIANCE_QUERY_KEY } from './features/teaching/api';
 import { AnnouncementsPage } from './features/announcements/AnnouncementsPage';
-import { ANNOUNCEMENTS_QUERY_KEY } from './features/announcements/api';
+import { ANNOUNCEMENTS_QUERY_KEY, useAnnouncements } from './features/announcements/api';
 import { TvPage } from './features/tv/TvPage';
 import { TV_BOARD_QUERY_KEY } from './features/tv/api';
 import { KepsekHomePage } from './features/dashboard/KepsekHomePage';
@@ -138,6 +160,33 @@ function SelfCheckinCard({ me }: { me: Me }) {
   );
 }
 
+/**
+ * Kartu "Pengumuman" read-only di Beranda pegawai (Fase 14 Gelombang B2) —
+ * pegawai tidak punya menu kelola pengumuman (itu `admin_sekolah`, lihat
+ * `canManageAnnouncements`), jadi cukup lihat pengumuman yang sedang aktif
+ * (`active=1`, pola sama kartu ringkas TV board). List KOSONG disembunyikan
+ * saja (bukan `EmptyState` — kartu ini pelengkap Beranda, bukan layar list).
+ */
+function PengumumanCard() {
+  const { data } = useAnnouncements(true);
+
+  if (!data || data.length === 0) return null;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <p className="text-[14px] font-semibold text-ink">Pengumuman</p>
+      <div className="flex flex-col gap-3">
+        {data.slice(0, 3).map((a) => (
+          <div key={a.id} className="border-b border-line pb-3 last:border-b-0 last:pb-0">
+            <p className="text-[13px] font-medium text-ink">{a.title}</p>
+            <p className="line-clamp-2 text-[12px] text-muted">{a.body}</p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function BerandaPage({ me }: { me: Me }) {
   const greeting = getGreeting(new Date().getHours());
   const navigate = useNavigate();
@@ -177,6 +226,17 @@ function BerandaPage({ me }: { me: Me }) {
   // backend), jadi kartu ini selalu tampil untuk guru (antrian bisa kosong
   // kalau guru ini tidak memegang tugas terkait) + admin_sekolah (tab "Semua").
   const canReviewStudentLeave = me.role === 'guru' || me.role === 'admin_sekolah';
+  // Kartu "QR Saya" (Fase 14 Gelombang B2) — guru menampilkan QR berumur
+  // pendek untuk disetujui siswa (dispensasi keluar/terlambat).
+  const canShowTeacherQr = me.role === 'guru';
+  // Kartu "Izin Keluar" (dispensasi, Fase 14 Gelombang B2) — sama pola "Izin
+  // Saya"/"Izin Anak": siswa (ajukan + scan) & orang tua (lihat status anak).
+  // (memakai `isSiswaOrOrtu` yang sudah dideklarasikan di atas)
+  // Kartu "Lapor Terlambat" — hanya siswa (yang bisa terlambat & scan QR sendiri).
+  const canShowLateArrival = me.role === 'siswa';
+  // Kartu "Gerbang" + pengumuman — Beranda pegawai (Fase 14 Gelombang B2,
+  // role staf non-guru belum pernah punya kartu Beranda sebelum ini).
+  const isPegawai = me.role === 'pegawai';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -205,6 +265,40 @@ function BerandaPage({ me }: { me: Me }) {
           </div>
         </Card>
       )}
+
+      {canShowTeacherQr && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">QR Saya</p>
+            <p className="text-[12px] text-muted">
+              Tunjukkan QR ke siswa untuk persetujuan izin keluar / keterlambatan.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/qr-saya')}>
+              <QrCode size={16} strokeWidth={2} aria-hidden="true" />
+              Buka QR Saya
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isPegawai && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Gerbang</p>
+            <p className="text-[12px] text-muted">Pindai QR gerbang siswa saat keluar sekolah.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => navigate('/gerbang')}>
+              <DoorOpen size={16} strokeWidth={2} aria-hidden="true" />
+              Buka Gerbang
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isPegawai && <PengumumanCard />}
 
       {canViewMonitoring && (
         <Card className="flex flex-col gap-3">
@@ -322,6 +416,40 @@ function BerandaPage({ me }: { me: Me }) {
             <Button variant="secondary" onClick={() => navigate('/izin-saya')}>
               <CalendarDays size={16} strokeWidth={2} aria-hidden="true" />
               {me.role === 'siswa' ? 'Buka Izin Saya' : 'Buka Izin Anak'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isSiswaOrOrtu && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Izin Keluar</p>
+            <p className="text-[12px] text-muted">
+              {me.role === 'siswa'
+                ? 'Ajukan dispensasi keluar & scan QR persetujuan bertahap.'
+                : 'Lihat status dispensasi keluar anak Anda.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/izin-keluar')}>
+              <LogOut size={16} strokeWidth={2} aria-hidden="true" />
+              Buka Izin Keluar
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {canShowLateArrival && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Lapor Terlambat</p>
+            <p className="text-[12px] text-muted">Scan QR guru piket saat datang terlambat.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/terlambat')}>
+              <AlarmClock size={16} strokeWidth={2} aria-hidden="true" />
+              Lapor Terlambat
             </Button>
           </div>
         </Card>
@@ -468,6 +596,25 @@ function useRealtime(queryClient: QueryClient) {
     // berubah status untuk /izin-saya (siswa/ortu) & /izin-siswa (guru/admin).
     studentleave: () => {
       queryClient.invalidateQueries({ queryKey: [STUDENT_LEAVE_KEY] });
+    },
+    // {} — token QR guru dipakai siswa: TIDAK ada cache TanStack Query untuk
+    // di-invalidate di sini — `TeacherQrPage` berlangganan event ini sendiri
+    // (regenerasi token langsung), bukan lewat refetch daftar.
+    teacherqr: () => {},
+    // {permit_id} — Fase 14 Gelombang B2 (docs/12-sion-parity.md Gelombang B
+    // alur 2): dispensasi keluar (rantai QR) berubah tahap/status — daftar
+    // milikku/admin (/izin-keluar, tab "Dispensasi Keluar" /izin-siswa) +
+    // riwayat gerbang (/gerbang).
+    exitpermit: () => {
+      queryClient.invalidateQueries({ queryKey: [EXIT_PERMIT_KEY] });
+      queryClient.invalidateQueries({ queryKey: [EXIT_PERMIT_GATE_HISTORY_KEY] });
+    },
+    // {} — Fase 14 Gelombang B2 (alur 3): laporan keterlambatan berubah
+    // tahap/status — daftar milikku/admin (/terlambat, tab "Terlambat"
+    // /izin-siswa) + rekap per siswa.
+    latearrival: () => {
+      queryClient.invalidateQueries({ queryKey: [LATE_ARRIVAL_KEY] });
+      queryClient.invalidateQueries({ queryKey: [LATE_ARRIVAL_SUMMARY_KEY] });
     },
   });
 }
@@ -666,8 +813,22 @@ function AuthenticatedShell() {
             terencana siswa: /izin-saya (siswa/ortu) & /izin-siswa (review guru/admin). */}
         <Route path="/izin-saya" element={<MyStudentLeavePage />} />
         <Route path="/izin-saya/:id" element={<StudentLeaveDetailPage />} />
-        <Route path="/izin-siswa" element={<StudentLeaveQueuePage />} />
+        {/* Fase 14 Gelombang B2 — Tabs "Surat Izin" (B1) · "Dispensasi Keluar" ·
+            "Terlambat" (keduanya baru), khusus admin/kepsek (guru tetap tab tunggal). */}
+        <Route path="/izin-siswa" element={<StudentLeaveAdminLayout />}>
+          <Route index element={<StudentLeaveQueuePage />} />
+          <Route path="dispensasi" element={<ExitPermitAdminPage />} />
+          <Route path="terlambat" element={<LateArrivalAdminPage />} />
+        </Route>
+        <Route path="/izin-siswa/terlambat/rekap" element={<LateArrivalRecapPage />} />
         <Route path="/izin-siswa/:id" element={<StudentLeaveReviewDetailPage />} />
+
+        {/* Fase 14 Gelombang B2 (docs/12-sion-parity.md Gelombang B alur 2-3) —
+            QR guru, dispensasi keluar (rantai QR), lapor terlambat, gerbang security. */}
+        <Route path="/qr-saya" element={<TeacherQrPage />} />
+        <Route path="/izin-keluar" element={<MyExitPermitPage />} />
+        <Route path="/terlambat" element={<MyLateArrivalPage />} />
+        <Route path="/gerbang" element={<GatePage />} />
 
         <Route path="/data" element={<DataLayout />}>
           <Route index element={<Navigate to="siswa" replace />} />

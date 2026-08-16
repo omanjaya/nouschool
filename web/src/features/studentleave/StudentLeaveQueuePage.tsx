@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { CalendarClock } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -31,11 +31,13 @@ const STATUS_OPTIONS: { value: '' | StudentLeaveStatus; label: string }[] = [
 ];
 
 /**
- * /izin-siswa — antrian review izin siswa untuk guru. Wali kelas & guru BK
- * adalah guru biasa (bukan role terpisah) — otorisasi lewat duty-capability
- * flags di backend; frontend cukup memanggil `scope=queue` (200, mungkin
- * kosong bila guru ini tidak memegang tugas terkait). Tab "Semua" (scope=all
- * + filter status) khusus admin_sekolah untuk pengawasan.
+ * Tab "Surat Izin" di `/izin-siswa` (`StudentLeaveAdminLayout`) — antrian
+ * review izin siswa TERENCANA untuk guru (Fase 14 Gelombang B1). Wali kelas &
+ * guru BK adalah guru biasa (bukan role terpisah) — otorisasi lewat
+ * duty-capability flags di backend; frontend cukup memanggil `scope=queue`
+ * (200, mungkin kosong bila guru ini tidak memegang tugas terkait). Tab
+ * "Semua" (scope=all + filter status) khusus admin_sekolah untuk pengawasan.
+ * TIDAK merender header/container sendiri — sudah disediakan `StudentLeaveAdminLayout`.
  */
 export function StudentLeaveQueuePage() {
   const { data: me } = useMe();
@@ -50,17 +52,8 @@ export function StudentLeaveQueuePage() {
     scope === 'all' ? status || undefined : undefined,
   );
 
-  if (me && me.role !== 'guru' && me.role !== 'admin_sekolah') {
-    return <Navigate to="/" replace />;
-  }
-
   return (
-    <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Izin</p>
-        <h1 className="text-[21px] font-semibold text-ink">Izin Siswa</h1>
-      </div>
-
+    <div className="flex flex-col gap-4">
       {isAdmin && <SegmentedControl options={TAB_OPTIONS} value={tab} onChange={setTab} />}
 
       {scope === 'all' && (

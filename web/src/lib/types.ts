@@ -1416,3 +1416,155 @@ export interface StudentLeaveVerifyResult {
   date_end?: string;
   issued_at?: string;
 }
+
+/* ---- QR Token Guru / Dispensasi Keluar / Terlambat (Fase 14 Gelombang B2, docs/12-sion-parity.md Gelombang B alur 2-3) ---- */
+
+/** POST /api/teacher-qr (guru) — TTL 60 detik, sekali pakai. Konten QR: `nouschool:tqr:{token}`. */
+export interface TeacherQrToken {
+  token: string;
+  expires_at: string;
+}
+
+export type ExitPermitStatus =
+  | 'pending_duty_teacher'
+  | 'pending_class_teacher'
+  | 'pending_bk'
+  | 'pending_leadership'
+  | 'issued'
+  | 'exited'
+  | 'rejected'
+  | 'canceled';
+
+export interface ExitPermitStudentRef {
+  id: string;
+  name: string;
+  nis: string;
+  class_name: string;
+}
+
+/** Rincian satu tahap keputusan rantai dispensasi keluar (piket/guru pengajar/BK/pimpinan) — `null` selama tahap itu belum dilalui. */
+export interface ExitPermitStepInfo {
+  by_name: string;
+  at: string;
+}
+
+/**
+ * Satu baris `GET /api/exit-permits?scope=mine|active|all&date=` → `{items,total}`.
+ * `gate_token` HANYA terisi untuk pemilik (siswa yang mengajukan) saat `status === 'issued'`
+ * (kontrak Fase 14 Gelombang B2) — di baris lain/peran lain selalu `null`/absen.
+ */
+export interface ExitPermit {
+  id: string;
+  student: ExitPermitStudentRef;
+  reason: string;
+  status: ExitPermitStatus;
+  duty: ExitPermitStepInfo | null;
+  class: ExitPermitStepInfo | null;
+  bk: ExitPermitStepInfo | null;
+  leadership: ExitPermitStepInfo | null;
+  gate_token?: string | null;
+  gate_expires_at: string | null;
+  exited_at: string | null;
+  created_at: string;
+}
+
+export interface ExitPermitListResult {
+  items: ExitPermit[];
+  total: number;
+}
+
+/** POST /api/exit-permits (siswa) — 409 kalau masih ada dispensasi aktif. */
+export interface ExitPermitCreateInput {
+  reason: string;
+}
+
+/**
+ * POST /api/exit-permits/{id}/scan (siswa) `{token}` → izin + tahap baru.
+ * ASUMSI bentuk respons: mengikuti pola `DisciplineRecordCreateResult`/late-arrival
+ * scan yang sudah dikonfirmasi kontrak (entitas + field ekstra sebagai saudara,
+ * bukan digabung rata) — `stage_advanced_to` memakai nilai `ExitPermitStatus`
+ * yang baru dicapai setelah scan ini (mis. `pending_bk` setelah tahap guru
+ * pengajar, atau `issued` setelah tahap terakhir/pimpinan).
+ */
+export interface ExitPermitScanResult {
+  permit: ExitPermit;
+  stage_advanced_to: ExitPermitStatus;
+}
+
+/** POST /api/exit-permits/gate-scan (security/pegawai) `{gate_token}` — 410 kalau kedaluwarsa. */
+export interface ExitPermitGateScanResult {
+  student: { name: string; nis: string; class_name: string };
+  reason: string;
+  issued_at: string;
+  gate_expires_at: string;
+}
+
+/**
+ * Satu baris `GET /api/exit-permits/gate-history?date=` → `{items,total}`.
+ * ASUMSI: bentuk mengikuti pola daftar lain di modul ini (`{items,total}`,
+ * `student` sebagai ref bersarang) — riwayat siswa yang SUDAH discan gate
+ * (`exited`) pada tanggal terkait.
+ */
+export interface ExitPermitGateHistoryItem {
+  id: string;
+  student: ExitPermitStudentRef;
+  reason: string;
+  exited_at: string;
+}
+
+export interface ExitPermitGateHistoryResult {
+  items: ExitPermitGateHistoryItem[];
+  total: number;
+}
+
+/** POST /api/exit-permits/{id}/reject (admin only) — hanya kalau status masih pending_*. */
+export interface ExitPermitRejectInput {
+  comment: string;
+}
+
+export type LateArrivalAction = 'none' | 'call_parent' | 'send_home';
+
+export type LateArrivalStatus = 'pending_duty_teacher' | 'pending_leadership' | 'pending_class_teacher' | 'completed';
+
+/** Rincian satu tahap keputusan rantai terlambat (piket/pimpinan/guru kelas) — `null` selama tahap itu belum dilalui. */
+export interface LateArrivalStepInfo {
+  by_name: string;
+  at: string;
+}
+
+/**
+ * `record` dalam `POST /api/late-arrivals/scan` & satu baris `GET /api/late-arrivals?scope=&month=`.
+ * ASUMSI: `student` HANYA terisi di scope `all` (staf melihat lintas siswa) —
+ * sama pola `DisciplineRecord`/`ExitPermit` (siswa sendiri tidak perlu ref ke dirinya di scope `mine`).
+ */
+export interface LateArrivalRecord {
+  id: string;
+  student?: ExitPermitStudentRef;
+  arrived_at: string;
+  late_count: number;
+  action: LateArrivalAction;
+  status: LateArrivalStatus;
+  duty: LateArrivalStepInfo | null;
+  leadership: LateArrivalStepInfo | null;
+  class_teacher: LateArrivalStepInfo | null;
+}
+
+export interface LateArrivalListResult {
+  items: LateArrivalRecord[];
+  total: number;
+}
+
+/** POST /api/late-arrivals/scan (siswa) `{token}` — kontrak eksplisit Fase 14 Gelombang B2. */
+export interface LateArrivalScanResult {
+  record: LateArrivalRecord;
+  action: LateArrivalAction;
+  late_count: number;
+}
+
+/** GET /api/late-arrivals/summary?month= — array langsung (pola sama `DisciplineSummaryRow`), rekap per siswa. */
+export interface LateArrivalSummaryRow {
+  student: ExitPermitStudentRef;
+  count: number;
+  last_action: LateArrivalAction;
+  last_at: string | null;
+}
