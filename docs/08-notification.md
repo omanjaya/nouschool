@@ -78,5 +78,8 @@ type Provider interface {
 | `studentleave.submitted` (Fase 14 Gelombang B1) | pemegang review tahap 1 (wali kelas rombel siswa; fallback pemegang flag `leave_homeroom_review`) | push, in_app |
 | `studentleave.forwarded` (Fase 14 Gelombang B1) | pemegang flag `leave_issuance` (BK) | push, in_app |
 | `studentleave.decided` (Fase 14 Gelombang B1) | siswa/ortu pengaju (+wali kelas bila surat terbit) | push, email, in_app |
+| `exitpermit.issued` (Fase 14 Gelombang B2) | siswa, ortu | push, in_app |
+| `exitpermit.exited` (Fase 14 Gelombang B2) | ortu | push, in_app |
+| `latearrival.recorded` (Fase 14 Gelombang B2) | ortu | push, in_app |
 
 Aturan: modul lain menambah event = daftarkan konstanta event + template + baris di tabel ini. Kirim WA massal (blast promosi) BUKAN scope modul ini.

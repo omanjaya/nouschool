@@ -1066,7 +1066,7 @@ build/vet/test ./...` hijau.
     diverifikasi idempoten (jalan 2× → 0 baris baru kedua kali)
   - `sqlc.yaml` ditambah blok `disciplinedb` (supaya `make sqlc` regenerate
     identik begitu sqlc CLI tersedia)
-- 🚧 Gelombang B: Izin siswa 3 alur + duties/capability flags + role pegawai + QR token guru + verifikasi surat publik + gate security
+- ✅ Gelombang B: Izin siswa 3 alur + duties/capability flags + role pegawai + QR token guru + verifikasi surat publik + gate security
   - ✅ **Gelombang B1 (fondasi duty/pegawai + alur "izin terencana") backend** —
     terverifikasi end-to-end di Docker dev (`localhost:8210`, `demo.localhost`):
     bootstrap ulang (idempoten, `-demo`, super admin password direset sekali
@@ -1250,16 +1250,220 @@ build/vet/test ./...` hijau.
       guardian `ortu.budi` sudah ada dari Fase 9, password direset sekali
       pakai via script sementara `cmd/resetpw` yang dibuat lalu DIHAPUS sesi
       ini, sama pola catatan Fase 9/14A).
-  - ⬜ Gelombang B2: QR token guru (kebalikan QR siswa — guru tampilkan QR
-    berumur pendek sekali-pakai, siswa scan utk approval), alur izin
-    dispensasi keluar (rantai QR 4 tahap: piket→guru pengajar jam
-    berjalan→BK→pimpinan, gate token kedaluwarsa otomatis, scan gate
-    security→`exited`, row-lock transaksional), alur izin terlambat (siswa
-    scan QR→piket→pimpinan→guru kelas, aksi otomatis by hitungan: telat
-    ke-2&ke-5=panggil ortu, ke-3&ke-6=pulangkan) — flags `exit_bk_approval`/
-    `exit_leadership_approval`/`exit_security`/`late_arrival_duty`/
-    `late_arrival_leadership`/`all_attendance_reports` SUDAH didefinisikan
-    Gelombang B1, tinggal dipakai
+  - ✅ Gelombang B2 (QR token guru + izin dispensasi keluar + izin terlambat)
+    backend — terverifikasi end-to-end di Docker dev (`localhost:8210`,
+    `demo.localhost`): bootstrap ulang (idempoten, super admin password
+    reset — `admin@nouschool.id`, tidak terdokumentasi sebelumnya, sama pola
+    Fase 9/13/14A/B1) → `GET /api/duties/{id}/assignments` konfirmasi
+    keputusan demo (lihat "Keputusan dilaporkan" di bawah): Wali
+    Kelas=Rendi, Guru BK=Sari, **Guru Piket=Sari, Pimpinan=Sari**,
+    Security=Pak Satpam → siswa NIS 22101 (`siswa`/`siswa12345`) TIDAK punya
+    ortu (sama seperti B1) → generate kode undangan kelas XII RPL 1 →
+    aktivasi kode siswa Budi Santoso (NIS 22103, guardian `ortu.budi` sudah
+    ada dari Fase 9) → akun siswa baru `budi`/`budi12345` → super admin
+    `POST /api/admin/users/6/reset-password` (endpoint EXISTING, host
+    platform) → password `ortu.budi` diketahui tanpa script sekali pakai
+    (beda dari catatan Fase 9/14A/B1 — kali ini ada endpoint resmi yang
+    cocok) → **QR token guru**: Sari `POST /api/teacher-qr` → `{token
+    24 char, expires_at +60dtk}`; pegawai (satpam) `POST /api/teacher-qr` →
+    403 (role guru saja) → **dispensasi keluar**: Budi `POST
+    /api/exit-permits {reason}` → `pending_duty_teacher` → scan token Sari
+    (flag `late_arrival_duty`, label piket) → `pending_class_teacher` →
+    Budi coba scan token Sari LAGI utk tahap 2 → **422 "guru pengajar tahap
+    ini harus berbeda dari guru piket"** (beda-orang teruji) → scan token
+    Rendi (guru pengajar XII RPL 1 jam berjalan, divalidasi via
+    `schedule.ClassSlotNowOrNext`) → `pending_bk` → scan token Sari (flag
+    `exit_bk_approval`) → `pending_leadership` → scan token Sari (flag
+    `exit_leadership_approval`) → `issued` + `gate_token` 24 char +
+    `gate_expires_at` (akhir period terakhir hari itu) → `GET
+    /api/notifications` Budi & ortu.budi → `exitpermit.issued` muncul
+    keduanya → satpam `POST /api/exit-permits/gate-scan {gate_token}` →
+    `exited` (`{student,reason,issued_at,gate_expires_at,exited_at}`); guru
+    (bukan pemegang flag `exit_security`) coba gate-scan → 403 → gate-scan
+    ULANG token yang sama → 409 "sudah pernah keluar gerbang" → `GET
+    /api/notifications` ortu.budi → `exitpermit.exited` muncul (jam WIB
+    disebut) → `GET .../gate-history` (satpam DAN kepsek via `student:read`,
+    dua gerbang OR teruji) → 1 baris → `GET ?scope=mine` (Budi, issued+trail
+    lengkap) & `?scope=all` (admin) → cocok → **maks 1 permit aktif**: siswa
+    NIS 22101 `POST /api/exit-permits` → 201 → POST lagi (masih pending) →
+    409 → `POST .../cancel` (pemilik) → 200 → ajukan lagi → admin `POST
+    .../reject {comment}` (perm `student:manage`) → `rejected`; siswa coba
+    reject → 403 → **izin terlambat**: Budi `POST /api/late-arrivals/scan`
+    token Sari (flag `late_arrival_duty`) → record BARU dibuat langsung
+    `pending_leadership`, `late_count:1 action:"none"` (hitungan TA aktif +1)
+    → `GET /api/notifications` ortu.budi → `latearrival.recorded` muncul
+    ("terlambat ke-1", TANPA kalimat aksi krn action none) → scan token Sari
+    LAGI (flag `late_arrival_leadership`) → `pending_class_teacher` → scan
+    token Rendi (guru ber-slot XII RPL 1 hari itu, TANPA syarat jam
+    berjalan/berikutnya — beda dari exit-permit) → `completed` → scan LAGI
+    hari yang sama → **409 "sudah tercatat & selesai untuk hari ini"** (maks
+    1 record/hari teruji) → token sudah dipakai (Rendi, reuse) → 410 "QR
+    tidak berlaku" → Rendi (bukan pemegang flag `late_arrival_duty`) coba
+    jadi piket → 422 → `GET ?scope=mine` (Budi) & `?scope=today` (admin) &
+    `?scope=all` (kepsek) & `GET .../summary` (admin & kepsek, 1 siswa count
+    1) → siswa coba summary → 403. **Jalur "jam berjalan" exit-permit tahap
+    2** DIVERIFIKASI LIVE dengan trik waktu (lihat catatan periode uji di
+    bawah — direvert setelah verifikasi, TIDAK permanen). `go build/vet/test
+    ./...` hijau; test service (fake repo/gateway) — `internal/teacherqr`:
+    generate hanya role guru, consume valid, consume KEDUA pada token sama
+    gagal (simulasi race single-use), consume token kedaluwarsa (410),
+    terima token dengan/tanpa awalan `nouschool:tqr:`, token tak dikenal;
+    `internal/exitpermit`: rantai penuh 4 tahap, tahap 1&2 orang sama
+    ditolak, salah tahap (guru tanpa flag duty), maks 1 permit aktif, cancel
+    hanya pemilik+pending, reject admin (siswa ditolak), gate-scan expiry
+    (`clock.Fixed` sebelum/sesudah) & scan ganda (409) & gerbang wajib flag
+    `exit_security`; `internal/latearrival`: `lateArrivalAction` MURNI
+    (count 1..7, fungsi terisolasi dari I/O), rantai penuh 3 tahap, salah
+    flag piket/pimpinan, salah guru kelas, hitungan lintas hari (`late_count`
+    TA-scoped, bukan per-hari) → action `call_parent` pada telat ke-2.
+    - Migrasi `00016_exit_late.sql`: `teacher_qr_tokens` (UNIQUE token,
+      TTL via `expires_at`, `consumed_at` nullable — sekali pakai),
+      `student_exit_permits` (CHECK status 8 nilai state machine, kolom
+      `{tahap}_by`/`{tahap}_at` per tahap + `rejected_*`/`gate_token` UNIQUE
+      + `gate_expires_at`/`exited_*`), `student_late_arrivals` (CHECK action
+      3 nilai, CHECK status 4 nilai — `pending_duty_teacher` TIDAK PERNAH
+      benar-benar tersimpan, hanya nilai konseptual "belum ada record",
+      lihat catatan `internal/latearrival/model.go`)
+    - `internal/teacherqr/` (modul baru, KECIL SENGAJA — tanpa
+      IdentityGateway/audit, token ephemeral bukan "mutasi penting" CLAUDE.md):
+      `POST /api/teacher-qr` (role guru dicek `reqctx.Role` langsung, BUKAN
+      permission RBAC — pegawai TIDAK bisa) → token 24 char TTL 60 detik,
+      cleanup lazy (token kedaluwarsa MILIK USER ITU dihapus saat generate
+      baru); **interface publik** `Service.ConsumeToken(ctx, schoolID,
+      rawToken) (teacherUserID int64, err error)` (dipakai
+      exitpermit/latearrival lewat consumer-side interface, signature SUDAH
+      primitif — TIDAK butuh adapter) — atomik via `UPDATE ... WHERE
+      consumed_at IS NULL AND expires_at > now RETURNING user_id` (row lock
+      implisit Postgres, dua consume bersamaan HANYA SATU berhasil); sukses
+      publish realtime `teacherqr` `{}` ke user_id pemilik (frontend guru
+      auto-regenerate QR); gagal → `410 qr_expired` "QR tidak berlaku. Minta
+      guru menampilkan QR baru." (pesan PERSIS sesuai instruksi tugas)
+    - `internal/exitpermit/` (modul baru): state machine
+      `pending_duty_teacher → pending_class_teacher → pending_bk →
+      pending_leadership → issued → exited` | reject (admin) di tahap mana
+      pun sebelum exited → `rejected` | cancel (pemilik) selama pending_* →
+      `canceled`. Tahap 1 = flag `late_arrival_duty` (DIBAGI dgn
+      latearrival — "piket" satu konsep dipakai 2 alur, sesuai docs tugas
+      literal). Tahap 2 = **BUKAN flag**, murni jadwal: `ScheduleGateway.
+      TeacherMatchesClassNow` (guru dgn slot kelas siswa SEDANG berjalan,
+      atau BILA TIDAK ADA, slot PALING AWAL berikutnya hari itu) DAN
+      `teacherUserID != duty_by` (beda orang, eksplisit, dicek SEBELUM
+      panggil schedule gateway supaya pesan error jelas). Tahap 3 = flag
+      `exit_bk_approval`. Tahap 4 = flag `exit_leadership_approval` →
+      set `gate_token` (24 char) + `gate_expires_at` (
+      `ScheduleGateway.GateExpiryToday` = akhir period TERAKHIR hari itu,
+      fallback `at+6 jam` bila sekolah belum punya period). `POST
+      /api/exit-permits` (SISWA saja utk dirinya sendiri via `MyStudentID` —
+      BEDA dari studentleave yg juga terima orang tua, sesuai spek tugas
+      literal "(siswa)"), maks 1 permit AKTIF (pending_*/issued) per siswa
+      → 409; `POST .../{id}/scan {token}` (SISWA PEMILIK, consume via
+      teacherqr lalu validasi tahap, SEMUA transaksional lewat `UPDATE ...
+      WHERE status = $tahap_lama` execrows race guard) → response permit +
+      `stage_advanced_to`; `POST .../{id}/cancel` (pemilik, pending saja);
+      `POST .../{id}/reject {comment}` (perm `student:manage`, admin, tahap
+      mana pun sebelum exited — lihat "Keputusan dilaporkan" di bawah);
+      `GET ?scope=mine|active|all&date=` (mine: siswa/ortu; active: permit
+      HARI INI non-final, perm `student:read`; all: perm `student:manage`);
+      `POST /api/exit-permits/gate-scan {gate_token}` (flag `exit_security`,
+      validasi issued+belum-expired → `410 gate_expired` "Izin sudah
+      kedaluwarsa." PERSIS sesuai instruksi, atau `409` bila sudah
+      exited/belum issued) → `{student,reason,issued_at,gate_expires_at,
+      exited_at}`; `GET .../gate-history?date=` (flag `exit_security` ATAU
+      perm `student:read`, dua gerbang OR)
+    - `internal/latearrival/` (modul baru): SATU endpoint `POST
+      /api/late-arrivals/scan {token}` menjalankan SELURUH state machine
+      (docs tugas): belum ada record hari itu (dicek via rentang tanggal
+      LOKAL sekolah) → token pemegang flag `late_arrival_duty` → CREATE
+      LANGSUNG `pending_leadership` (duty_by/duty_at terisi saat baris
+      dibuat — TIDAK ADA baris `pending_duty_teacher` yang benar-benar
+      tersimpan, lihat model.go), `late_count` = COUNT seluruh record siswa
+      TA AKTIF (lintas hari, BUKAN per-hari) + 1, `action` dari
+      `lateArrivalAction` MURNI (ke-2&5→`call_parent`, ke-3&6→`send_home`,
+      lainnya `none`) → notif ortu SEGERA; record `pending_leadership` →
+      flag `late_arrival_leadership` → `pending_class_teacher`; →
+      `ScheduleGateway.TeacherTeachesClassToday` (guru py SLOT kelas siswa
+      hari itu, TANPA syarat jam berjalan/berikutnya — beda dari
+      exitpermit) → `completed`. **Maks 1 record/hari** (keputusan tugas,
+      DITAMBAHKAN eksplisit): record `completed` hari itu memblokir scan
+      baru (409) — bukan CHECK/index DB, ditegakkan service layer via
+      rentang tanggal lokal. `GET ?scope=mine|today|all&month=` (mine:
+      siswa/ortu; today: perm `student:read`; all: perm `student:manage`
+      ATAU role `kepala_sekolah`); `GET .../summary?month=` (admin/kepsek,
+      per siswa count bulan berjalan)
+    - Interface publik BARU `schedule.Service`: `ClassSlotNowOrNext` (slot
+      kelas sedang berjalan/berikutnya hari itu — dipakai exitpermit tahap
+      2), `TeachesClassToday` (ADA slot kelas hari itu, tanpa syarat jam —
+      dipakai latearrival tahap akhir), `LastPeriodEndToday` (akhir period
+      terakhir hari itu waktu lokal sekolah — dipakai exitpermit
+      gate_expires_at). **KEPUTUSAN desain**: KETIGANYA TIDAK dipenuhi
+      langsung oleh exitpermit/latearrival — SlotView.Teacher.ID adalah
+      profil guru (FK teachers), bukan user_id hasil `teacherqr.ConsumeToken`
+      — dijembatani adapter BARU `cmd/server/b2adapter.go` (`b2ScheduleGateway`,
+      pola SAMA `scheduleadapter.go`) yang MENGGABUNGKAN
+      `schedule.Service` + `student.Service.MyTeacherID` (method YANG SUDAH
+      ADA sejak fase 5, TIDAK ada method baru di modul student) untuk
+      memetakan teacher profil ID ↔ user_id
+    - Notifikasi baru (`internal/notification/model.go` + `templates.go`):
+      `exitpermit.issued` (→ siswa+ortu, push+in_app, "tunjukkan QR di
+      gerbang"), `exitpermit.exited` (→ ortu, push+in_app, sebut jam WIB),
+      `latearrival.recorded` (→ ortu, push+in_app, sebut hitungan + label
+      Indonesia aksi BILA ADA — `{{if .action}}` di template, `action:""`
+      utk `ActionNone` supaya kalimat aksi disembunyikan sepenuhnya, BUKAN
+      menampilkan "none"); didaftarkan `docs/08-notification.md`
+    - Realtime: event `teacherqr` `{}` → user_id pemilik token (consume);
+      `exitpermit` `{permit_id}` → pemilik+roles admin_sekolah/kepala_sekolah
+      (submit/scan/cancel/reject/gate-scan); `latearrival` `{}` → roles
+      admin_sekolah/kepala_sekolah+pemilik+guru yg scan (SEMUA via
+      `SetRealtime`/`PublishTo`, pola sama modul lain — TIDAK diverifikasi
+      lewat probe WebSocket live sesi ini, hanya compile+service test hijau,
+      di luar cakupan WAJIB e2e curl tugas)
+    - `sqlc.yaml` ditambah 3 blok (`teacherqrdb`/`exitpermitdb`/
+      `latearrivaldb`) — sqlc CLI TERSEDIA & DIPAKAI (`go run
+      github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate` dari host,
+      BERHASIL, sama seperti Gelombang B1) — seluruh kode `*db` package
+      GENERATED
+    - Bootstrap idempoten (`cmd/bootstrap/ensureDemoDuties`): Guru Piket &
+      Pimpinan (BELUM punya assignee sejak B1) di-assign ke Sari (lihat
+      "Keputusan dilaporkan" di bawah)
+    - **Keputusan dilaporkan (deviasi reject, docs tugas eksplisit meminta
+      dilaporkan)**: rantai QR SION TIDAK punya "tolak" formal per tahap
+      (approver hanya bisa menyetujui via scan — tidak ada UI tolak per
+      tahap di SION). Diputuskan: siswa boleh CANCEL selama pending (pola
+      sama studentleave) DAN admin_sekolah (perm `student:manage`) diberi
+      `POST .../reject` administratif di tahap mana pun sebelum exited,
+      utk kasus keliru/darurat — TANPA meniru UI approve/reject per tahap
+      yang tidak punya presedan SION. Diuji e2e (admin reject berhasil,
+      siswa reject 403).
+    - **Keputusan dilaporkan (demo duty Gelombang B2)**: Guru Piket &
+      Pimpinan (kosong sejak Gelombang B1) di-assign ke **Sari** (BUKAN
+      Rendi) — Sari jadi pemegang SEMUA flag approval (Guru BK+Piket+
+      Pimpinan = `leave_issuance`+`exit_bk_approval`+`late_arrival_duty`+
+      `exit_leadership_approval`+`late_arrival_leadership`), Rendi TETAP
+      hanya Wali Kelas + pengajar terjadwal. Alasan: tahap 2 rantai keluar
+      ("guru pengajar jam berjalan") murni dari JADWAL, bukan flag — demo
+      menjadwalkan Rendi mengajar XII RPL 1 (`ensureDemoTodaySlots`
+      existing), jadi dengan SEMUA approval lain di tangan Sari, aturan
+      "tahap 1 ≠ tahap 2" SELALU bisa diuji bersih (Sari≠Rendi) tanpa
+      bergantung jam berapa e2e dijalankan — sesuai saran eksplisit tugas
+      "(mis. Sari = Piket+BK+Pimpinan, Rendi = pengajar)".
+    - **Catatan periode uji (TIDAK permanen)**: sesi ini dijalankan jam
+      15:xx WIB — SEMUA 9 period demo (07:00–14:00) sudah lewat, jadi
+      `ClassSlotNowOrNext` tidak nemu slot "sekarang/berikutnya" apa pun utk
+      diuji live. Ditambahkan SEMENTARA period ke-10 (15:00–23:59) + 1 slot
+      XII RPL 1/Rendi via API admin biasa (`PUT /api/periods`, `POST
+      /api/schedule/slots`) supaya tahap 2 exit-permit bisa diuji live
+      dengan guru yang BENAR (bukan cuma unit test) — **DIHAPUS/DIREVERT**
+      setelah verifikasi (`DELETE` slot, `PUT /api/periods` kembali ke 9
+      semula, dikonfirmasi `GET /api/schedule/today?class_id=1` kembali ke 2
+      slot asli). Jalur "tidak ada slot sama sekali" (`hasSlot=false`) &
+      gate-expiry murni waktu (410) HANYA diuji unit test (`clock.Fixed`),
+      sesuai presedan Fase 6 ("cukup, sesuai instruksi tugas") — di luar itu
+      SEMUA jalur lain (termasuk tahap 2 dgn guru benar/salah/sama-orang)
+      terverifikasi LIVE.
+    - Akun tambahan sesi ini: siswa `budi`/`budi12345` (aktivasi kode
+      undangan NIS 22103, tertaut guardian `ortu.budi` — dipakai verifikasi
+      notifikasi ortu exit-permit & late-arrival, siswa demo NIS 22101 TETAP
+      tanpa ortu sejak B1)
 - ⬜ Gelombang C: Penilaian (komponen berbobot+KKTP, normalisasi, publikasi, bintang kelas, konfigurasi rapor, toggle per sekolah)
 - ⬜ Gelombang D: Konseling BK, guru pengganti, period day overrides, kalender presensi siswa, admin impersonate user, template surat
 

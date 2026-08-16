@@ -926,3 +926,136 @@ func (s *Service) SlotNow(ctx context.Context, schoolID, teacherID int64, at tim
 	}
 	return nil, nil
 }
+
+// -- Fase 14 Gelombang B2 (docs/12-sion-parity.md): dipakai internal/exitpermit
+// & internal/latearrival lewat consumer-side interface (dijembatani adapter
+// cmd/server, lihat b2adapter.go — SlotView.Teacher.ID adalah profil guru,
+// bukan user_id; pemetaan ke user_id dilakukan adapter via
+// student.Service.MyTeacherID yang SUDAH ADA, tanpa method baru di modul
+// student).
+
+// ClassSlotNowOrNext mengembalikan slot KELAS classID yang SEDANG berjalan
+// (period berjalan, waktu lokal sekolah `at`) — atau BILA TIDAK ADA, slot
+// PALING AWAL berikutnya hari itu (period_start > sekarang) — dipakai
+// exitpermit memvalidasi "guru pengajar jam berjalan/berikutnya" (tahap 2
+// rantai dispensasi keluar). nil bila TA tidak aktif, kelas tanpa jadwal
+// hari ini, atau seluruh slot hari itu sudah lewat.
+func (s *Service) ClassSlotNowOrNext(ctx context.Context, schoolID, classID int64, at time.Time) (*SlotView, error) {
+	cur, periods, err := s.currentPeriod(ctx, schoolID, at)
+	if err != nil {
+		return nil, err
+	}
+	yearID, err := s.resolveYear(ctx, schoolID, 0)
+	if err != nil {
+		if errors.Is(err, ErrNoActiveAcademicYear) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	all, err := s.repo.ListSlotsForYear(ctx, schoolID, yearID)
+	if err != nil {
+		return nil, err
+	}
+	local := clock.InZone(at, schoolTimezone(ctx))
+	dow := int(local.Weekday())
+	todays := make([]SlotRecord, 0)
+	for _, sl := range all {
+		if sl.DayOfWeek == dow && sl.ClassID == classID {
+			todays = append(todays, sl)
+		}
+	}
+	if cur != nil {
+		for _, sl := range todays {
+			if sl.PeriodStart <= cur.Number && cur.Number <= sl.PeriodEnd {
+				v := slotView(sl)
+				return &v, nil
+			}
+		}
+	}
+	periodStartMin := make(map[int]int, len(periods))
+	for _, p := range periods {
+		if m, err := clockMinutes(p.StartsAt); err == nil {
+			periodStartMin[p.Number] = m
+		}
+	}
+	nowMin := local.Hour()*60 + local.Minute()
+	bestIdx := -1
+	bestMin := 0
+	for i, sl := range todays {
+		startMin, ok := periodStartMin[sl.PeriodStart]
+		if !ok || startMin <= nowMin {
+			continue
+		}
+		if bestIdx == -1 || startMin < bestMin {
+			bestIdx, bestMin = i, startMin
+		}
+	}
+	if bestIdx == -1 {
+		return nil, nil
+	}
+	v := slotView(todays[bestIdx])
+	return &v, nil
+}
+
+// TeachesClassToday melaporkan apakah guru profil teacherID mengajar kelas
+// classID pada SETIDAKNYA SATU slot hari ini (waktu lokal sekolah `at`),
+// TANPA syarat jam berjalan/berikutnya — dipakai internal/latearrival tahap
+// akhir ("guru kelas", cukup ada slot hari itu, beda dari
+// ClassSlotNowOrNext dipakai exitpermit).
+func (s *Service) TeachesClassToday(ctx context.Context, schoolID, classID, teacherID int64, at time.Time) (bool, error) {
+	yearID, err := s.resolveYear(ctx, schoolID, 0)
+	if err != nil {
+		if errors.Is(err, ErrNoActiveAcademicYear) {
+			return false, nil
+		}
+		return false, err
+	}
+	all, err := s.repo.ListSlotsForYear(ctx, schoolID, yearID)
+	if err != nil {
+		return false, err
+	}
+	local := clock.InZone(at, schoolTimezone(ctx))
+	dow := int(local.Weekday())
+	for _, sl := range all {
+		if sl.DayOfWeek == dow && sl.ClassID == classID && sl.TeacherID == teacherID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// LastPeriodEndToday mengembalikan waktu UTC akhir period TERAKHIR (max
+// EndsAt di antara SELURUH period sekolah) pada tanggal lokal sekolah `at` —
+// dipakai exitpermit menghitung gate_expires_at otomatis saat izin issued
+// (docs tugas: "kedaluwarsa otomatis di akhir jam izin"). ok=false bila
+// sekolah belum punya period sama sekali (pemanggil fallback +6 jam).
+func (s *Service) LastPeriodEndToday(ctx context.Context, schoolID int64, at time.Time) (time.Time, bool, error) {
+	periods, err := s.repo.ListPeriods(ctx, schoolID)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if len(periods) == 0 {
+		return time.Time{}, false, nil
+	}
+	maxEndMin := -1
+	for _, p := range periods {
+		m, err := clockMinutes(p.EndsAt)
+		if err != nil {
+			continue
+		}
+		if m > maxEndMin {
+			maxEndMin = m
+		}
+	}
+	if maxEndMin < 0 {
+		return time.Time{}, false, nil
+	}
+	tz := schoolTimezone(ctx)
+	loc, lerr := time.LoadLocation(tz)
+	if lerr != nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+	local := clock.InZone(at, tz)
+	endLocal := time.Date(local.Year(), local.Month(), local.Day(), maxEndMin/60, maxEndMin%60, 0, 0, loc)
+	return endLocal.UTC(), true, nil
+}

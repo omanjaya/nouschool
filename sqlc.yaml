@@ -135,3 +135,30 @@ sql:
         out: "internal/studentleave/studentleavedb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/teacherqr/queries.sql"
+    gen:
+      go:
+        package: "teacherqrdb"
+        out: "internal/teacherqr/teacherqrdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/exitpermit/queries.sql"
+    gen:
+      go:
+        package: "exitpermitdb"
+        out: "internal/exitpermit/exitpermitdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/latearrival/queries.sql"
+    gen:
+      go:
+        package: "latearrivaldb"
+        out: "internal/latearrival/latearrivaldb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true

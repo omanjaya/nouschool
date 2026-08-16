@@ -105,6 +105,33 @@ var registry = map[string]eventTemplate{
 		[]string{ChannelWebPush, ChannelEmail},
 		"/izin-siswa",
 	),
+	// Fase 14 Gelombang B2 (docs/12-sion-parity.md). Data: student.
+	// Dikirim ke siswa+ortu saat rantai QR dispensasi keluar selesai
+	// (pending_leadership -> issued).
+	EventExitPermitIssued: mustTemplate("exitpermit_issued",
+		"Izin keluar disetujui",
+		"Izin dispensasi keluar {{.student}} disetujui — tunjukkan QR di gerbang.",
+		[]string{ChannelWebPush},
+		"/izin-keluar",
+	),
+	// Data: student, time (HH:MM lokal sekolah). Dikirim ke ortu saat siswa
+	// discan security di gerbang (issued -> exited).
+	EventExitPermitExited: mustTemplate("exitpermit_exited",
+		"{{.student}} keluar sekolah",
+		"{{.student}} keluar sekolah pukul {{.time}}.",
+		[]string{ChannelWebPush},
+		"/izin-keluar",
+	),
+	// Data: student, late_count (int), action (label Indonesia, "" bila
+	// ActionNone — template menyembunyikan kalimat aksi lewat {{if .action}}).
+	// Dikirim ke ortu setiap kali keterlambatan tercatat (scan piket pertama
+	// hari itu).
+	EventLateArrivalRecorded: mustTemplate("latearrival_recorded",
+		"Keterlambatan {{.student}}",
+		"{{.student}} tercatat terlambat ke-{{.late_count}} hari ini.{{if .action}} Tindakan: {{.action}}.{{end}}",
+		[]string{ChannelWebPush},
+		"/keterlambatan",
+	),
 }
 
 // renderTemplate mengeksekusi title/body suatu event terhadap data — fungsi

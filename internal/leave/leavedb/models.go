@@ -374,6 +374,49 @@ type Student struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type StudentExitPermit struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	StudentID      int64              `json:"student_id"`
+	Reason         string             `json:"reason"`
+	Status         string             `json:"status"`
+	DutyBy         pgtype.Int8        `json:"duty_by"`
+	DutyAt         pgtype.Timestamptz `json:"duty_at"`
+	ClassBy        pgtype.Int8        `json:"class_by"`
+	ClassAt        pgtype.Timestamptz `json:"class_at"`
+	BkBy           pgtype.Int8        `json:"bk_by"`
+	BkAt           pgtype.Timestamptz `json:"bk_at"`
+	LeadershipBy   pgtype.Int8        `json:"leadership_by"`
+	LeadershipAt   pgtype.Timestamptz `json:"leadership_at"`
+	RejectedBy     pgtype.Int8        `json:"rejected_by"`
+	RejectedAt     pgtype.Timestamptz `json:"rejected_at"`
+	RejectComment  string             `json:"reject_comment"`
+	GateToken      pgtype.Text        `json:"gate_token"`
+	GateExpiresAt  pgtype.Timestamptz `json:"gate_expires_at"`
+	ExitedBy       pgtype.Int8        `json:"exited_by"`
+	ExitedAt       pgtype.Timestamptz `json:"exited_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type StudentLateArrival struct {
+	ID             int64              `json:"id"`
+	SchoolID       int64              `json:"school_id"`
+	AcademicYearID int64              `json:"academic_year_id"`
+	StudentID      int64              `json:"student_id"`
+	ArrivedAt      pgtype.Timestamptz `json:"arrived_at"`
+	LateCount      int32              `json:"late_count"`
+	Action         string             `json:"action"`
+	Status         string             `json:"status"`
+	DutyBy         pgtype.Int8        `json:"duty_by"`
+	DutyAt         pgtype.Timestamptz `json:"duty_at"`
+	LeadershipBy   pgtype.Int8        `json:"leadership_by"`
+	LeadershipAt   pgtype.Timestamptz `json:"leadership_at"`
+	ClassBy        pgtype.Int8        `json:"class_by"`
+	ClassAt        pgtype.Timestamptz `json:"class_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type StudentLeaveNumberCounter struct {
 	SchoolID int64  `json:"school_id"`
 	Year     string `json:"year"`
@@ -452,6 +495,16 @@ type Teacher struct {
 	SchoolID int64       `json:"school_id"`
 	UserID   int64       `json:"user_id"`
 	Nip      pgtype.Text `json:"nip"`
+}
+
+type TeacherQrToken struct {
+	ID         int64              `json:"id"`
+	SchoolID   int64              `json:"school_id"`
+	UserID     int64              `json:"user_id"`
+	Token      string             `json:"token"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	ConsumedAt pgtype.Timestamptz `json:"consumed_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 type TeachingJournal struct {

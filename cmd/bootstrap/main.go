@@ -325,22 +325,37 @@ func ensureDemoEmployee(ctx context.Context, identitySvc *identity.Service, iden
 }
 
 // ensureDemoDuties menyiapkan 5 tugas tambahan contoh (docs tugas Fase 14
-// Gelombang B1) + assignment TA aktif untuk Wali Kelas (Rendi) & Guru BK
-// (Sari) & Security (satpam) — idempoten: duty dilewati bila NAMA sudah ada
-// (UNIQUE school_id+name, pola sama ensureDemoDiscipline), assignment SELALU
-// di-replace ke state yang diinginkan (set-replace = idempoten by construction,
-// pola sama internal/schedule.ReplacePeriods).
+// Gelombang B1) + assignment TA aktif — idempoten: duty dilewati bila NAMA
+// sudah ada (UNIQUE school_id+name, pola sama ensureDemoDiscipline),
+// assignment SELALU di-replace ke state yang diinginkan (set-replace =
+// idempoten by construction, pola sama internal/schedule.ReplacePeriods).
+//
+// **Keputusan demo Fase 14 Gelombang B2** (docs tugas, dilaporkan): Guru
+// Piket & Pimpinan (BELUM punya assignee sejak Gelombang B1) di-assign ke
+// Sari — bukan Rendi — supaya rantai QR dispensasi keluar bisa diuji e2e
+// tanpa ambigu: tahap 1 (piket, flag late_arrival_duty) & tahap 3+4
+// (BK+pimpinan, flag exit_bk_approval/exit_leadership_approval/
+// late_arrival_leadership) SEMUA dipegang Sari, sedangkan tahap 2 ("guru
+// pengajar jam berjalan/berikutnya", BUKAN flag — murni dari jadwal)
+// SELALU jatuh ke guru yang benar-benar mengajar kelas siswa saat itu.
+// Demo memang menjadwalkan Rendi mengajar XII RPL 1 hari ini
+// (ensureDemoTodaySlots) — dengan Sari memegang SEMUA tugas approval
+// lain, tahap 2 TIDAK PERNAH bisa "kebetulan" dipegang Sari, sehingga
+// aturan "beda orang tahap 1 & 2" selalu bisa diuji bersih (Sari≠Rendi)
+// tanpa bergantung pada jam berapa e2e dijalankan. Menumpuk 3 tugas pada
+// satu orang cukup wajar utk sekolah demo kecil (2 guru) — di sekolah
+// nyata admin akan membagi tugas ini ke guru berbeda via UI `/api/duties`.
 func ensureDemoDuties(ctx context.Context, repo *duty.Repository, schoolID, academicYearID, waliKelasUserID, guruBKUserID, securityUserID int64) error {
 	specs := []struct {
 		Name         string
 		ForRole      string
 		Flags        []string
-		AssignUserID int64 // 0 = tidak di-assign siapa pun di bootstrap (Guru Piket/Pimpinan Gelombang B2, belum ada akun contoh)
+		AssignUserID int64
 	}{
 		{"Wali Kelas", duty.ForRoleGuru, []string{duty.FlagLeaveHomeroomReview}, waliKelasUserID},
 		{"Guru BK", duty.ForRoleGuru, []string{duty.FlagLeaveIssuance, duty.FlagExitBKApproval}, guruBKUserID},
-		{"Guru Piket", duty.ForRoleGuru, []string{duty.FlagLateArrivalDuty}, 0},
-		{"Pimpinan", duty.ForRoleGuru, []string{duty.FlagExitLeadershipApproval, duty.FlagLateArrivalLeadership}, 0},
+		{"Guru Piket", duty.ForRoleGuru, []string{duty.FlagLateArrivalDuty}, guruBKUserID},
+		{"Pimpinan", duty.ForRoleGuru, []string{duty.FlagExitLeadershipApproval, duty.FlagLateArrivalLeadership}, guruBKUserID},
 		{"Security", duty.ForRolePegawai, []string{duty.FlagExitSecurity}, securityUserID},
 	}
 	existing, err := repo.ListDutiesWithAssigneeCount(ctx, schoolID, academicYearID)

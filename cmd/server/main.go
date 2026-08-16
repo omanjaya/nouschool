@@ -17,7 +17,9 @@ import (
 	"github.com/omanjaya/nouschool/internal/discipline"
 	"github.com/omanjaya/nouschool/internal/duty"
 	"github.com/omanjaya/nouschool/internal/employee"
+	"github.com/omanjaya/nouschool/internal/exitpermit"
 	"github.com/omanjaya/nouschool/internal/identity"
+	"github.com/omanjaya/nouschool/internal/latearrival"
 	"github.com/omanjaya/nouschool/internal/leave"
 	"github.com/omanjaya/nouschool/internal/notification"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
@@ -31,6 +33,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
 	"github.com/omanjaya/nouschool/internal/studentleave"
+	"github.com/omanjaya/nouschool/internal/teacherqr"
 	"github.com/omanjaya/nouschool/internal/teaching"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
@@ -152,6 +155,17 @@ func main() {
 		dutySvc := duty.NewService(dutyRepo, identitySvc, tenantSvc)
 		dutyHandler := duty.NewHandler(dutySvc)
 
+		// --- modul teacherqr (QR token guru — kebalikan QR kartu siswa/
+		// ruangan: guru tampilkan QR berumur pendek (60 detik) sekali pakai,
+		// siswa scan utk approval alur exitpermit/latearrival — Fase 14
+		// Gelombang B2, docs/12-sion-parity.md). TIDAK butuh IdentityGateway
+		// (role guru dicek langsung reqctx.Role di service, "pegawai TIDAK
+		// perlu") — modul kecil, hanya generate+consume.
+		teacherQRRepo := teacherqr.NewRepository(pool)
+		teacherQRSvc := teacherqr.NewService(teacherQRRepo, clock.System{})
+		teacherQRSvc.SetRealtime(realtimeAdapter)
+		teacherQRHandler := teacherqr.NewHandler(teacherQRSvc)
+
 		// --- modul employee (profil pegawai/staff non-guru — Fase 14
 		// Gelombang B1). identitySvc memenuhi employee.IdentityGateway secara
 		// STRUKTURAL (pola sama student.IdentityGateway) — employee TIDAK
@@ -185,6 +199,27 @@ func main() {
 		scheduleSvc := schedule.NewService(scheduleRepo, identitySvc, tenantSvc, studentSvc, clock.System{})
 		scheduleSvc.SetRealtime(realtimeAdapter)
 		scheduleHandler := schedule.NewHandler(scheduleSvc)
+
+		// --- modul exitpermit & latearrival (izin dispensasi keluar rantai
+		// QR 4 tahap + izin terlambat — Fase 14 Gelombang B2,
+		// docs/12-sion-parity.md alur 2 & 3). identitySvc, tenantSvc,
+		// studentSvc, dutySvc, teacherQRSvc memenuhi consumer-side interface
+		// masing-masing secara STRUKTURAL — KECUALI ScheduleGateway (butuh
+		// menggabungkan scheduleSvc+studentSvc utk memetakan
+		// SlotView.Teacher.ID ke user_id, dijembatani b2ScheduleGateway,
+		// lihat b2adapter.go, pola sama scheduleadapter.go). Dikonstruksi
+		// SETELAH scheduleSvc & dutySvc & teacherQRSvc.
+		b2Schedule := b2ScheduleGateway{schedule: scheduleSvc, students: studentSvc}
+
+		exitPermitRepo := exitpermit.NewRepository(pool)
+		exitPermitSvc := exitpermit.NewService(exitPermitRepo, identitySvc, tenantSvc, studentSvc, dutySvc, b2Schedule, teacherQRSvc, clock.System{})
+		exitPermitSvc.SetRealtime(realtimeAdapter)
+		exitPermitHandler := exitpermit.NewHandler(exitPermitSvc)
+
+		lateArrivalRepo := latearrival.NewRepository(pool)
+		lateArrivalSvc := latearrival.NewService(lateArrivalRepo, identitySvc, tenantSvc, studentSvc, dutySvc, b2Schedule, teacherQRSvc, clock.System{})
+		lateArrivalSvc.SetRealtime(realtimeAdapter)
+		lateArrivalHandler := latearrival.NewHandler(lateArrivalSvc)
 
 		// --- modul attendance (absensi siswa mode daily & per-mapel) ---
 		// identitySvc, tenantSvc, studentSvc memenuhi attendance.IdentityGateway /
@@ -278,6 +313,8 @@ func main() {
 		leaveSvc.SetNotifier(notificationSvc)
 		disciplineSvc.SetNotifier(notificationSvc)
 		studentLeaveSvc.SetNotifier(notificationSvc)
+		exitPermitSvc.SetNotifier(notificationSvc)
+		lateArrivalSvc.SetNotifier(notificationSvc)
 
 		// --- modul billing (langganan tahunan, tier x bracket siswa, invoice,
 		// transfer manual + gateway Midtrans, lifecycle grace/readonly, fase
@@ -347,6 +384,9 @@ func main() {
 		duty.RegisterRoutes(mux, dutyHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		employee.RegisterRoutes(mux, employeeHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		studentleave.RegisterRoutes(mux, studentLeaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		teacherqr.RegisterRoutes(mux, teacherQRHandler, identitySvc.RequireAuth)
+		exitpermit.RegisterRoutes(mux, exitPermitHandler, identitySvc.RequireAuth)
+		latearrival.RegisterRoutes(mux, lateArrivalHandler, identitySvc.RequireAuth)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)

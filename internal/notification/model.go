@@ -41,6 +41,10 @@ const (
 	EventStudentLeaveSubmitted   = "studentleave.submitted"
 	EventStudentLeaveForwarded   = "studentleave.forwarded"
 	EventStudentLeaveDecided     = "studentleave.decided"
+	// Fase 14 Gelombang B2 (docs/12-sion-parity.md).
+	EventExitPermitIssued    = "exitpermit.issued"
+	EventExitPermitExited    = "exitpermit.exited"
+	EventLateArrivalRecorded = "latearrival.recorded"
 )
 
 // Status kanonik notification_outbox.status (docs/08-notification.md).

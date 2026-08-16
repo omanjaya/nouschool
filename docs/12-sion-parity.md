@@ -19,11 +19,11 @@ Auth & session, dashboard per role, master data (TA/kelas/mapel/jam/ruangan), da
 Prasyarat arsitektur (adopsi pola SION):
 - **Tugas tambahan + capability flags** (`duties`) ✅ Gelombang B1 (backend): guru/pegawai diberi tugas (Wali Kelas, Guru BK, Guru Piket, Pimpinan, Security) per TA; tiap tugas membawa flags (`leave_homeroom_review`, `leave_issuance`, `exit_bk_approval`, `exit_leadership_approval`, `exit_security`, `late_arrival_duty`, `late_arrival_leadership`, `all_attendance_reports`) — otorisasi alur izin membaca flags, bukan role
 - **Role `pegawai`** ✅ Gelombang B1 (backend, staff non-guru, mis. security) + profilnya (`internal/employee`)
-- **QR token guru** (kebalikan QR kita, Gelombang B2 ⬜): guru tampilkan QR berumur pendek sekali-pakai; siswa scan untuk approval
+- **QR token guru** (kebalikan QR kita, Gelombang B2 ✅ backend, `internal/teacherqr`): guru tampilkan QR berumur pendek sekali-pakai; siswa scan untuk approval
 Tiga alur:
 1. **Izin terencana** ✅ Gelombang B1 (backend, `internal/studentleave`): siswa ajukan (+dokumen) → wali kelas → BK terbitkan surat bernomor → verifikasi surat publik (`GET /api/public/leave-verify`)
-2. **Izin dispensasi keluar** ⬜ Gelombang B2: rantai QR 4 tahap (piket → guru pengajar jam berjalan & bukan orang yang sama → BK → pimpinan) → gate token kedaluwarsa otomatis di akhir jam izin → scan gate oleh security → `exited`; row-lock transaksional
-3. **Izin terlambat** ⬜ Gelombang B2: siswa scan QR → piket → pimpinan → guru kelas → selesai; aksi otomatis by hitungan: telat ke-2 & ke-5 = panggil ortu, ke-3 & ke-6 = pulangkan
+2. **Izin dispensasi keluar** ✅ Gelombang B2 (backend, `internal/exitpermit`): rantai QR 4 tahap (piket → guru pengajar jam berjalan & bukan orang yang sama → BK → pimpinan) → gate token kedaluwarsa otomatis di akhir jam izin → scan gate oleh security → `exited`; race guard transaksional (`UPDATE ... WHERE status = $tahap_lama`)
+3. **Izin terlambat** ✅ Gelombang B2 (backend, `internal/latearrival`): siswa scan QR → piket → pimpinan → guru kelas → selesai; aksi otomatis by hitungan: telat ke-2 & ke-5 = panggil ortu, ke-3 & ke-6 = pulangkan
 
 ### Gelombang C — Penilaian (modul baru `grading`, toggle per sekolah)
 - Komponen penilaian per kelas+mapel (tp/sumatif/praktik/lainnya, bobot, KKTP)
