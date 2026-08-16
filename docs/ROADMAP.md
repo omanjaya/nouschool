@@ -1605,10 +1605,7 @@ build/vet/test ./...` hijau.
     tetap semua?" lalu memutuskan sendiri "total & items sama-sama hanya
     visible" — diikuti persis di `Service.MyStars` (BEDA dari `ListStars`
     raw admin/guru yang tetap menampilkan SEMUA termasuk private)
-  - ⬜ Konfigurasi rapor lanjutan (pemetaan TP, nilai manual/sebelumnya,
-    analisis) & UI frontend (`web/`) — DI LUAR SCOPE sesi ini (batasan tugas
-    "jangan sentuh web/"), backend inti (komponen/nilai/normalisasi/
-    publikasi/bintang/toggle) SUDAH LENGKAP & terverifikasi
+  - ✅ UI frontend Gelombang C sudah dikerjakan agent frontend (build hijau). Konfigurasi rapor LANJUTAN (pemetaan TP, nilai manual/sebelumnya, analisis mendalam) = deviasi sadar dari SION, dicatat di Ide tertunda (rapor formal penuh)
 - ✅ Gelombang D (FINAL, backend): Konseling BK, guru pengganti, period day
   overrides, kalender presensi siswa, admin impersonate user, template surat
   — terverifikasi end-to-end di Docker dev (`localhost:8210`, `demo.localhost`):
@@ -1792,5 +1789,5 @@ build/vet/test ./...` hijau.
     koreksi absensi & single-device login — lihat "Ide tertunda" di bawah
 
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
-- Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.
+- Rapor formal penuh (pemetaan TP, nilai manual/sebelumnya, analisis — sisa konfigurasi lanjutan SION); Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.
 - Deadline koreksi absensi (batas waktu guru boleh mengoreksi record lama sebelum "terkunci permanen" — beda dari `edit_window_hours` yang sudah ada, ini lebih ke kebijakan administratif jangka panjang) & single-device login (satu akun hanya boleh punya satu sesi aktif, cabut sesi lama saat login baru) — disebut eksplisit di docs tugas Fase 14 Gelombang D sebagai "DILEWATI sadar", butuh keputusan user (dampak UX & multi-perangkat cukup besar, terutama single-device utk akun yang dipakai bergantian keluarga/wali).
