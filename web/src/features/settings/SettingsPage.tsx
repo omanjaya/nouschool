@@ -14,6 +14,7 @@ import { ApiError } from '../../lib/api';
 import { applyBrandColor } from '../../lib/color';
 import { LeaveSettingsSection } from '../leave/LeaveSettingsSection';
 import { AttendanceSettingsSection } from '../attendance/AttendanceSettingsSection';
+import { GradingSettingsSection } from '../grading/GradingSettingsSection';
 import { CustomDomainSection } from './CustomDomainSection';
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -58,6 +59,13 @@ export function SettingsPage() {
           <h2 className="text-[18px] font-semibold text-ink">Pengaturan Izin Guru</h2>
         </div>
         <LeaveSettingsSection />
+      </div>
+      <div className="flex flex-col gap-4 border-t border-line pt-6">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Penilaian</p>
+          <h2 className="text-[18px] font-semibold text-ink">Pengaturan Penilaian</h2>
+        </div>
+        <GradingSettingsSection />
       </div>
     </div>
   );

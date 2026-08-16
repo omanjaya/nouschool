@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 
 interface FieldProps {
   label: string;
@@ -29,8 +29,16 @@ export function Field({ label, htmlFor, error, hint, children, className = '' }:
 const FIELD_CLASS =
   'h-11 w-full rounded-lg border border-line bg-surface px-3 text-[14px] text-ink placeholder:text-muted transition-colors duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50';
 
-export function Input({ className = '', ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={`${FIELD_CLASS} ${className}`} {...rest} />;
+/**
+ * `ref` diteruskan sebagai prop biasa (React 19 — tanpa `forwardRef`), dipakai
+ * `features/grading/GradingInputPage` untuk navigasi Enter ke baris berikut.
+ */
+export function Input({
+  className = '',
+  ref,
+  ...rest
+}: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+  return <input ref={ref} className={`${FIELD_CLASS} ${className}`} {...rest} />;
 }
 
 export function Textarea({ className = '', ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {

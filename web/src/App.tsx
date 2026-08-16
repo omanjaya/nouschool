@@ -13,6 +13,8 @@ import {
   DoorOpen,
   LogOut,
   AlarmClock,
+  GraduationCap,
+  Star,
 } from 'lucide-react';
 import { formatTimeOfDay } from './lib/date';
 import { hasFeature } from './lib/features';
@@ -94,6 +96,21 @@ import { MyLateArrivalPage } from './features/latearrival/MyLateArrivalPage';
 import { LateArrivalAdminPage } from './features/latearrival/LateArrivalAdminPage';
 import { LateArrivalRecapPage } from './features/latearrival/LateArrivalRecapPage';
 import { LATE_ARRIVAL_KEY, LATE_ARRIVAL_SUMMARY_KEY } from './features/latearrival/api';
+import { GradingPage } from './features/grading/GradingPage';
+import { GradingComponentsPage } from './features/grading/GradingComponentsPage';
+import { GradingInputPage } from './features/grading/GradingInputPage';
+import { GradingRecapPage } from './features/grading/GradingRecapPage';
+import { MyGradesPage } from './features/grading/MyGradesPage';
+import { MyStarsPage } from './features/grading/MyStarsPage';
+import {
+  GRADING_COMPONENTS_KEY,
+  GRADING_COMPONENT_GRADES_KEY,
+  GRADING_RECAP_KEY,
+  GRADING_STARS_KEY,
+  MY_GRADES_KEY,
+  MY_STARS_KEY,
+  useGradingStatus,
+} from './features/grading/api';
 import { Button } from './components/ui/Button';
 import { PeriodsPage } from './features/schedule/PeriodsPage';
 import { RoomsPage } from './features/schedule/RoomsPage';
@@ -187,6 +204,84 @@ function PengumumanCard() {
   );
 }
 
+/**
+ * Kartu "Nilai" Beranda guru/admin — hanya tampil kalau modul penilaian
+ * aktif (Fase 14 Gelombang C, `GET /api/grading/status`).
+ */
+function GradingCard() {
+  const navigate = useNavigate();
+  const { data: status } = useGradingStatus();
+
+  if (!status?.enabled) return null;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <p className="text-[14px] font-semibold text-ink">Nilai</p>
+        <p className="text-[12px] text-muted">Kelola komponen nilai, input nilai, & rekap per kelas-mapel.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => navigate('/nilai')}>
+          <GraduationCap size={16} strokeWidth={2} aria-hidden="true" />
+          Buka Nilai
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** Kartu "Nilai Saya"/"Nilai Anak" Beranda siswa/ortu — sama gating `GradingCard`. */
+function MyGradesCard({ me }: { me: Me }) {
+  const navigate = useNavigate();
+  const { data: status } = useGradingStatus();
+
+  if (!status?.enabled) return null;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <p className="text-[14px] font-semibold text-ink">{me.role === 'siswa' ? 'Nilai Saya' : 'Nilai Anak'}</p>
+        <p className="text-[12px] text-muted">
+          {me.role === 'siswa'
+            ? 'Lihat nilai yang sudah dipublikasikan guru.'
+            : 'Lihat nilai anak yang sudah dipublikasikan guru.'}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => navigate('/nilai-saya')}>
+          <GraduationCap size={16} strokeWidth={2} aria-hidden="true" />
+          {me.role === 'siswa' ? 'Lihat Nilai Saya' : 'Lihat Nilai Anak'}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** Kartu "Bintang Kelas"/"Bintang Anak" Beranda siswa/ortu — sama gating `GradingCard`. */
+function MyStarsCard({ me }: { me: Me }) {
+  const navigate = useNavigate();
+  const { data: status } = useGradingStatus();
+
+  if (!status?.enabled) return null;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <p className="text-[14px] font-semibold text-ink">{me.role === 'siswa' ? 'Bintang Kelas' : 'Bintang Anak'}</p>
+        <p className="text-[12px] text-muted">
+          {me.role === 'siswa' ? 'Lihat riwayat bintang yang Anda terima dari guru.' : 'Lihat riwayat bintang anak Anda dari guru.'}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => navigate('/bintang-saya')}>
+          <Star size={16} strokeWidth={2} aria-hidden="true" />
+          {me.role === 'siswa' ? 'Lihat Bintang Saya' : 'Lihat Bintang Anak'}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function BerandaPage({ me }: { me: Me }) {
   const greeting = getGreeting(new Date().getHours());
   const navigate = useNavigate();
@@ -221,6 +316,12 @@ function BerandaPage({ me }: { me: Me }) {
   const canManageDiscipline = me.role === 'guru' || me.role === 'admin_sekolah';
   // Kartu "Poin Kedisiplinan" — siswa (miliknya sendiri) & orang tua (anak).
   const isSiswaOrOrtu = me.role === 'siswa' || me.role === 'orang_tua';
+  // Kartu "Nilai" (Fase 14 Gelombang C, docs/12-sion-parity.md Gelombang C) —
+  // guru & admin_sekolah kelola komponen/input/rekap; kepala_sekolah TIDAK
+  // dapat halaman nilai (belum — konsisten backend). Gating aktif/tidaknya
+  // modul (`grading_enabled`) ditangani di dalam kartu itu sendiri
+  // (`GradingCard`/`MyGradesCard`/`MyStarsCard`), sama pola `SelfCheckinCard`.
+  const canManageGrading = me.role === 'guru' || me.role === 'admin_sekolah';
   // Kartu "Izin Siswa" (Fase 14 Gelombang B1) — wali kelas & guru BK adalah
   // GURU BIASA (bukan role terpisah, otorisasi lewat duty-capability flags di
   // backend), jadi kartu ini selalu tampil untuk guru (antrian bisa kosong
@@ -387,6 +488,8 @@ function BerandaPage({ me }: { me: Me }) {
         </Card>
       )}
 
+      {canManageGrading && <GradingCard />}
+
       {canReviewStudentLeave && (
         <Card className="flex flex-col gap-3">
           <div>
@@ -473,6 +576,9 @@ function BerandaPage({ me }: { me: Me }) {
           </div>
         </Card>
       )}
+
+      {isSiswaOrOrtu && <MyGradesCard me={me} />}
+      {isSiswaOrOrtu && <MyStarsCard me={me} />}
 
       {canManageAnnouncements && (
         <Card className="flex flex-col gap-3">
@@ -615,6 +721,17 @@ function useRealtime(queryClient: QueryClient) {
     latearrival: () => {
       queryClient.invalidateQueries({ queryKey: [LATE_ARRIVAL_KEY] });
       queryClient.invalidateQueries({ queryKey: [LATE_ARRIVAL_SUMMARY_KEY] });
+    },
+    // {class_id} — Fase 14 Gelombang C (docs/12-sion-parity.md Gelombang C):
+    // komponen/nilai/publikasi/bintang berubah untuk satu kelas-mapel — /nilai
+    // (guru/admin), /nilai-saya & /bintang-saya (siswa/ortu).
+    grading: () => {
+      queryClient.invalidateQueries({ queryKey: [GRADING_COMPONENTS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [GRADING_COMPONENT_GRADES_KEY] });
+      queryClient.invalidateQueries({ queryKey: [GRADING_RECAP_KEY] });
+      queryClient.invalidateQueries({ queryKey: [MY_GRADES_KEY] });
+      queryClient.invalidateQueries({ queryKey: [GRADING_STARS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [MY_STARS_KEY] });
     },
   });
 }
@@ -855,6 +972,16 @@ function AuthenticatedShell() {
         <Route path="/data/ruangan/cetak" element={<RoomsPrintPage />} />
 
         <Route path="/jadwal" element={<SchedulePage />} />
+
+        {/* Fase 14 Gelombang C (docs/12-sion-parity.md Gelombang C) — penilaian:
+            komponen/input/rekap guru-admin (/nilai) + nilai & bintang siswa/ortu. */}
+        <Route path="/nilai" element={<GradingPage />}>
+          <Route index element={<GradingComponentsPage />} />
+          <Route path="input" element={<GradingInputPage />} />
+          <Route path="rekap" element={<GradingRecapPage />} />
+        </Route>
+        <Route path="/nilai-saya" element={<MyGradesPage />} />
+        <Route path="/bintang-saya" element={<MyStarsPage />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

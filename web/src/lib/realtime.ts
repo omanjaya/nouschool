@@ -26,7 +26,8 @@ export type RealtimeEventType =
   | 'studentleave'
   | 'teacherqr'
   | 'exitpermit'
-  | 'latearrival';
+  | 'latearrival'
+  | 'grading';
 
 const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'attendance.session',
@@ -43,6 +44,7 @@ const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'teacherqr',
   'exitpermit',
   'latearrival',
+  'grading',
 ];
 
 /** Bentuk minimal `data` per tipe event, sesuai kontrak — dipakai hanya untuk keputusan kecil (mis. cocokkan `session_id`), bukan sumber tampilan. */
@@ -66,6 +68,8 @@ export interface RealtimeEventDataMap {
   exitpermit: { permit_id: string | number };
   /** Fase 14 Gelombang B2 — laporan keterlambatan berubah tahap/status. */
   latearrival: Record<string, never>;
+  /** Fase 14 Gelombang C (docs/12-sion-parity.md Gelombang C) — komponen/nilai/publikasi/bintang berubah untuk satu kelas-mapel. */
+  grading: { class_id: string | number };
 }
 
 export interface RealtimeEvent<T extends RealtimeEventType = RealtimeEventType> {

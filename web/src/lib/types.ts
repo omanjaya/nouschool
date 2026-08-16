@@ -1568,3 +1568,178 @@ export interface LateArrivalSummaryRow {
   last_action: LateArrivalAction;
   last_at: string | null;
 }
+
+/* ---- Penilaian / Grading (Fase 14 Gelombang C, docs/12-sion-parity.md) ---- */
+
+export type GradingComponentType = 'tp' | 'sumatif' | 'praktik' | 'lainnya';
+
+/** GET /api/grading/status (semua role, host tenant) — toggle modul per sekolah; endpoint lain 404 `{code:'grading_disabled'}` kalau `false`. */
+export interface GradingStatus {
+  enabled: boolean;
+}
+
+/** Satu baris `GET /api/grading/components?class_id=&subject_id=`. */
+export interface GradingComponent {
+  id: string;
+  name: string;
+  type: GradingComponentType;
+  weight: number;
+  kktp: number;
+  graded_count: number;
+  student_count: number;
+}
+
+/** GET /api/grading/components?class_id=&subject_id= → `{items,total_weight}`. */
+export interface GradingComponentListResult {
+  items: GradingComponent[];
+  total_weight: number;
+}
+
+/** POST/PATCH /api/grading/components[/{id}] body. */
+export interface GradingComponentInput {
+  name: string;
+  type: GradingComponentType;
+  weight: number;
+  kktp: number;
+  class_id: string;
+  subject_id: string;
+}
+
+export interface GradingGradeStudent {
+  student_id: string;
+  name: string;
+  nis: string;
+  score: number | null;
+}
+
+/** GET /api/grading/components/{id}/grades. */
+export interface GradingComponentGradesResult {
+  students: GradingGradeStudent[];
+}
+
+export interface GradingGradeInput {
+  student_id: string;
+  score: number | null;
+}
+
+/**
+ * PUT /api/grading/components/{id}/grades body `{grades}`. ASUMSI respons:
+ * mengembalikan snapshot terbaru dalam bentuk sama dengan GET (`GradingComponentGradesResult`),
+ * konsisten dengan pola `PUT /api/attendance/sessions/{id}/records` yang juga
+ * mengembalikan hasil terbaru daripada `undefined`.
+ */
+export type GradingGradesSaveResult = GradingComponentGradesResult;
+
+export interface GradingRecapComponentRef {
+  id: string;
+  name: string;
+  type: GradingComponentType;
+  weight: number;
+}
+
+export interface GradingRecapStudent {
+  student_id: string;
+  name: string;
+  nis: string;
+  scores: Record<string, number | null>;
+  final: number | null;
+  label: string | null;
+  below_kktp: string[];
+}
+
+/** GET /api/grading/recap?class_id=&subject_id=. */
+export interface GradingRecapResult {
+  components: GradingRecapComponentRef[];
+  students: GradingRecapStudent[];
+  published: boolean;
+}
+
+/** PUT /api/grading/publication body. */
+export interface GradingPublicationInput {
+  class_id: string;
+  subject_id: string;
+  published: boolean;
+}
+
+export interface MyGradesComponent {
+  name: string;
+  type: GradingComponentType;
+  weight: number;
+  score: number | null;
+  kktp: number;
+}
+
+export interface MyGradesSubjectRef {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface MyGradesSubject {
+  subject: MyGradesSubjectRef;
+  final: number | null;
+  label: string | null;
+  components: MyGradesComponent[];
+}
+
+/** GET /api/my-grades (siswa: tanpa param; ortu: `?student_id=`). */
+export interface MyGradesResult {
+  subjects: MyGradesSubject[];
+}
+
+export type GradingStarVisibility = 'private' | 'student';
+
+/** POST /api/grading/stars body. */
+export interface GradingStarInput {
+  student_id: string;
+  delta: number;
+  note?: string;
+  visibility: GradingStarVisibility;
+}
+
+/**
+ * Satu baris `GET /api/grading/stars?student_id=|class_id=` (guru/admin).
+ * ASUMSI bentuk (kontrak ringkas tidak merincinya): `{items}` dengan `id`
+ * (dibutuhkan `DELETE /api/grading/stars/{id}`) + ref siswa opsional untuk
+ * konteks `class_id` — beda dari `GET /api/my-stars` (siswa/ortu) yang
+ * shape-nya sudah eksplisit tanpa `id`/ref siswa di kontrak.
+ */
+export interface GradingStar {
+  id: string;
+  student_id: string;
+  student_name?: string;
+  delta: number;
+  note: string | null;
+  visibility: GradingStarVisibility;
+  given_by_name: string;
+  created_at: string;
+}
+
+export interface GradingStarListResult {
+  items: GradingStar[];
+}
+
+export interface MyStarItem {
+  delta: number;
+  note: string | null;
+  given_by_name: string;
+  created_at: string;
+}
+
+/** GET /api/my-stars (siswa: tanpa param; ortu: `?student_id=`). */
+export interface MyStarsResult {
+  total: number;
+  items: MyStarItem[];
+}
+
+export interface GradingRange {
+  min: number;
+  max: number;
+  label: string;
+}
+
+/** GET/PUT /api/settings/grading (admin) — toggle modul + rentang label nilai akhir. */
+export interface GradingSettings {
+  enabled: boolean;
+  ranges: GradingRange[];
+}
