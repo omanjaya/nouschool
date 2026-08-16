@@ -92,7 +92,7 @@ Fitur DILARANG membuat styling sendiri untuk pola di bawah — pakai komponen be
 | `Skeleton` | placeholder loading list/kartu — bukan spinner fullscreen |
 | `Toast` | konfirmasi aksi ("Absensi tersimpan") — kalimat aktif, tanpa emoji |
 | `Dialog` / `Sheet` | konfirmasi & form pendek; sheet dari bawah di mobile |
-| `DataTable` | tabel admin desktop: header surface-2, zebra off, hairline, kolom angka rata kanan tabular |
+| `DataTable` | tabel admin desktop: header surface-2 sticky, zebra off, hairline, kolom angka rata kanan tabular; sort klik header (client-side, ikon ArrowUpDown), aksi baris via dropdown `MoreHorizontal`, scroll-x |
 | `SegmentedControl` | filter pendek (mis. rentang tanggal) |
 
 ## 7. State wajib (ciri utama non-AI-slop)

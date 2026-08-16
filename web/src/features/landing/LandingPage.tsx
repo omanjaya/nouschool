@@ -1,40 +1,56 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, ClipboardCheck, Globe, MonitorPlay } from 'lucide-react';
+import { BellRing, ClipboardCheck, GraduationCap, MessageCircle, MonitorPlay, QrCode, ShieldAlert } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Field, Input, Textarea } from '../../components/ui/Field';
 import { Button } from '../../components/ui/Button';
+import { BrandMark } from '../branding/BrandMark';
+import { Hero } from '../../components/blocks/landing/Hero';
+import { FeatureGrid, type FeatureItem } from '../../components/blocks/landing/FeatureGrid';
+import { Pricing } from '../../components/blocks/landing/Pricing';
+import { CtaBanner } from '../../components/blocks/landing/Cta';
 import { ApiError } from '../../lib/api';
 import { useSubmitInterest } from './api';
 import type { InterestLeadInput } from '../../lib/types';
 
 const FORM_ANCHOR_ID = 'minat';
+const FEATURES_ANCHOR_ID = 'fitur';
 
-const FEATURES = [
+const FEATURES: FeatureItem[] = [
   {
     icon: ClipboardCheck,
-    title: 'Absensi multi-metode',
-    description: 'Manual, kartu QR, atau check-in lokasi — sekolah pilih yang paling cocok.',
+    title: 'Absensi 3 metode',
+    description: 'Manual, kartu QR, atau check-in lokasi — sekolah pilih yang paling cocok untuk tiap kelas.',
+  },
+  {
+    icon: QrCode,
+    title: 'Izin & dispensasi QR',
+    description: 'Guru dan siswa mengajukan izin dari HP, alur persetujuan mengikuti struktur sekolah.',
+  },
+  {
+    icon: ShieldAlert,
+    title: 'Kedisiplinan & SP otomatis',
+    description: 'Pelanggaran tercatat rapi, surat peringatan terbit otomatis sesuai ambang yang diatur sekolah.',
+  },
+  {
+    icon: GraduationCap,
+    title: 'Penilaian & rapor',
+    description: 'Nilai per mapel terkumpul jadi rapor siswa, siap diunduh tanpa rekap manual.',
   },
   {
     icon: MonitorPlay,
-    title: 'Monitoring guru & TV dashboard',
-    description: 'Lihat siapa yang sedang mengajar, belum masuk kelas, atau izin — real-time.',
+    title: 'Monitoring guru + TV',
+    description: 'Lihat siapa yang sedang mengajar, belum masuk kelas, atau izin — real-time di dashboard TV.',
   },
   {
-    icon: CalendarDays,
-    title: 'Izin online',
-    description: 'Guru mengajukan izin dari HP, alur persetujuan mengikuti struktur sekolah.',
-  },
-  {
-    icon: Globe,
-    title: 'Multi-sekolah, custom domain',
-    description: 'Tiap sekolah punya alamat sendiri, atau pakai domain milik sekolah sendiri.',
+    icon: BellRing,
+    title: 'Notifikasi WA/Push',
+    description: 'Orang tua dan guru dapat kabar penting lewat WhatsApp atau notifikasi aplikasi, otomatis.',
   },
 ];
 
-function scrollToForm() {
-  const el = document.getElementById(FORM_ANCHOR_ID);
+function scrollToId(id: string) {
+  const el = document.getElementById(id);
   if (!el) return;
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   el.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
@@ -43,13 +59,18 @@ function scrollToForm() {
 /**
  * `/` di host platform, hanya untuk pengunjung belum login (App.tsx). Halaman
  * marketing publik — bukan bagian AppShell, tanpa fetch `/api/me` di sini.
+ *
+ * Disusun dari block shadcnblocks (hero7, feature1, pricing1, cta1) yang
+ * diadaptasi penuh ke design system "Rapor" — lihat komentar adaptasi di
+ * masing-masing file `components/blocks/landing/*` dan checklist di
+ * `components/blocks/README.md`.
  */
 export function LandingPage() {
   return (
     <div className="flex min-h-dvh flex-col bg-bg text-ink">
       <header className="border-b border-line">
         <div className="mx-auto flex max-w-[1120px] items-center justify-between px-5 py-4">
-          <span className="text-[16px] font-semibold text-ink">NouSchool</span>
+          <BrandMark layout="row" />
           <Link to="/login" className="text-[13px] font-medium text-primary hover:opacity-80">
             Masuk
           </Link>
@@ -57,61 +78,21 @@ export function LandingPage() {
       </header>
 
       <main className="flex-1">
-        <section className="mx-auto flex max-w-[720px] flex-col items-center gap-5 px-5 py-16 text-center">
-          <h1 className="text-[28px] font-semibold leading-tight text-ink">
-            Absensi &amp; monitoring sekolah dalam satu aplikasi.
-          </h1>
-          <p className="max-w-[520px] text-[14px] text-muted">
-            NouSchool membantu sekolah mengelola absensi siswa, kehadiran mengajar guru, dan izin — dari satu
-            dashboard, tanpa kertas.
-          </p>
-          <Button type="button" onClick={scrollToForm}>
-            Daftar Minat
-          </Button>
-        </section>
+        <Hero onPrimaryCta={() => scrollToId(FORM_ANCHOR_ID)} onSecondaryCta={() => scrollToId(FEATURES_ANCHOR_ID)} />
 
-        <section className="border-t border-line bg-surface-2">
-          <div className="mx-auto grid max-w-[1120px] grid-cols-1 gap-8 px-5 py-14 sm:grid-cols-2">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="flex flex-col gap-2">
-                <f.icon size={20} strokeWidth={2} className="text-primary" aria-hidden="true" />
-                <p className="text-[16px] font-semibold text-ink">{f.title}</p>
-                <p className="text-[13px] text-muted">{f.description}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        <div id={FEATURES_ANCHOR_ID} className="border-t border-line bg-surface-2">
+          <FeatureGrid eyebrow="Fitur" heading="Semua yang sekolah butuhkan, satu aplikasi" items={FEATURES} />
+        </div>
 
-        <section className="mx-auto max-w-[1120px] px-5 py-14">
-          <div className="mb-8 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Harga</p>
-            <h2 className="text-[21px] font-semibold text-ink">Pilih sesuai kebutuhan sekolah</h2>
-          </div>
-          <div className="mx-auto grid max-w-[640px] grid-cols-1 gap-4 sm:grid-cols-2">
-            <Card className="flex flex-col gap-2">
-              <p className="text-[18px] font-semibold text-ink">Basic</p>
-              <p className="text-[13px] text-muted">
-                Absensi, izin, dan data siswa/guru — mulai dari harga per siswa yang terjangkau untuk sekolah yang
-                baru mulai.
-              </p>
-            </Card>
-            <Card className="flex flex-col gap-2">
-              <p className="text-[18px] font-semibold text-ink">Pro</p>
-              <p className="text-[13px] text-muted">
-                Semua fitur Basic ditambah dashboard TV, notifikasi WhatsApp, dan domain sendiri — mulai dari harga
-                per siswa yang sepadan dengan fiturnya.
-              </p>
-            </Card>
-          </div>
-        </section>
+        <Pricing onSelectPlan={() => scrollToId(FORM_ANCHOR_ID)} />
 
         <section id={FORM_ANCHOR_ID} className="border-t border-line bg-surface-2">
-          <div className="mx-auto max-w-[480px] px-5 py-14">
-            <div className="mb-6 text-center">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Tertarik?</p>
-              <h2 className="text-[21px] font-semibold text-ink">Daftarkan Minat Sekolah Anda</h2>
-              <p className="mt-1 text-[13px] text-muted">Tim kami akan menghubungi Anda untuk demo & harga.</p>
-            </div>
+          <div className="mx-auto max-w-[480px] px-5 py-16 lg:py-20">
+            <CtaBanner
+              icon={<MessageCircle size={20} strokeWidth={2} aria-hidden="true" />}
+              heading="Daftarkan Minat Sekolah Anda"
+              description="Tim kami akan menghubungi Anda untuk demo & harga."
+            />
             <InterestForm />
           </div>
         </section>

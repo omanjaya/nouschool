@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, FileSpreadsheet, Plus, Search, Upload, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Eye, FileSpreadsheet, Plus, Search, Upload, Users } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
+import { DataTable, type DataTableColumn } from '../../components/ui/DataTable';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
@@ -13,7 +14,7 @@ import { useClasses } from '../classes/api';
 import { importTemplateUrl } from '../import/api';
 import { useStudents } from './api';
 import { StudentFormDialog } from './StudentFormDialog';
-import type { StudentStatus } from '../../lib/types';
+import type { Student, StudentStatus } from '../../lib/types';
 
 const PER_PAGE = 50;
 
@@ -23,6 +24,13 @@ const STATUS_LABEL: Record<StudentStatus, string> = {
   moved: 'Pindah',
   dropped: 'Keluar',
 };
+
+/** Status akun (docs/03 wali/aktivasi) — `user_id` kosong = belum pernah aktivasi kode undangan. */
+function accountStatusTag(student: Student) {
+  if (!student.user_id) return <Tag variant="neutral">Belum Aktivasi</Tag>;
+  if (student.membership_status === 'inactive') return <Tag variant="danger">Nonaktif</Tag>;
+  return <Tag variant="success">Aktif</Tag>;
+}
 
 export function StudentsListPage() {
   const [qInput, setQInput] = useState('');
@@ -50,6 +58,37 @@ export function StudentsListPage() {
   const start = total === 0 ? 0 : (page - 1) * PER_PAGE + 1;
   const end = Math.min(page * PER_PAGE, total);
   const hasNext = end < total;
+
+  /** Kolom desktop (docs/10 §5 "ListRow di mobile boleh menjadi DataTable di desktop"). */
+  const columns: DataTableColumn<Student>[] = [
+    {
+      key: 'name',
+      header: 'Nama',
+      sortable: true,
+      sortValue: (s) => s.name,
+      cell: (s) => <span className="font-medium text-ink">{s.name}</span>,
+    },
+    {
+      key: 'nis',
+      header: 'NIS',
+      align: 'right',
+      sortable: true,
+      sortValue: (s) => s.nis,
+      cell: (s) => s.nis,
+    },
+    {
+      key: 'class',
+      header: 'Rombel',
+      sortable: true,
+      sortValue: (s) => s.class?.name ?? '',
+      cell: (s) => s.class?.name ?? <span className="text-muted">Belum ada rombel</span>,
+    },
+    {
+      key: 'account',
+      header: 'Status Akun',
+      cell: (s) => accountStatusTag(s),
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
@@ -133,19 +172,35 @@ export function StudentsListPage() {
         />
       ) : (
         <div className={isPlaceholderData ? 'opacity-60 transition-opacity duration-150' : undefined}>
-          {data?.items.map((student) => (
-            <ListRow
-              key={student.id}
-              title={student.name}
-              subtitle={`${student.nis} · ${student.class?.name ?? 'Belum ada rombel'}`}
-              trailing={
-                student.status !== 'active' ? (
-                  <Tag variant="neutral">{STATUS_LABEL[student.status]}</Tag>
-                ) : undefined
-              }
-              onClick={() => navigate(`/data/siswa/${student.id}`)}
+          {/* Mobile: ListRow (docs/10 §5). Desktop: DataTable — sama data, tampilan admin. */}
+          <div className="lg:hidden">
+            {data?.items.map((student) => (
+              <ListRow
+                key={student.id}
+                title={student.name}
+                subtitle={`${student.nis} · ${student.class?.name ?? 'Belum ada rombel'}`}
+                trailing={
+                  student.status !== 'active' ? (
+                    <Tag variant="neutral">{STATUS_LABEL[student.status]}</Tag>
+                  ) : undefined
+                }
+                onClick={() => navigate(`/data/siswa/${student.id}`)}
+              />
+            ))}
+          </div>
+          <div className="hidden lg:block">
+            <DataTable
+              columns={columns}
+              data={data?.items ?? []}
+              keyField={(s) => s.id}
+              onRowClick={(s) => navigate(`/data/siswa/${s.id}`)}
+              actions={(s) => [
+                { label: 'Lihat Detail', icon: Eye, onClick: () => navigate(`/data/siswa/${s.id}`) },
+              ]}
+              emptyIcon={Users}
+              emptyMessage="Belum ada siswa."
             />
-          ))}
+          </div>
         </div>
       )}
 
