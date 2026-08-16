@@ -1900,6 +1900,14 @@ build/vet/test ./...` hijau.
     /api/presence` → 200 `{total,by_role,users}` shape benar (1 koneksi WS admin nyata terdeteksi
     saat verifikasi) → guru `GET /api/presence` → 403 (`teaching:monitor` bukan milik guru)
 
+## Fase 16 — Perombakan UI admin & super admin (feedback user 16 Agu 2026: "masih banyak kosong, sidebar ikut scroll, terlalu banyak whitespace, menu super admin harus lengkap") ⬜
+- ⬜ AppShell: sidebar & top bar STICKY (h-dvh, sidebar fixed/sticky, konten yang scroll) — bug nyata
+- ⬜ Hapus batas lebar konten di layar admin/super admin (pakai lebar penuh dengan padding; docs/10 §5 direvisi: 640px hanya utk form/detail personal)
+- ⬜ Super admin: nav LENGKAP bergrup — Beranda; Sekolah (daftar, tambah/onboarding, minat); Langganan (plans, pendapatan, invoice menunggu); Operasional (outbox, pengumuman platform, audit); Akun (profil) — semua fitur P1-P6 punya menu, bukan hanya kartu
+- ⬜ Admin sekolah: nav sidebar desktop LENGKAP bergrup (Akademik: siswa/rombel/guru/pegawai/mapel/jadwal/jam/ruangan/tugas; Kegiatan: absensi/izin/izin siswa/kedisiplinan/nilai/konseling/pengganti/monitoring/pengumuman; Sistem: pengaturan/hak akses/tagihan) — mobile tetap 5 tab
+- ⬜ Dashboard admin sekolah desktop: isi nyata (StatTile hari ini, daftar perlu tindakan, DataTable terbaru) — bukan tumpukan kartu link
+- ⬜ Terapkan DataTable ke semua daftar admin desktop (guru, pegawai, rombel, mapel, rekap, outbox, pendapatan, sekolah)
+
 ## Ide tertunda (JANGAN dikerjakan tanpa keputusan user)
 - Rapor formal penuh (pemetaan TP, nilai manual/sebelumnya, analisis — sisa konfigurasi lanjutan SION); Surat izin siswa dari ortu → status absen; kuota cuti guru; custom role/permission di DB; opt-out notifikasi per user; RLS Postgres; PKL/magang SMK; SPP/pembayaran siswa; rapor.
 - Deadline koreksi absensi (batas waktu guru boleh mengoreksi record lama sebelum "terkunci permanen" — beda dari `edit_window_hours` yang sudah ada, ini lebih ke kebijakan administratif jangka panjang) & single-device login (satu akun hanya boleh punya satu sesi aktif, cabut sesi lama saat login baru) — disebut eksplisit di docs tugas Fase 14 Gelombang D sebagai "DILEWATI sadar", butuh keputusan user (dampak UX & multi-perangkat cukup besar, terutama single-device utk akun yang dipakai bergantian keluarga/wali).
