@@ -50,6 +50,15 @@ export interface Me {
    * tetap menegakkan lewat `requireFeature` (docs/09 "Feature gating").
    */
   features: string[];
+  /**
+   * Fase 14 Gelombang D — terisi HANYA saat sesi ini adalah hasil "Masuk
+   * sebagai user ini" oleh admin sekolah (beda dari `is_super_admin` sesi
+   * support platform). ASUMSI bentuk: objek kecil berisi nama admin yang
+   * memulai sesi (dipakai teks banner "Mode Impersonasi"), konsisten dengan
+   * pola ref ringkas lain di kontrak (mis. `TeacherRef`). `undefined`/`null`
+   * di luar mode ini — opsional supaya aman kalau backend belum mengirimnya.
+   */
+  impersonated_by?: { name: string } | null;
 }
 
 export interface Branding {
@@ -1742,4 +1751,146 @@ export interface GradingRange {
 export interface GradingSettings {
   enabled: boolean;
   ranges: GradingRange[];
+}
+
+/* ---- Konseling BK (Fase 14 Gelombang D, docs/12-sion-parity.md Gelombang D) ---- */
+
+export interface CounselingStudentRef {
+  id: string;
+  name: string;
+  nis: string;
+  class_name: string;
+}
+
+/** Satu baris `GET /api/counselings?student_id=&page=` → `{items,total}`. */
+export interface CounselingSession {
+  id: string;
+  student: CounselingStudentRef;
+  counselor_id: string;
+  counselor_name: string;
+  career_goals: string;
+  problem_description: string;
+  follow_up_plan: string;
+  has_evidence: boolean;
+  created_at: string;
+}
+
+export interface CounselingListResult {
+  items: CounselingSession[];
+  total: number;
+}
+
+/** POST /api/counselings — multipart, `evidence` (foto/pdf) opsional. */
+export interface CounselingCreateInput {
+  student_id: string;
+  career_goals: string;
+  problem_description: string;
+  follow_up_plan: string;
+  evidence?: File | null;
+}
+
+/**
+ * PATCH /api/counselings/{id} — hanya field teks (bukan multipart; ganti
+ * bukti pakai endpoint terpisah `POST /{id}/evidence`).
+ */
+export interface CounselingUpdateInput {
+  career_goals: string;
+  problem_description: string;
+  follow_up_plan: string;
+}
+
+/* ---- Guru Pengganti / Substitusi (Fase 14 Gelombang D) ---- */
+
+export type SubstitutionStatus = 'pending' | 'accepted' | 'rejected' | 'canceled';
+
+export interface SubstitutionSlotRef {
+  id: string;
+  class_name: string;
+  subject_name: string;
+  day_of_week: DayOfWeek;
+  period_start: number;
+  period_end: number;
+}
+
+/** Satu baris `GET /api/substitutions?scope=mine|for-me|all&date=` → `{items,total}`. */
+export interface SubstitutionRequest {
+  id: string;
+  slot: SubstitutionSlotRef;
+  date: string;
+  requested_by_name: string;
+  substitute_name: string;
+  reason: string;
+  status: SubstitutionStatus;
+  decided_at: string | null;
+  created_at: string;
+}
+
+export interface SubstitutionListResult {
+  items: SubstitutionRequest[];
+  total: number;
+}
+
+/** POST /api/substitutions body. */
+export interface SubstitutionCreateInput {
+  schedule_slot_id: string;
+  date: string;
+  substitute_user_id: string;
+  reason: string;
+}
+
+/* ---- Jam khusus per hari / period overrides (Fase 14 Gelombang D) ---- */
+
+export interface PeriodOverrideItem {
+  number: number;
+  starts_at: string;
+  ends_at: string;
+  label: string | null;
+}
+
+/** GET /api/periods/overrides?day=1..6 — array kosong = ikut jam default. */
+export interface PeriodOverridesResult {
+  periods: PeriodOverrideItem[];
+}
+
+/** PUT /api/periods/overrides — `periods: []` menghapus jadwal khusus hari ini (kembali ikut default). */
+export interface PeriodOverridesInput {
+  day_of_week: DayOfWeek;
+  periods: PeriodOverrideItem[];
+}
+
+/* ---- Kalender presensi siswa (Fase 14 Gelombang D) ---- */
+
+export interface StudentAttendanceCalendarDay {
+  date: string;
+  status: AttendanceStatus | null;
+  note: string | null;
+  session_count: number;
+}
+
+/**
+ * GET /api/students/{id}/attendance/calendar?month=YYYY-MM. ASUMSI bentuk
+ * `counts`: sama pola `StudentAttendanceHistory.counts` (rekap per status
+ * dalam rentang yang sama, di sini satu bulan) — kontrak ringkas tidak
+ * merincinya, tapi konsisten dengan riwayat kehadiran yang sudah eksplisit.
+ */
+export interface StudentAttendanceCalendarResult {
+  days: StudentAttendanceCalendarDay[];
+  counts: Record<AttendanceStatus, number>;
+}
+
+/* ---- Impersonate user oleh admin sekolah (Fase 14 Gelombang D) ---- */
+
+/**
+ * POST /api/users/{id}/impersonate (admin) → shape sama `Me` (auto-login
+ * sebagai user target, `impersonated_by` terisi nama admin). POST
+ * /api/auth/impersonation/stop → shape sama `Me` juga (kembali ke akun admin,
+ * `impersonated_by` kosong lagi). Tidak perlu tipe baru — pakai `Me`.
+ */
+
+/* ---- Template surat / catatan kaki (Fase 14 Gelombang D) ---- */
+
+/** GET/PUT /api/settings/letters (admin). */
+export interface LettersSettings {
+  sp_footer_note: string;
+  leave_footer_note: string;
 }

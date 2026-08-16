@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import type {
   CurrentPeriodResult,
+  DayOfWeek,
   Period,
+  PeriodOverridesInput,
+  PeriodOverridesResult,
   Room,
   ScheduleCopyResult,
   ScheduleSlot,
@@ -36,6 +39,37 @@ export function useSavePeriods() {
     mutationFn: (periods: PeriodInput[]) => api.put<Period[]>('/periods', periods),
     onSuccess: (data) => {
       queryClient.setQueryData(PERIODS_QUERY_KEY, data);
+    },
+  });
+}
+
+/* ---- Jam khusus per hari / period overrides (Fase 14 Gelombang D) ---- */
+
+export function periodOverridesQueryKey(day: DayOfWeek) {
+  return [...PERIODS_QUERY_KEY, 'overrides', day] as const;
+}
+
+/** GET /api/periods/overrides?day=1..6 — `periods: []` berarti hari ini ikut jam default. */
+export function usePeriodOverrides(day: DayOfWeek, enabled = true) {
+  return useQuery({
+    queryKey: periodOverridesQueryKey(day),
+    queryFn: () => api.get<PeriodOverridesResult>(`/periods/overrides?day=${day}`),
+    enabled,
+  });
+}
+
+/**
+ * PUT /api/periods/overrides {day_of_week,periods} — `periods: []` menghapus
+ * jadwal khusus. ASUMSI bentuk respons: sama `PeriodOverridesResult` seperti
+ * GET (kontrak ringkas tidak merincinya, tapi konsisten dengan pola endpoint
+ * lain di modul ini yang mengembalikan snapshot terbaru daripada `undefined`).
+ */
+export function useSavePeriodOverrides() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PeriodOverridesInput) => api.put<PeriodOverridesResult>('/periods/overrides', input),
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(periodOverridesQueryKey(variables.day_of_week), data);
     },
   });
 }

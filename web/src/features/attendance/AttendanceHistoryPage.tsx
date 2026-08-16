@@ -11,15 +11,23 @@ import { Field, Select } from '../../components/ui/Field';
 import { formatDate, isoDateDaysAgo, todayISODate } from '../../lib/date';
 import { useMe } from '../auth/api';
 import { useChildren, useStudentAttendanceHistory } from './api';
+import { AttendanceCalendar } from './AttendanceCalendar';
 
 type RangeOption = '30' | '180';
+type ViewMode = 'list' | 'calendar';
 
 const RANGE_OPTIONS: SegmentedOption<RangeOption>[] = [
   { value: '30', label: '30 Hari' },
   { value: '180', label: 'Semester' },
 ];
 
+const VIEW_OPTIONS: SegmentedOption<ViewMode>[] = [
+  { value: 'list', label: 'Daftar' },
+  { value: 'calendar', label: 'Kalender' },
+];
+
 function AttendanceHistoryBody({ studentId }: { studentId: string }) {
+  const [view, setView] = useState<ViewMode>('list');
   const [range, setRange] = useState<RangeOption>('30');
   const to = todayISODate();
   const from = isoDateDaysAgo(Number(range), to);
@@ -27,41 +35,49 @@ function AttendanceHistoryBody({ studentId }: { studentId: string }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <SegmentedControl options={RANGE_OPTIONS} value={range} onChange={setRange} />
+      <SegmentedControl options={VIEW_OPTIONS} value={view} onChange={setView} />
 
-      {isLoading ? (
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-      ) : isError ? (
-        <ErrorState message="Gagal memuat riwayat kehadiran." onRetry={() => refetch()} />
-      ) : data ? (
+      {view === 'calendar' ? (
+        <AttendanceCalendar studentId={studentId} />
+      ) : (
         <>
-          <div className="grid grid-cols-3 gap-x-2 gap-y-4">
-            <StatTile label="Hadir" value={data.counts.hadir} />
-            <StatTile label="Terlambat" value={data.counts.terlambat} />
-            <StatTile label="Izin" value={data.counts.izin} />
-            <StatTile label="Sakit" value={data.counts.sakit} />
-            <StatTile label="Alpa" value={data.counts.alpa} variant={data.counts.alpa > 0 ? 'danger' : 'default'} />
-          </div>
+          <SegmentedControl options={RANGE_OPTIONS} value={range} onChange={setRange} />
 
-          {data.items.length === 0 ? (
-            <EmptyState message="Belum ada catatan kehadiran." />
-          ) : (
-            <div>
-              {data.items.map((item, idx) => (
-                <ListRow
-                  key={`${item.date}-${idx}`}
-                  title={formatDate(item.date)}
-                  subtitle={item.note ?? undefined}
-                  trailing={<StatusChip status={item.status} size="md" />}
-                />
-              ))}
+          {isLoading ? (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-14 w-full" />
             </div>
-          )}
+          ) : isError ? (
+            <ErrorState message="Gagal memuat riwayat kehadiran." onRetry={() => refetch()} />
+          ) : data ? (
+            <>
+              <div className="grid grid-cols-3 gap-x-2 gap-y-4">
+                <StatTile label="Hadir" value={data.counts.hadir} />
+                <StatTile label="Terlambat" value={data.counts.terlambat} />
+                <StatTile label="Izin" value={data.counts.izin} />
+                <StatTile label="Sakit" value={data.counts.sakit} />
+                <StatTile label="Alpa" value={data.counts.alpa} variant={data.counts.alpa > 0 ? 'danger' : 'default'} />
+              </div>
+
+              {data.items.length === 0 ? (
+                <EmptyState message="Belum ada catatan kehadiran." />
+              ) : (
+                <div>
+                  {data.items.map((item, idx) => (
+                    <ListRow
+                      key={`${item.date}-${idx}`}
+                      title={formatDate(item.date)}
+                      subtitle={item.note ?? undefined}
+                      trailing={<StatusChip status={item.status} size="md" />}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          ) : null}
         </>
-      ) : null}
+      )}
     </div>
   );
 }

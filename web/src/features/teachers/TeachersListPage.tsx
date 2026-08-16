@@ -1,21 +1,26 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, Plus, Upload, UserRound } from 'lucide-react';
+import { FileSpreadsheet, LogIn, Pencil, Plus, Upload, UserRound } from 'lucide-react';
 import { ListRow } from '../../components/ui/ListRow';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Button } from '../../components/ui/Button';
 import { importTemplateUrl } from '../import/api';
+import { useMe } from '../auth/api';
+import { ImpersonateUserDialog } from '../impersonateuser/ImpersonateUserDialog';
 import { useTeachers } from './api';
 import { TeacherFormDialog } from './TeacherFormDialog';
 import type { Teacher } from '../../lib/types';
 
 export function TeachersListPage() {
+  const { data: me } = useMe();
   const { data: teachers, isLoading, isError, refetch } = useTeachers();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Teacher | undefined>();
+  const [impersonating, setImpersonating] = useState<Teacher | undefined>();
   const navigate = useNavigate();
+  const canImpersonate = me?.role === 'admin_sekolah';
 
   function openEdit(t: Teacher) {
     setEditing(t);
@@ -73,13 +78,42 @@ export function TeachersListPage() {
               key={t.id}
               title={t.name}
               subtitle={[t.nip, t.email].filter(Boolean).join(' · ') || undefined}
-              onClick={() => openEdit(t)}
+              trailing={
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(t)}
+                    aria-label={`Ubah ${t.name}`}
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+                  >
+                    <Pencil size={16} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                  {canImpersonate && (
+                    <button
+                      type="button"
+                      onClick={() => setImpersonating(t)}
+                      aria-label={`Masuk sebagai ${t.name}`}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+                    >
+                      <LogIn size={16} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              }
             />
           ))}
         </div>
       )}
 
       <TeacherFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} teacher={editing} />
+      {impersonating && (
+        <ImpersonateUserDialog
+          open={impersonating !== undefined}
+          onClose={() => setImpersonating(undefined)}
+          userId={impersonating.user_id}
+          userName={impersonating.name}
+        />
+      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import type {
   SelfCheckinInput,
   SelfCheckinResult,
   SelfCheckinStatus,
+  StudentAttendanceCalendarResult,
   StudentAttendanceHistory,
   StudentQrCard,
 } from '../../lib/types';
@@ -134,6 +135,18 @@ export function useStudentAttendanceHistory(studentId: string | undefined, from:
   return useQuery({
     queryKey: [ATTENDANCE_HISTORY_KEY, studentId, from, to],
     queryFn: () => api.get<StudentAttendanceHistory>(`/students/${studentId}/attendance?from=${from}&to=${to}`),
+    enabled: Boolean(studentId),
+  });
+}
+
+export const ATTENDANCE_CALENDAR_KEY = 'attendance-calendar' as const;
+
+/** GET /api/students/{id}/attendance/calendar?month=YYYY-MM — kalender bulanan (Fase 14 Gelombang D). */
+export function useStudentAttendanceCalendar(studentId: string | undefined, month: string) {
+  return useQuery({
+    queryKey: [ATTENDANCE_CALENDAR_KEY, studentId, month],
+    queryFn: () =>
+      api.get<StudentAttendanceCalendarResult>(`/students/${studentId}/attendance/calendar?month=${month}`),
     enabled: Boolean(studentId),
   });
 }

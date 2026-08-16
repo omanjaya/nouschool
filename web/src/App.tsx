@@ -15,6 +15,8 @@ import {
   AlarmClock,
   GraduationCap,
   Star,
+  HeartHandshake,
+  Repeat,
 } from 'lucide-react';
 import { formatTimeOfDay } from './lib/date';
 import { hasFeature } from './lib/features';
@@ -143,6 +145,16 @@ import { STUDENTS_QUERY_KEY } from './features/students/api';
 import { CLASSES_QUERY_KEY } from './features/classes/api';
 import { TEACHERS_QUERY_KEY } from './features/teachers/api';
 import { SUBJECTS_QUERY_KEY } from './features/subjects/api';
+import { CounselingPage } from './features/counseling/CounselingPage';
+import { useCounselingAccess } from './features/counseling/api';
+import { SubstitutionPage } from './features/substitution/SubstitutionPage';
+import {
+  SubstitutionAllPage,
+  SubstitutionForMePage,
+  SubstitutionIndexPage,
+} from './features/substitution/SubstitutionListPage';
+import { SUBSTITUTION_KEY } from './features/substitution/api';
+import { useStopImpersonation } from './features/impersonateuser/api';
 import type { Me } from './lib/types';
 
 /**
@@ -282,6 +294,59 @@ function MyStarsCard({ me }: { me: Me }) {
   );
 }
 
+/**
+ * Kartu "Konseling BK" Beranda (Fase 14 Gelombang D) — admin & kepsek selalu
+ * tampil; guru hanya tampil kalau pemegang flag BK (`leave_issuance`) —
+ * dideteksi lewat probe `GET /api/counselings?page=1` (403 = bukan BK,
+ * kartu disembunyikan tanpa pernah merender error, docs/10 #7 tidak berlaku
+ * untuk gating akses).
+ */
+function CounselingCard({ me }: { me: Me }) {
+  const navigate = useNavigate();
+  const isGuru = me.role === 'guru';
+  const { data, isError } = useCounselingAccess(isGuru);
+
+  if (isGuru && (isError || !data)) return null;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <p className="text-[14px] font-semibold text-ink">Konseling BK</p>
+        <p className="text-[12px] text-muted">
+          {me.role === 'kepala_sekolah'
+            ? 'Lihat sesi konseling yang tercatat.'
+            : 'Catat & kelola sesi konseling siswa.'}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => navigate('/konseling')}>
+          <HeartHandshake size={16} strokeWidth={2} aria-hidden="true" />
+          Buka Konseling
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** Kartu "Guru Pengganti" Beranda guru (Fase 14 Gelombang D). */
+function SubstitutionCard() {
+  const navigate = useNavigate();
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <p className="text-[14px] font-semibold text-ink">Guru Pengganti</p>
+        <p className="text-[12px] text-muted">Ajukan atau tanggapi permintaan menggantikan jam mengajar.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => navigate('/pengganti')}>
+          <Repeat size={16} strokeWidth={2} aria-hidden="true" />
+          Buka Guru Pengganti
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function BerandaPage({ me }: { me: Me }) {
   const greeting = getGreeting(new Date().getHours());
   const navigate = useNavigate();
@@ -338,6 +403,11 @@ function BerandaPage({ me }: { me: Me }) {
   // Kartu "Gerbang" + pengumuman — Beranda pegawai (Fase 14 Gelombang B2,
   // role staf non-guru belum pernah punya kartu Beranda sebelum ini).
   const isPegawai = me.role === 'pegawai';
+  // Kartu "Konseling BK" (Fase 14 Gelombang D) — admin & kepsek selalu; guru
+  // digating sendiri di dalam `CounselingCard` lewat probe 403.
+  const canViewCounseling = me.role === 'admin_sekolah' || me.role === 'kepala_sekolah' || me.role === 'guru';
+  // Kartu "Guru Pengganti" (Fase 14 Gelombang D) — hanya guru (yang punya jadwal mengajar untuk diajukan penggantiannya).
+  const canRequestSubstitution = me.role === 'guru';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -472,6 +542,10 @@ function BerandaPage({ me }: { me: Me }) {
           </div>
         </Card>
       )}
+
+      {canRequestSubstitution && <SubstitutionCard />}
+
+      {canViewCounseling && <CounselingCard me={me} />}
 
       {canManageDiscipline && (
         <Card className="flex flex-col gap-3">
@@ -672,11 +746,16 @@ function useRealtime(queryClient: QueryClient) {
       queryClient.invalidateQueries({ queryKey: TV_BOARD_QUERY_KEY });
     },
     // {} — slot jadwal builder + jadwal hari ini (guru/siswa) + jam & ruangan.
+    // Fase 14 Gelombang D: guru pengganti (accept/reject/cancel) juga
+    // dipublish lewat event `schedule` ini oleh backend (bukan event baru) —
+    // lihat kontrak "TIDAK ada event realtime baru" di docs/12-sion-parity.md
+    // Gelombang D — jadi ikut invalidasi daftar `/pengganti` di sini.
     schedule: () => {
       queryClient.invalidateQueries({ queryKey: [SCHEDULE_SLOTS_QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: ['schedule-today'] });
       queryClient.invalidateQueries({ queryKey: PERIODS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ROOMS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: [SUBSTITUTION_KEY] });
     },
     // {} — langganan/invoice + /api/me (subscription & features snapshot dipakai feature gating).
     billing: () => {
@@ -797,6 +876,39 @@ function ImpersonationBanner({ me, onEndSession }: { me: Me; onEndSession: () =>
   );
 }
 
+/**
+ * Garis tipis "Mode impersonasi" (Fase 14 Gelombang D) — tampil hanya saat
+ * `me.impersonated_by` terisi (admin sekolah sedang "masuk sebagai" user
+ * lain DI SEKOLAH YANG SAMA). Kondisi ini TIDAK PERNAH bentrok dengan
+ * `ImpersonationBanner` di atas (super admin lintas sekolah): itu memakai
+ * `is_super_admin && school`, ini memakai `impersonated_by` — dua sinyal
+ * berbeda dari backend, tidak pernah aktif bersamaan pada sesi yang sama.
+ * Token `--st-terlambat` (warning) — beda dari `--st-izin` (info) yang
+ * dipakai sesi support super admin, supaya kedua mode tetap bisa dibedakan
+ * seandainya suatu saat tersusun (mis. dari screenshot dukungan pengguna).
+ */
+function ImpersonatedUserBanner({ me, onReturn }: { me: Me; onReturn: () => void }) {
+  if (!me.impersonated_by) return null;
+
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-st-terlambat-line px-4 py-1.5 text-center text-[11px] font-medium text-st-terlambat"
+    >
+      <span>
+        Mode impersonasi — Anda masuk sebagai {me.name} (oleh {me.impersonated_by.name}). Semua tindakan tercatat.
+      </span>
+      <button
+        type="button"
+        onClick={onReturn}
+        className="font-semibold underline underline-offset-2 hover:opacity-80"
+      >
+        Kembali ke Akun Admin
+      </button>
+    </div>
+  );
+}
+
 /** Rute + AppShell untuk pengguna yang sudah login — nav & sapaan mengikuti /api/me. */
 function AuthenticatedShell() {
   const { data: me } = useMe();
@@ -804,6 +916,7 @@ function AuthenticatedShell() {
   const logout = useLogout();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const stopImpersonation = useStopImpersonation();
 
   // Hooks harus tetap dipanggil tanpa syarat (react-hooks/rules-of-hooks) —
   // dihitung dari `me` yang mungkin belum ada, baru cabang render (return
@@ -835,6 +948,12 @@ function AuthenticatedShell() {
   async function handleLogout() {
     await logout.mutateAsync();
     navigate('/login', { replace: true });
+  }
+
+  function handleReturnToAdmin() {
+    stopImpersonation.mutate(undefined, {
+      onSuccess: () => navigate('/data', { replace: true }),
+    });
   }
 
   // Super admin di HOST PLATFORM: hanya rute admin — rute tenant (absensi,
@@ -870,6 +989,7 @@ function AuthenticatedShell() {
       logoUrl={brandLogoUrl}
     >
       <ImpersonationBanner me={me} onEndSession={handleLogout} />
+      <ImpersonatedUserBanner me={me} onReturn={handleReturnToAdmin} />
       <RealtimeReconnectBanner />
       <SubscriptionBanner me={me} />
       <Routes>
@@ -982,6 +1102,15 @@ function AuthenticatedShell() {
         </Route>
         <Route path="/nilai-saya" element={<MyGradesPage />} />
         <Route path="/bintang-saya" element={<MyStarsPage />} />
+
+        {/* Fase 14 Gelombang D (docs/12-sion-parity.md Gelombang D) — konseling BK
+            & guru pengganti. */}
+        <Route path="/konseling" element={<CounselingPage />} />
+        <Route path="/pengganti" element={<SubstitutionPage />}>
+          <Route index element={<SubstitutionIndexPage />} />
+          <Route path="untuk-saya" element={<SubstitutionForMePage />} />
+          <Route path="semua" element={<SubstitutionAllPage />} />
+        </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

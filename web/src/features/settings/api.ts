@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { PUBLIC_CONTEXT_QUERY_KEY } from '../branding/api';
-import type { Branding, CustomDomainStatus } from '../../lib/types';
+import type { Branding, CustomDomainStatus, LettersSettings } from '../../lib/types';
 
 export const BRANDING_QUERY_KEY = ['settings', 'branding'] as const;
 
@@ -82,6 +82,29 @@ export function useDeleteCustomDomain() {
     mutationFn: () => api.delete<undefined>('/custom-domain'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: CUSTOM_DOMAIN_QUERY_KEY });
+    },
+  });
+}
+
+/* ---- Template surat / catatan kaki (Fase 14 Gelombang D) ---- */
+
+export const LETTERS_SETTINGS_QUERY_KEY = ['settings', 'letters'] as const;
+
+/** GET /api/settings/letters (admin). */
+export function useLettersSettings() {
+  return useQuery({
+    queryKey: LETTERS_SETTINGS_QUERY_KEY,
+    queryFn: () => api.get<LettersSettings>('/settings/letters'),
+  });
+}
+
+/** PUT /api/settings/letters (admin). */
+export function useUpdateLettersSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: LettersSettings) => api.put<LettersSettings>('/settings/letters', input),
+    onSuccess: (data) => {
+      queryClient.setQueryData(LETTERS_SETTINGS_QUERY_KEY, data);
     },
   });
 }

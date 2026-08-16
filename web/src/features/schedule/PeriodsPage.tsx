@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Clock, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Field';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { SegmentedControl, type SegmentedOption } from '../../components/ui/SegmentedControl';
 import { useToast } from '../../components/ui/Toast';
 import { ApiError } from '../../lib/api';
-import { addMinutes, timeToMinutes } from './format';
-import { usePeriods, useSavePeriods, type PeriodInput } from './api';
+import { addMinutes, DAY_LABELS, timeToMinutes } from './format';
+import { usePeriodOverrides, usePeriods, useSavePeriodOverrides, useSavePeriods, type PeriodInput } from './api';
+import type { DayOfWeek } from '../../lib/types';
 
 interface PeriodRow {
   key: string;
@@ -25,68 +27,90 @@ function nextRowKey(): string {
 
 const DEFAULT_DURATION_MIN = 45;
 
-/** /data/jam — editor jam pelajaran (admin): daftar baris inline-editable, satu tombol Simpan (PUT replace-all). */
-export function PeriodsPage() {
-  const { data: periods, isLoading, isError, refetch } = usePeriods();
-  const savePeriods = useSavePeriods();
-  const { showToast } = useToast();
+type DayTab = 'default' | DayOfWeek;
 
-  const [rows, setRows] = useState<PeriodRow[] | null>(null);
+const ALL_DAYS: DayOfWeek[] = [1, 2, 3, 4, 5, 6];
+
+const DAY_TAB_OPTIONS: SegmentedOption<string>[] = [
+  { value: 'default', label: 'Default' },
+  ...ALL_DAYS.map((d) => ({ value: String(d), label: DAY_LABELS[d].slice(0, 3) })),
+];
+
+function toRows(list: { number: number; starts_at: string; ends_at: string; label: string | null }[]): PeriodRow[] {
+  return list
+    .slice()
+    .sort((a, b) => a.number - b.number)
+    .map((p) => ({ key: nextRowKey(), starts_at: p.starts_at, ends_at: p.ends_at, label: p.label ?? '' }));
+}
+
+function validateRows(list: PeriodRow[]): Record<string, string> {
+  const errors: Record<string, string> = {};
+  list.forEach((row, i) => {
+    if (!row.starts_at || !row.ends_at) {
+      errors[row.key] = 'Jam mulai & jam selesai wajib diisi.';
+      return;
+    }
+    if (timeToMinutes(row.ends_at) <= timeToMinutes(row.starts_at)) {
+      errors[row.key] = 'Jam selesai harus setelah jam mulai.';
+      return;
+    }
+    const prev = list[i - 1];
+    if (prev && timeToMinutes(row.starts_at) < timeToMinutes(prev.ends_at)) {
+      errors[row.key] = `Bertumpuk dengan jam ke-${i} (${prev.starts_at}–${prev.ends_at}).`;
+    }
+  });
+  return errors;
+}
+
+function SkeletonRows() {
+  return (
+    <div className="flex flex-col gap-2">
+      <Skeleton className="h-12 w-full" />
+      <Skeleton className="h-12 w-full" />
+      <Skeleton className="h-12 w-full" />
+    </div>
+  );
+}
+
+interface PeriodRowsEditorProps {
+  initialRows: PeriodRow[];
+  onSave: (payload: PeriodInput[]) => void;
+  saving: boolean;
+  saveError?: string | null;
+  saveLabel: string;
+  /** Tombol tambahan di sebelah Simpan — mis. "Hapus jadwal khusus" untuk override yang sudah ada. */
+  extraActions?: ReactNode;
+}
+
+/**
+ * Editor baris jam inline-editable (satu tombol Simpan) — dipakai baik untuk
+ * jam default (`PUT /api/periods`) maupun jam khusus per hari (`PUT
+ * /api/periods/overrides`). Di-`key`-kan per tab pemanggil (lihat
+ * `PeriodsPage`) supaya state lokal selalu mulai bersih saat berpindah tab.
+ */
+function PeriodRowsEditor({ initialRows, onSave, saving, saveError, saveLabel, extraActions }: PeriodRowsEditorProps) {
+  const [rows, setRows] = useState<PeriodRow[]>(initialRows);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
 
-  // Inisialisasi state lokal sekali saat data pertama kali datang — perubahan
-  // berikutnya (refetch invalidasi setelah save) tidak menimpa draft yang sedang diedit.
-  useEffect(() => {
-    if (periods && rows === null) {
-      setRows(
-        periods
-          .slice()
-          .sort((a, b) => a.number - b.number)
-          .map((p) => ({ key: p.id, starts_at: p.starts_at, ends_at: p.ends_at, label: p.label ?? '' })),
-      );
-    }
-  }, [periods, rows]);
-
   function updateRow(key: string, patch: Partial<PeriodRow>) {
-    setRows((prev) => prev?.map((r) => (r.key === key ? { ...r, ...patch } : r)) ?? prev);
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
   function addRow() {
     setRows((prev) => {
-      const list = prev ?? [];
-      const last = list[list.length - 1];
+      const last = prev[prev.length - 1];
       const starts_at = last ? last.ends_at : '07:00';
       const ends_at = addMinutes(starts_at, DEFAULT_DURATION_MIN);
-      return [...list, { key: nextRowKey(), starts_at, ends_at, label: '' }];
+      return [...prev, { key: nextRowKey(), starts_at, ends_at, label: '' }];
     });
   }
 
   function removeRow(key: string) {
-    setRows((prev) => prev?.filter((r) => r.key !== key) ?? prev);
-  }
-
-  function validate(list: PeriodRow[]): Record<string, string> {
-    const errors: Record<string, string> = {};
-    list.forEach((row, i) => {
-      if (!row.starts_at || !row.ends_at) {
-        errors[row.key] = 'Jam mulai & jam selesai wajib diisi.';
-        return;
-      }
-      if (timeToMinutes(row.ends_at) <= timeToMinutes(row.starts_at)) {
-        errors[row.key] = 'Jam selesai harus setelah jam mulai.';
-        return;
-      }
-      const prev = list[i - 1];
-      if (prev && timeToMinutes(row.starts_at) < timeToMinutes(prev.ends_at)) {
-        errors[row.key] = `Bertumpuk dengan jam ke-${i} (${prev.starts_at}–${prev.ends_at}).`;
-      }
-    });
-    return errors;
+    setRows((prev) => prev.filter((r) => r.key !== key));
   }
 
   function handleSave() {
-    if (!rows) return;
-    const errors = validate(rows);
+    const errors = validateRows(rows);
     setRowErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -96,28 +120,7 @@ export function PeriodsPage() {
       ends_at: r.ends_at,
       label: r.label.trim() || null,
     }));
-
-    savePeriods.mutate(payload, {
-      onSuccess: (data) => {
-        setRows(data.slice().sort((a, b) => a.number - b.number).map((p) => ({ key: p.id, starts_at: p.starts_at, ends_at: p.ends_at, label: p.label ?? '' })));
-        setRowErrors({});
-        showToast('Jam pelajaran tersimpan.');
-      },
-    });
-  }
-
-  if (isLoading || rows === null) {
-    return (
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return <ErrorState message="Gagal memuat jam pelajaran." onRetry={() => refetch()} />;
+    onSave(payload);
   }
 
   return (
@@ -189,17 +192,147 @@ export function PeriodsPage() {
         </div>
       )}
 
-      {savePeriods.isError && (
-        <p className="text-[12px] text-danger">
-          {savePeriods.error instanceof ApiError ? savePeriods.error.message : 'Gagal menyimpan jam pelajaran.'}
-        </p>
-      )}
+      {saveError && <p className="text-[12px] text-danger">{saveError}</p>}
 
-      <div>
-        <Button onClick={handleSave} loading={savePeriods.isPending} disabled={rows.length === 0}>
-          Simpan
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={handleSave} loading={saving} disabled={rows.length === 0}>
+          {saveLabel}
         </Button>
+        {extraActions}
       </div>
+    </div>
+  );
+}
+
+/**
+ * /data/jam — editor jam pelajaran (admin). SegmentedControl hari: "Default"
+ * (editor lama, `PUT /api/periods`) atau Senin..Sabtu (jam khusus per hari,
+ * Fase 14 Gelombang D §Period day overrides, `GET/PUT /api/periods/overrides`).
+ * Hari tanpa jadwal khusus mengikuti jam default sampai admin membuatnya
+ * sendiri (prefill dari jam default) — konsisten dengan makna "kosong = ikut
+ * default" di kontrak.
+ */
+export function PeriodsPage() {
+  const { showToast } = useToast();
+  const [dayTab, setDayTab] = useState<DayTab>('default');
+  const [creatingOverride, setCreatingOverride] = useState(false);
+
+  const isDefault = dayTab === 'default';
+  const day: DayOfWeek | undefined = isDefault ? undefined : dayTab;
+
+  const { data: periods, isLoading: defaultLoading, isError: defaultError, refetch: refetchDefault } = usePeriods();
+  const savePeriods = useSavePeriods();
+
+  const {
+    data: overrides,
+    isLoading: overridesLoading,
+    isError: overridesError,
+    refetch: refetchOverrides,
+  } = usePeriodOverrides(day ?? 1, !isDefault);
+  const saveOverrides = useSavePeriodOverrides();
+
+  useEffect(() => {
+    setCreatingOverride(false);
+  }, [dayTab]);
+
+  function handleSaveDefault(payload: PeriodInput[]) {
+    savePeriods.mutate(payload, {
+      onSuccess: () => showToast('Jam pelajaran tersimpan.'),
+    });
+  }
+
+  function handleSaveOverride(payload: PeriodInput[]) {
+    if (!day) return;
+    saveOverrides.mutate(
+      { day_of_week: day, periods: payload },
+      {
+        onSuccess: () => {
+          showToast(`Jam khusus ${DAY_LABELS[day]} tersimpan.`);
+          setCreatingOverride(false);
+        },
+      },
+    );
+  }
+
+  function handleDeleteOverride() {
+    if (!day) return;
+    saveOverrides.mutate(
+      { day_of_week: day, periods: [] },
+      {
+        onSuccess: () => showToast(`Jadwal khusus ${DAY_LABELS[day]} dihapus — kembali mengikuti jam default.`),
+      },
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SegmentedControl
+        options={DAY_TAB_OPTIONS}
+        value={isDefault ? 'default' : String(dayTab)}
+        onChange={(v) => setDayTab(v === 'default' ? 'default' : (Number(v) as DayOfWeek))}
+        className="w-full overflow-x-auto"
+      />
+
+      {isDefault ? (
+        defaultLoading ? (
+          <SkeletonRows />
+        ) : defaultError ? (
+          <ErrorState message="Gagal memuat jam pelajaran." onRetry={() => refetchDefault()} />
+        ) : (
+          <PeriodRowsEditor
+            key="default"
+            initialRows={toRows(periods ?? [])}
+            onSave={handleSaveDefault}
+            saving={savePeriods.isPending}
+            saveError={
+              savePeriods.isError
+                ? savePeriods.error instanceof ApiError
+                  ? savePeriods.error.message
+                  : 'Gagal menyimpan jam pelajaran.'
+                : null
+            }
+            saveLabel="Simpan"
+          />
+        )
+      ) : overridesLoading ? (
+        <SkeletonRows />
+      ) : overridesError ? (
+        <ErrorState message="Gagal memuat jam khusus." onRetry={() => refetchOverrides()} />
+      ) : overrides && overrides.periods.length === 0 && !creatingOverride ? (
+        <EmptyState
+          icon={Clock}
+          message={`Mengikuti jam default. Belum ada jadwal khusus untuk hari ${DAY_LABELS[day!]}.`}
+          action={
+            <Button variant="secondary" onClick={() => setCreatingOverride(true)}>
+              Buat jadwal khusus {DAY_LABELS[day!]}
+            </Button>
+          }
+        />
+      ) : (
+        <PeriodRowsEditor
+          key={dayTab}
+          initialRows={
+            overrides && overrides.periods.length > 0 ? toRows(overrides.periods) : toRows(periods ?? [])
+          }
+          onSave={handleSaveOverride}
+          saving={saveOverrides.isPending}
+          saveError={
+            saveOverrides.isError
+              ? saveOverrides.error instanceof ApiError
+                ? saveOverrides.error.message
+                : 'Gagal menyimpan jam khusus.'
+              : null
+          }
+          saveLabel={`Simpan Jam Khusus ${DAY_LABELS[day!]}`}
+          extraActions={
+            overrides && overrides.periods.length > 0 ? (
+              <Button variant="danger" onClick={handleDeleteOverride} loading={saveOverrides.isPending}>
+                Hapus jadwal khusus
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
     </div>
   );
 }

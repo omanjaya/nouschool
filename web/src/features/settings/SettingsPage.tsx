@@ -16,6 +16,7 @@ import { LeaveSettingsSection } from '../leave/LeaveSettingsSection';
 import { AttendanceSettingsSection } from '../attendance/AttendanceSettingsSection';
 import { GradingSettingsSection } from '../grading/GradingSettingsSection';
 import { CustomDomainSection } from './CustomDomainSection';
+import { LettersSettingsSection } from './LettersSettingsSection';
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -66,6 +67,13 @@ export function SettingsPage() {
           <h2 className="text-[18px] font-semibold text-ink">Pengaturan Penilaian</h2>
         </div>
         <GradingSettingsSection />
+      </div>
+      <div className="flex flex-col gap-4 border-t border-line pt-6">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Surat</p>
+          <h2 className="text-[18px] font-semibold text-ink">Catatan Kaki Surat</h2>
+        </div>
+        <LettersSettingsSection />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft, Pencil, UserX } from 'lucide-react';
+import { ChevronLeft, LogIn, Pencil, UserX } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -8,6 +8,8 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { Tag } from '../../components/ui/Tag';
 import { Button } from '../../components/ui/Button';
 import { formatDate } from '../../lib/date';
+import { useMe } from '../auth/api';
+import { ImpersonateUserDialog } from '../impersonateuser/ImpersonateUserDialog';
 import { useStudent } from './api';
 import { StudentFormDialog } from './StudentFormDialog';
 import type { StudentStatus } from '../../lib/types';
@@ -32,8 +34,10 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 export function StudentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { data: me } = useMe();
   const { data: student, isLoading, isError, refetch } = useStudent(id);
   const [editOpen, setEditOpen] = useState(false);
+  const [impersonateOpen, setImpersonateOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -61,6 +65,7 @@ export function StudentDetailPage() {
   }
 
   const hasAccount = Boolean(student.user_id);
+  const canImpersonate = me?.role === 'admin_sekolah' && hasAccount;
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -110,9 +115,23 @@ export function StudentDetailPage() {
           </div>
           <Tag variant={hasAccount ? 'now' : 'neutral'}>{hasAccount ? 'Aktif' : 'Belum aktivasi'}</Tag>
         </Card>
+        {canImpersonate && (
+          <Button variant="secondary" className="mt-3" onClick={() => setImpersonateOpen(true)}>
+            <LogIn size={16} strokeWidth={2} aria-hidden="true" />
+            Masuk sebagai Siswa Ini
+          </Button>
+        )}
       </div>
 
       <StudentFormDialog open={editOpen} onClose={() => setEditOpen(false)} student={student} />
+      {canImpersonate && student.user_id && (
+        <ImpersonateUserDialog
+          open={impersonateOpen}
+          onClose={() => setImpersonateOpen(false)}
+          userId={student.user_id}
+          userName={student.name}
+        />
+      )}
     </div>
   );
 }
