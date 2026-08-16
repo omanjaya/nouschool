@@ -18,6 +18,7 @@ import { useRealtimeEvents } from '../../lib/realtime';
 import { useMe } from '../auth/api';
 import { useAttendanceScan, useAttendanceSession, useFinalizeAttendanceSession, useSaveAttendanceRecords } from './api';
 import { AttendanceNoteDialog } from './AttendanceNoteDialog';
+import { RecordViolationDialog } from '../discipline/RecordViolationDialog';
 import type { AttendanceRecordInput, AttendanceSessionResult, AttendanceStatus } from '../../lib/types';
 
 /** Nilai sama diabaikan kalau terpindai lagi dalam jendela ini (kartu tetap di depan kamera). */
@@ -66,6 +67,10 @@ export function AttendanceSessionPage() {
   const [dirty, setDirty] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
   const [noteStudentId, setNoteStudentId] = useState<string | null>(null);
+  // Fase 14 Gelombang A: aksi sekunder "Catat Pelanggaran" dari dialog catatan —
+  // siswa target dialog pelanggaran BOLEH beda dari `noteStudentId` (dialog
+  // catatan ditutup dulu supaya tidak menumpuk dua dialog sekaligus).
+  const [violationStudentId, setViolationStudentId] = useState<string | null>(null);
   const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   // Fase 12 (docs/06 dkk): perangkat lain mengubah sesi yang SAMA sedang
@@ -305,6 +310,9 @@ export function AttendanceSessionPage() {
   }
 
   const noteStudent = noteStudentId ? data.students.find((s) => s.student_id === noteStudentId) : undefined;
+  const violationStudent = violationStudentId
+    ? data.students.find((s) => s.student_id === violationStudentId)
+    : undefined;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -419,8 +427,32 @@ export function AttendanceSessionPage() {
           readOnly={isReadOnly}
           onClose={() => setNoteStudentId(null)}
           onSave={(note) => saveNote(noteStudent.student_id, note)}
+          onRecordViolation={
+            isReadOnly
+              ? undefined
+              : () => {
+                  setViolationStudentId(noteStudent.student_id);
+                  setNoteStudentId(null);
+                }
+          }
         />
       )}
+
+      <RecordViolationDialog
+        open={Boolean(violationStudentId)}
+        onClose={() => setViolationStudentId(null)}
+        presetStudent={
+          violationStudent
+            ? {
+                id: violationStudent.student_id,
+                name: violationStudent.name,
+                nis: violationStudent.nis,
+                class_name: data.session.class_name,
+              }
+            : undefined
+        }
+        attendanceSessionId={data.session.id}
+      />
 
       <Dialog open={confirmFinalizeOpen} onClose={() => setConfirmFinalizeOpen(false)} title="Kunci sesi absensi?">
         <p className="text-[14px] text-ink">Setelah dikunci hanya admin yang bisa mengubah.</p>

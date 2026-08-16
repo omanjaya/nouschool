@@ -1161,3 +1161,131 @@ export interface AdminRevenueResult {
   months: AdminRevenueMonth[];
   by_plan: AdminRevenueByPlan[];
 }
+
+/* ---- Kedisiplinan / Pelanggaran (Fase 14 Gelombang A, docs/12-sion-parity.md) ---- */
+
+/**
+ * GET/POST/PATCH/DELETE /api/discipline/types (admin) — master jenis pelanggaran per sekolah.
+ * ASUMSI: GET daftar mengembalikan array langsung (bukan dibungkus `{items}`),
+ * konsisten dengan master data sejenis (`GET /api/subjects` → `Subject[]`).
+ */
+export interface DisciplineType {
+  id: string;
+  name: string;
+  points: number;
+  category: string;
+  active: boolean;
+}
+
+export interface DisciplineTypeInput {
+  name: string;
+  points: number;
+  category: string;
+  active: boolean;
+}
+
+/** GET/PUT /api/discipline/sp-settings (admin) — ambang poin Surat Peringatan per TA aktif. */
+export interface DisciplineSpSettings {
+  sp1: number;
+  sp2: number;
+  sp3: number;
+}
+
+export interface DisciplineStudentRef {
+  id: string;
+  name: string;
+  nis: string;
+  class_name: string;
+}
+
+export interface DisciplineViolationRef {
+  id: string;
+  name: string;
+  points: number;
+}
+
+/** Satu baris `GET /api/discipline/records` → `{items,total}`. */
+export interface DisciplineRecord {
+  id: string;
+  student: DisciplineStudentRef;
+  violation: DisciplineViolationRef;
+  noted_by_name: string;
+  /** String kosong (bukan `null`) kalau tidak diisi — backend Go `Note string` non-pointer, default `''`. */
+  note: string;
+  occurred_on: string;
+  attendance_session_id: string | null;
+}
+
+/** GET /api/discipline/records?student_id=&class_id=&from=&to=&page= */
+export interface DisciplineRecordListResult {
+  items: DisciplineRecord[];
+  total: number;
+}
+
+/** POST /api/discipline/records body. */
+export interface DisciplineRecordCreateInput {
+  student_id: string;
+  violation_type_id: string;
+  attendance_session_id?: string;
+  note?: string;
+  occurred_on?: string;
+}
+
+export type DisciplineLetterLevel = 1 | 2 | 3;
+
+export interface DisciplineIssuedLetter {
+  id: string;
+  level: DisciplineLetterLevel;
+  number: string;
+}
+
+/** POST /api/discipline/records response — `issued_letter` terisi kalau ambang SP tercapai (surat otomatis terbit). */
+export interface DisciplineRecordCreateResult {
+  record: DisciplineRecord;
+  total_points: number;
+  issued_letter: DisciplineIssuedLetter | null;
+}
+
+export interface StudentDisciplineLetter {
+  id: string;
+  level: DisciplineLetterLevel;
+  number: string;
+  points_snapshot: number;
+  created_at: string;
+}
+
+/** GET /api/students/{id}/discipline (siswa/ortu: milik sendiri; staf: sesuai akses). */
+export interface StudentDisciplineSummary {
+  total_points: number;
+  sp_level_reached: number;
+  records: DisciplineRecord[];
+  letters: StudentDisciplineLetter[];
+}
+
+/**
+ * Satu baris `GET /api/discipline/letters` → `{items,total}`. `student`
+ * ABSEN (bukan `null`) di bagian "letters" `GET /api/students/{id}/discipline`
+ * (jsonb `omitempty`) — di situ pakai `StudentDisciplineLetter`, bukan tipe ini.
+ */
+export interface DisciplineLetter {
+  id: string;
+  level: DisciplineLetterLevel;
+  number: string;
+  student?: DisciplineStudentRef;
+  points_snapshot: number;
+  created_at: string;
+}
+
+/** GET /api/discipline/letters?page=&level= */
+export interface DisciplineLetterListResult {
+  items: DisciplineLetter[];
+  total: number;
+}
+
+/** GET /api/discipline/summary?class_id=&from=&to= — array langsung (bukan dibungkus). Export Excel: `GET /api/discipline/export?...`. */
+export interface DisciplineSummaryRow {
+  student: DisciplineStudentRef;
+  total_points: number;
+  record_count: number;
+  last_at: string | null;
+}

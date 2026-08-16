@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { Megaphone, MonitorPlay, QrCode, MapPin, ReceiptText } from 'lucide-react';
+import { Megaphone, MonitorPlay, QrCode, MapPin, ReceiptText, ShieldAlert } from 'lucide-react';
 import { formatTimeOfDay } from './lib/date';
 import { hasFeature } from './lib/features';
 import { useRealtimeConnection, useRealtimeEvents, useRealtimeState } from './lib/realtime';
@@ -52,6 +52,18 @@ import { LeaveApprovalsPage } from './features/leave/LeaveApprovalsPage';
 import { LeaveApprovalDetailPage } from './features/leave/LeaveApprovalDetailPage';
 import { LeaveRecapPage } from './features/leave/LeaveRecapPage';
 import { LEAVE_REQUESTS_KEY, LEAVE_APPROVALS_KEY, LEAVE_SUMMARY_KEY } from './features/leave/api';
+import { DisciplinePage } from './features/discipline/DisciplinePage';
+import { DisciplineRecordsPage } from './features/discipline/DisciplineRecordsPage';
+import { DisciplineRecapPage } from './features/discipline/DisciplineRecapPage';
+import { DisciplineLettersPage } from './features/discipline/DisciplineLettersPage';
+import { DisciplineSettingsPage } from './features/discipline/DisciplineSettingsPage';
+import { MyDisciplinePage } from './features/discipline/MyDisciplinePage';
+import {
+  DISCIPLINE_RECORDS_KEY,
+  DISCIPLINE_SUMMARY_KEY,
+  DISCIPLINE_LETTERS_KEY,
+  STUDENT_DISCIPLINE_KEY,
+} from './features/discipline/api';
 import { Button } from './components/ui/Button';
 import { PeriodsPage } from './features/schedule/PeriodsPage';
 import { RoomsPage } from './features/schedule/RoomsPage';
@@ -146,6 +158,12 @@ function BerandaPage({ me }: { me: Me }) {
   // Kartu Tagihan & Langganan (Fase 10) — kepala_sekolah punya jalan pintas
   // setara di KepsekHomePage (QUICK_LINKS), jadi kartu Beranda ini khusus admin.
   const canManageBilling = me.role === 'admin_sekolah';
+  // Kartu Kedisiplinan (Fase 14 Gelombang A) — kepala_sekolah punya jalan
+  // pintas setara di KepsekHomePage (QUICK_LINKS), jadi kartu Beranda ini
+  // untuk guru & admin_sekolah (keduanya bisa mencatat pelanggaran).
+  const canManageDiscipline = me.role === 'guru' || me.role === 'admin_sekolah';
+  // Kartu "Poin Kedisiplinan" — siswa (miliknya sendiri) & orang tua (anak).
+  const isSiswaOrOrtu = me.role === 'siswa' || me.role === 'orang_tua';
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6 px-5 py-6">
@@ -247,6 +265,40 @@ function BerandaPage({ me }: { me: Me }) {
         </Card>
       )}
 
+      {canManageDiscipline && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Kedisiplinan</p>
+            <p className="text-[12px] text-muted">Catat pelanggaran siswa & lihat rekap poin kedisiplinan.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/kedisiplinan')}>
+              <ShieldAlert size={16} strokeWidth={2} aria-hidden="true" />
+              Buka Kedisiplinan
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isSiswaOrOrtu && (
+        <Card className="flex flex-col gap-3">
+          <div>
+            <p className="text-[14px] font-semibold text-ink">Poin Kedisiplinan</p>
+            <p className="text-[12px] text-muted">
+              {me.role === 'siswa'
+                ? 'Lihat riwayat pelanggaran & Surat Peringatan Anda.'
+                : 'Lihat riwayat pelanggaran & Surat Peringatan anak Anda.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate('/pelanggaran-saya')}>
+              <ShieldAlert size={16} strokeWidth={2} aria-hidden="true" />
+              Lihat Poin Kedisiplinan
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {canManageAnnouncements && (
         <Card className="flex flex-col gap-3">
           <div>
@@ -277,11 +329,17 @@ function BerandaPage({ me }: { me: Me }) {
         </Card>
       )}
 
-      {!canWriteAttendance && !canViewRecap && !isStaff && !canViewOwnSchedule && !canManageAnnouncements && !canManageBilling && (
-        <Card>
-          <p className="text-[14px] text-ink">Belum ada modul lain untuk ditampilkan di sini.</p>
-        </Card>
-      )}
+      {!canWriteAttendance &&
+        !canViewRecap &&
+        !isStaff &&
+        !canViewOwnSchedule &&
+        !canManageAnnouncements &&
+        !canManageBilling &&
+        !isSiswaOrOrtu && (
+          <Card>
+            <p className="text-[14px] text-ink">Belum ada modul lain untuk ditampilkan di sini.</p>
+          </Card>
+        )}
     </div>
   );
 }
@@ -350,6 +408,14 @@ function useRealtime(queryClient: QueryClient) {
       queryClient.invalidateQueries({ queryKey: [CLASSES_QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: TEACHERS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: SUBJECTS_QUERY_KEY });
+    },
+    // {student_id} — Fase 14 Gelombang A: catatan pelanggaran, rekap poin, Surat
+    // Peringatan, & riwayat kedisiplinan siswa terkait (`/pelanggaran-saya`).
+    discipline: () => {
+      queryClient.invalidateQueries({ queryKey: [DISCIPLINE_RECORDS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [DISCIPLINE_SUMMARY_KEY] });
+      queryClient.invalidateQueries({ queryKey: [DISCIPLINE_LETTERS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [STUDENT_DISCIPLINE_KEY] });
     },
   });
 }
@@ -535,6 +601,14 @@ function AuthenticatedShell() {
         <Route path="/izin/persetujuan" element={<LeaveApprovalsPage />} />
         <Route path="/izin/persetujuan/:stepId" element={<LeaveApprovalDetailPage />} />
         <Route path="/izin/:id" element={<LeaveDetailPage />} />
+
+        <Route path="/kedisiplinan" element={<DisciplinePage />}>
+          <Route index element={<DisciplineRecordsPage />} />
+          <Route path="rekap" element={<DisciplineRecapPage />} />
+          <Route path="surat" element={<DisciplineLettersPage />} />
+        </Route>
+        <Route path="/kedisiplinan/pengaturan" element={<DisciplineSettingsPage />} />
+        <Route path="/pelanggaran-saya" element={<MyDisciplinePage />} />
 
         <Route path="/data" element={<DataLayout />}>
           <Route index element={<Navigate to="siswa" replace />} />

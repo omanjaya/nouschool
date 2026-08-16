@@ -1,5 +1,14 @@
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, ClipboardCheck, FileBarChart, Megaphone, ReceiptText, Users, type LucideIcon } from 'lucide-react';
+import {
+  ChevronRight,
+  ClipboardCheck,
+  FileBarChart,
+  Megaphone,
+  ReceiptText,
+  ShieldAlert,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { ListRow } from '../../components/ui/ListRow';
 import { StatTile } from '../../components/ui/StatTile';
@@ -21,6 +30,12 @@ const QUICK_LINKS: QuickLink[] = [
   { label: 'Monitoring Guru', description: 'Status mengajar guru saat ini.', to: '/monitoring', icon: Users },
   { label: 'Rekap Absensi', description: 'Rekap kehadiran siswa harian.', to: '/absensi/rekap', icon: ClipboardCheck },
   { label: 'Rekap Izin', description: 'Rekap izin guru per rentang.', to: '/izin/rekap', icon: FileBarChart },
+  {
+    label: 'Kedisiplinan',
+    description: 'Catatan pelanggaran, rekap poin & Surat Peringatan siswa.',
+    to: '/kedisiplinan',
+    icon: ShieldAlert,
+  },
   { label: 'Pengumuman', description: 'Kelola pengumuman untuk TV & beranda.', to: '/pengumuman', icon: Megaphone },
   { label: 'Rekap Ketertiban', description: 'Persentase slot mengajar terlaksana.', to: '/monitoring/rekap', icon: FileBarChart },
   { label: 'Tagihan & Langganan', description: 'Status langganan & riwayat tagihan sekolah.', to: '/tagihan', icon: ReceiptText },

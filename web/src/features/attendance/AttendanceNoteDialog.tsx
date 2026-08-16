@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { Dialog } from '../../components/ui/Dialog';
 import { Textarea } from '../../components/ui/Field';
 import { Button } from '../../components/ui/Button';
@@ -10,10 +11,25 @@ interface AttendanceNoteDialogProps {
   readOnly?: boolean;
   onClose: () => void;
   onSave: (note: string) => void;
+  /**
+   * Aksi sekunder "Catat Pelanggaran" (Fase 14 Gelombang A, docs/12
+   * §Gelombang A poin 3) — dibuka dari sini supaya guru tidak perlu
+   * berpindah ke `/kedisiplinan` saat sedang mengisi absensi. Opsional
+   * (kalau tidak diisi, tombolnya tidak tampil) & disembunyikan saat `readOnly`.
+   */
+  onRecordViolation?: () => void;
 }
 
 /** Dialog catatan per siswa (mis. alasan izin/sakit) — dibuka dari icon MessageSquare di baris siswa. */
-export function AttendanceNoteDialog({ open, studentName, initialNote, readOnly, onClose, onSave }: AttendanceNoteDialogProps) {
+export function AttendanceNoteDialog({
+  open,
+  studentName,
+  initialNote,
+  readOnly,
+  onClose,
+  onSave,
+  onRecordViolation,
+}: AttendanceNoteDialogProps) {
   const [note, setNote] = useState(initialNote);
 
   useEffect(() => {
@@ -32,6 +48,12 @@ export function AttendanceNoteDialog({ open, studentName, initialNote, readOnly,
           </Button>
         ) : (
           <>
+            {onRecordViolation && (
+              <Button variant="ghost" onClick={onRecordViolation} className="mr-auto">
+                <ShieldAlert size={16} strokeWidth={2} aria-hidden="true" />
+                Catat Pelanggaran
+              </Button>
+            )}
             <Button variant="secondary" onClick={onClose}>
               Batal
             </Button>

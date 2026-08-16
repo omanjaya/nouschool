@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react';
  * berubah, refetch lewat REST existing" (lihat mapping di `App.tsx`).
  */
 
-/** Sembilan tipe event sinyal dari backend (belum termasuk `hello`/`pong` — keduanya ditangani internal, tidak pernah sampai ke `subscribe`). */
+/** Sepuluh tipe event sinyal dari backend (belum termasuk `hello`/`pong` — keduanya ditangani internal, tidak pernah sampai ke `subscribe`). */
 export type RealtimeEventType =
   | 'attendance.session'
   | 'attendance.summary'
@@ -21,7 +21,8 @@ export type RealtimeEventType =
   | 'announcement'
   | 'schedule'
   | 'billing'
-  | 'students';
+  | 'students'
+  | 'discipline';
 
 const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'attendance.session',
@@ -33,6 +34,7 @@ const ALL_REALTIME_EVENT_TYPES: RealtimeEventType[] = [
   'schedule',
   'billing',
   'students',
+  'discipline',
 ];
 
 /** Bentuk minimal `data` per tipe event, sesuai kontrak — dipakai hanya untuk keputusan kecil (mis. cocokkan `session_id`), bukan sumber tampilan. */
@@ -46,6 +48,8 @@ export interface RealtimeEventDataMap {
   schedule: Record<string, never>;
   billing: Record<string, never>;
   students: Record<string, never>;
+  /** Fase 14 Gelombang A (docs/12-sion-parity.md) — pelanggaran/surat peringatan berubah untuk satu siswa. */
+  discipline: { student_id: string | number };
 }
 
 export interface RealtimeEvent<T extends RealtimeEventType = RealtimeEventType> {
