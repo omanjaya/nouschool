@@ -77,6 +77,34 @@ var registry = map[string]eventTemplate{
 		[]string{ChannelWebPush, ChannelEmail},
 		"/kedisiplinan",
 	),
+	// Data: student, type ("sakit"/"izin"), date_start, date_end (YYYY-MM-DD).
+	// Fase 14 Gelombang B1 (docs/12-sion-parity.md) — dikirim ke pemegang
+	// review tahap 1 (wali kelas rombel siswa, fallback pemegang flag
+	// leave_homeroom_review) saat siswa/ortu mengajukan izin terencana.
+	EventStudentLeaveSubmitted: mustTemplate("studentleave_submitted",
+		"Pengajuan izin siswa baru",
+		"{{.student}} mengajukan {{.type}} tanggal {{.date_start}} s.d. {{.date_end}}. Mohon ditinjau.",
+		[]string{ChannelWebPush},
+		"/izin-siswa/persetujuan",
+	),
+	// Data: student, type. Dikirim ke pemegang flag leave_issuance (BK) saat
+	// wali kelas menyetujui tahap 1.
+	EventStudentLeaveForwarded: mustTemplate("studentleave_forwarded",
+		"Izin siswa menunggu penerbitan surat",
+		"Pengajuan {{.type}} {{.student}} sudah disetujui wali kelas, menunggu penerbitan surat BK.",
+		[]string{ChannelWebPush},
+		"/izin-siswa/persetujuan",
+	),
+	// Data: student, type, decision (label Indonesia, mis. "diterbitkan"/
+	// "ditolak wali kelas"/"ditolak BK"). Dikirim ke pengaju+orang tua (+wali
+	// kelas bila surat terbit) saat keputusan akhir (tolak di tahap mana pun,
+	// atau surat terbit).
+	EventStudentLeaveDecided: mustTemplate("studentleave_decided",
+		"Pengajuan izin siswa diputuskan",
+		"Pengajuan {{.type}} {{.student}} telah {{.decision}}.",
+		[]string{ChannelWebPush, ChannelEmail},
+		"/izin-siswa",
+	),
 }
 
 // renderTemplate mengeksekusi title/body suatu event terhadap data — fungsi

@@ -75,5 +75,8 @@ type Provider interface {
 | `billing.invoice_due` / `billing.grace` | admin sekolah, kepsek | email, wa, in_app |
 | `discipline.recorded` (Fase 14 Gelombang A) | ortu | push, in_app |
 | `discipline.sp_issued` (Fase 14 Gelombang A) | ortu, wali kelas | push, email, in_app |
+| `studentleave.submitted` (Fase 14 Gelombang B1) | pemegang review tahap 1 (wali kelas rombel siswa; fallback pemegang flag `leave_homeroom_review`) | push, in_app |
+| `studentleave.forwarded` (Fase 14 Gelombang B1) | pemegang flag `leave_issuance` (BK) | push, in_app |
+| `studentleave.decided` (Fase 14 Gelombang B1) | siswa/ortu pengaju (+wali kelas bila surat terbit) | push, email, in_app |
 
 Aturan: modul lain menambah event = daftarkan konstanta event + template + baris di tabel ini. Kirim WA massal (blast promosi) BUKAN scope modul ini.

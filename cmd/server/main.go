@@ -15,6 +15,8 @@ import (
 	"github.com/omanjaya/nouschool/internal/billing"
 	"github.com/omanjaya/nouschool/internal/dashboard"
 	"github.com/omanjaya/nouschool/internal/discipline"
+	"github.com/omanjaya/nouschool/internal/duty"
+	"github.com/omanjaya/nouschool/internal/employee"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/leave"
 	"github.com/omanjaya/nouschool/internal/notification"
@@ -28,6 +30,7 @@ import (
 	"github.com/omanjaya/nouschool/internal/realtime"
 	"github.com/omanjaya/nouschool/internal/schedule"
 	"github.com/omanjaya/nouschool/internal/student"
+	"github.com/omanjaya/nouschool/internal/studentleave"
 	"github.com/omanjaya/nouschool/internal/teaching"
 	"github.com/omanjaya/nouschool/internal/tenant"
 )
@@ -138,6 +141,38 @@ func main() {
 		disciplineSvc.SetRealtime(realtimeAdapter)
 		disciplineHandler := discipline.NewHandler(disciplineSvc)
 
+		// --- modul duty (tugas tambahan + capability flags — Fase 14
+		// Gelombang B1, docs/12-sion-parity.md "adopsi pola SION": otorisasi
+		// alur izin/dispensasi membaca FLAGS yang dibawa tugas seseorang,
+		// BUKAN role langsung). identitySvc & tenantSvc memenuhi
+		// duty.IdentityGateway / duty.AcademicYearLookup secara STRUKTURAL —
+		// duty TIDAK mengimpor identity/tenant untuk tipe apa pun. Dikonstruksi
+		// SEBELUM studentleave (butuh dutySvc sebagai DutyGateway).
+		dutyRepo := duty.NewRepository(pool)
+		dutySvc := duty.NewService(dutyRepo, identitySvc, tenantSvc)
+		dutyHandler := duty.NewHandler(dutySvc)
+
+		// --- modul employee (profil pegawai/staff non-guru — Fase 14
+		// Gelombang B1). identitySvc memenuhi employee.IdentityGateway secara
+		// STRUKTURAL (pola sama student.IdentityGateway) — employee TIDAK
+		// mengimpor identity untuk tipe apa pun.
+		employeeRepo := employee.NewRepository(pool)
+		employeeSvc := employee.NewService(employeeRepo, identitySvc)
+		employeeHandler := employee.NewHandler(employeeSvc)
+
+		// --- modul studentleave (izin terencana siswa: siswa/ortu ajukan ->
+		// wali kelas -> BK terbitkan surat bernomor -> verifikasi publik —
+		// Fase 14 Gelombang B1, docs/12-sion-parity.md alur 1). identitySvc,
+		// tenantSvc, studentSvc, dutySvc memenuhi studentleave.IdentityGateway
+		// / AcademicYearLookup+BrandingGateway / StudentAccess / DutyGateway
+		// secara STRUKTURAL — studentleave TIDAK mengimpor identity/tenant/
+		// student/duty untuk tipe apa pun. Dikonstruksi SETELAH dutySvc &
+		// studentSvc (butuh keduanya).
+		studentLeaveRepo := studentleave.NewRepository(pool)
+		studentLeaveSvc := studentleave.NewService(studentLeaveRepo, identitySvc, tenantSvc, tenantSvc, studentSvc, dutySvc, storage.FromEnv(), clock.System{})
+		studentLeaveSvc.SetRealtime(realtimeAdapter)
+		studentLeaveHandler := studentleave.NewHandler(studentLeaveSvc)
+
 		// --- modul schedule (jadwal pelajaran: periods, rooms+QR, slots,
 		// deteksi bentrok, copy, import, query kunci SlotNow/SlotsToday/CurrentPeriod) ---
 		// identitySvc, tenantSvc, studentSvc memenuhi schedule.IdentityGateway /
@@ -242,6 +277,7 @@ func main() {
 		attendanceSvc.SetNotifier(notificationSvc)
 		leaveSvc.SetNotifier(notificationSvc)
 		disciplineSvc.SetNotifier(notificationSvc)
+		studentLeaveSvc.SetNotifier(notificationSvc)
 
 		// --- modul billing (langganan tahunan, tier x bracket siswa, invoice,
 		// transfer manual + gateway Midtrans, lifecycle grace/readonly, fase
@@ -308,6 +344,9 @@ func main() {
 			billingSvc.RequireFeature(billing.FeatureQRCard), billingSvc.RequireFeature(billing.FeatureSelfCheckin))
 		leave.RegisterRoutes(mux, leaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		discipline.RegisterRoutes(mux, disciplineHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		duty.RegisterRoutes(mux, dutyHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		employee.RegisterRoutes(mux, employeeHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
+		studentleave.RegisterRoutes(mux, studentLeaveHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		schedule.RegisterRoutes(mux, scheduleHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		teaching.RegisterRoutes(mux, teachingHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)
 		announcement.RegisterRoutes(mux, announcementHandler, identitySvc.RequireAuth, identitySvc.RequirePerm)

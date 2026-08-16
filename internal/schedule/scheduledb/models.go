@@ -105,6 +105,30 @@ type DisciplineWarningLetter struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type Duty struct {
+	ID       int64    `json:"id"`
+	SchoolID int64    `json:"school_id"`
+	Name     string   `json:"name"`
+	ForRole  string   `json:"for_role"`
+	Flags    []string `json:"flags"`
+	Active   bool     `json:"active"`
+}
+
+type DutyAssignment struct {
+	ID             int64 `json:"id"`
+	SchoolID       int64 `json:"school_id"`
+	DutyID         int64 `json:"duty_id"`
+	UserID         int64 `json:"user_id"`
+	AcademicYearID int64 `json:"academic_year_id"`
+}
+
+type Employee struct {
+	ID       int64  `json:"id"`
+	SchoolID int64  `json:"school_id"`
+	UserID   int64  `json:"user_id"`
+	Nip      string `json:"nip"`
+}
+
 type Enrollment struct {
 	ID        int64              `json:"id"`
 	SchoolID  int64              `json:"school_id"`
@@ -348,6 +372,37 @@ type Student struct {
 	UserID    pgtype.Int8        `json:"user_id"`
 	Status    string             `json:"status"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type StudentLeaveNumberCounter struct {
+	SchoolID int64  `json:"school_id"`
+	Year     string `json:"year"`
+	Seq      int32  `json:"seq"`
+}
+
+type StudentLeaveRequest struct {
+	ID                int64              `json:"id"`
+	SchoolID          int64              `json:"school_id"`
+	AcademicYearID    int64              `json:"academic_year_id"`
+	StudentID         int64              `json:"student_id"`
+	SubmittedBy       int64              `json:"submitted_by"`
+	Type              string             `json:"type"`
+	DateStart         pgtype.Date        `json:"date_start"`
+	DateEnd           pgtype.Date        `json:"date_end"`
+	Reason            string             `json:"reason"`
+	Attachment        string             `json:"attachment"`
+	AttachmentName    string             `json:"attachment_name"`
+	AttachmentMime    string             `json:"attachment_mime"`
+	Status            string             `json:"status"`
+	LetterNumber      pgtype.Text        `json:"letter_number"`
+	VerifyToken       pgtype.Text        `json:"verify_token"`
+	HomeroomDecidedBy pgtype.Int8        `json:"homeroom_decided_by"`
+	HomeroomDecidedAt pgtype.Timestamptz `json:"homeroom_decided_at"`
+	HomeroomComment   string             `json:"homeroom_comment"`
+	BkDecidedBy       pgtype.Int8        `json:"bk_decided_by"`
+	BkDecidedAt       pgtype.Timestamptz `json:"bk_decided_at"`
+	BkComment         string             `json:"bk_comment"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 }
 
 type StudentQrToken struct {

@@ -19,7 +19,7 @@ memberships (
   id         bigserial PRIMARY KEY,
   user_id    bigint NOT NULL REFERENCES users,
   school_id  bigint NOT NULL REFERENCES schools,
-  role       text NOT NULL,   -- admin_sekolah|kepala_sekolah|guru|siswa|orang_tua|display
+  role       text NOT NULL,   -- admin_sekolah|kepala_sekolah|guru|siswa|orang_tua|display|pegawai
   status     text NOT NULL DEFAULT 'active',  -- active|inactive
   UNIQUE (user_id, school_id, role)
 )
@@ -76,29 +76,38 @@ audit_log (
 
 ## Daftar permission kanonik
 
-| Permission | admin | kepsek | guru | siswa | ortu | display |
-|---|---|---|---|---|---|---|
-| `student:manage` | ✅ | | | | | |
-| `student:read` | ✅ | ✅ | ✅ | | | |
-| `schedule:manage` | ✅ | | | | | |
-| `schedule:read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `attendance:write` | ✅ | | ✅ | | | |
-| `attendance:self_checkin` | | | | ✅ | | |
-| `attendance:read_own` | | | | ✅ | ✅ | |
-| `attendance:report` | ✅ | ✅ | ✅* | | | |
-| `teaching:journal_write` | | | ✅ | | | |
-| `teaching:monitor` | ✅ | ✅ | | | | ✅ |
-| `leave:request` | | | ✅ | | | |
-| `leave:approve` | | ✅** | ✅** | | | |
-| `leave:manage` | ✅ | | | | | |
-| `settings:manage` | ✅ | | | | | |
-| `billing:view` | ✅ | ✅ | | | | |
-| `announcement:manage` | ✅ | ✅ | | | | |
-| `dashboard:school` | ✅ | ✅ | | | | |
-| `discipline:manage` | ✅ | | | | | |
-| `discipline:record` | ✅ | | ✅ | | | |
-| `discipline:read` | ✅ | ✅ | ✅ | | | |
+| Permission | admin | kepsek | guru | siswa | ortu | display | pegawai |
+|---|---|---|---|---|---|---|---|
+| `student:manage` | ✅ | | | | | | |
+| `student:read` | ✅ | ✅ | ✅ | | | | |
+| `schedule:manage` | ✅ | | | | | | |
+| `schedule:read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| `attendance:write` | ✅ | | ✅ | | | | |
+| `attendance:self_checkin` | | | | ✅ | | | |
+| `attendance:read_own` | | | | ✅ | ✅ | | |
+| `attendance:report` | ✅ | ✅ | ✅* | | | | |
+| `teaching:journal_write` | | | ✅ | | | | |
+| `teaching:monitor` | ✅ | ✅ | | | | ✅ | |
+| `leave:request` | | | ✅ | | | | |
+| `leave:approve` | | ✅** | ✅** | | | | |
+| `leave:manage` | ✅ | | | | | | |
+| `settings:manage` | ✅ | | | | | | |
+| `billing:view` | ✅ | ✅ | | | | | |
+| `announcement:manage` | ✅ | ✅ | | | | | |
+| `dashboard:school` | ✅ | ✅ | | | | | |
+| `discipline:manage` | ✅ | | | | | | |
+| `discipline:record` | ✅ | | ✅ | | | | |
+| `discipline:read` | ✅ | ✅ | ✅ | | | | |
+| `duty:manage` | ✅ | | | | | | |
 
-\* guru: rekap kelas/jadwalnya sendiri (object-level). \** `leave:approve` efektifnya ditentukan approval chain (07) — permission hanya gerbang kasar. Siswa/orang tua TIDAK punya permission modul `discipline` — akses ke poin/surat miliknya sendiri lewat object-level (`student.CanViewStudent`, sama pola dengan `attendance:read_own`), lihat docs/12-sion-parity.md Gelombang A.
+\* guru: rekap kelas/jadwalnya sendiri (object-level). \** `leave:approve` efektifnya ditentukan approval chain (07) — permission hanya gerbang kasar. Siswa/orang tua TIDAK punya permission modul `discipline` — akses ke poin/surat miliknya sendiri lewat object-level (`student.CanViewStudent`, sama pola dengan `attendance:read_own`), lihat docs/12-sion-parity.md Gelombang A. `duty:manage` SENGAJA hanya admin_sekolah — kepsek TIDAK butuh kelola tugas tambahan (Fase 14 Gelombang B1).
+
+Role **`pegawai`** (staff non-guru, mis. security/tata usaha, Fase 14 Gelombang B1 — `internal/employee`) SENGAJA **TANPA permission apa pun** di tabel ini — akses hanya lewat endpoint auth-only (`GET /api/me`, `/api/announcements?active=1`, `/api/notifications`) dan **capability flags** modul `internal/duty` (mis. `exit_security` Gelombang B2), bukan RBAC. `student:manage` juga dipakai gerbang `GET/POST/PATCH /api/employees` (BUKAN permission baru — keputusan sendiri, sama admin sekolah yang mengelola siswa yang mengelola pegawai) dan scope `all` `GET /api/student-leave` (izin siswa, `internal/studentleave`).
 
 Permission baru = tambah konstanta + baris di map + baris di tabel dokumen ini.
+
+## Tugas tambahan & capability flags (`internal/duty`, Fase 14 Gelombang B1)
+
+Adopsi pola SION (docs/12-sion-parity.md Gelombang B): guru/pegawai diberi **tugas tambahan** (Wali Kelas, Guru BK, Guru Piket, Pimpinan, Security) **per tahun ajaran**; tiap tugas membawa satu atau lebih **flags**. Modul lain (mis. `studentleave`) menggerbang alur bisnis dengan mengecek flag seseorang (`duty.Service.UserHasFlag`/`UserIDsWithFlag`), **bukan** role/permission RBAC langsung — satu orang bisa punya beberapa tugas sekaligus (mis. guru yang juga Pimpinan).
+
+Flags kanonik (`internal/duty/model.go`): `leave_homeroom_review`, `leave_issuance` (dipakai Gelombang B1); `exit_bk_approval`, `exit_leadership_approval`, `exit_security`, `late_arrival_duty`, `late_arrival_leadership`, `all_attendance_reports` (didefinisikan Gelombang B1, dipakai Gelombang B2 — belum ada endpoint yang menggerbang dengan flag-flag ini).

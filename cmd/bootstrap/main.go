@@ -19,6 +19,8 @@ import (
 	"github.com/omanjaya/nouschool/internal/attendance"
 	"github.com/omanjaya/nouschool/internal/billing"
 	"github.com/omanjaya/nouschool/internal/discipline"
+	"github.com/omanjaya/nouschool/internal/duty"
+	"github.com/omanjaya/nouschool/internal/employee"
 	"github.com/omanjaya/nouschool/internal/identity"
 	"github.com/omanjaya/nouschool/internal/platform/clock"
 	"github.com/omanjaya/nouschool/internal/platform/config"
@@ -260,6 +262,111 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("data kedisiplinan demo siap (5 jenis pelanggaran, ambang SP 25/50/75)", "school_id", schoolID)
+
+	// --- fase 14 gelombang B1 (duty + pegawai + studentleave): tugas
+	// tambahan contoh + pegawai security demo (docs/12-sion-parity.md) ---
+	rendiUserID, _, err := identitySvc.UserIDByEmail(ctx, "rendi@demo.sch.id")
+	if err != nil {
+		slog.Error("gagal mengambil user_id guru Rendi utk assignment duty", "err", err)
+		os.Exit(1)
+	}
+	sariUserID, _, err := identitySvc.UserIDByEmail(ctx, "sari@demo.sch.id")
+	if err != nil {
+		slog.Error("gagal mengambil user_id guru Sari utk assignment duty", "err", err)
+		os.Exit(1)
+	}
+
+	employeeRepo := employee.NewRepository(pool)
+	satpamUserID, err := ensureDemoEmployee(ctx, identitySvc, identityRepo, employeeRepo, schoolID)
+	if err != nil {
+		slog.Error("gagal menyiapkan pegawai demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("pegawai demo siap", "username", "satpam", "password", "satpam12345", "school_id", schoolID)
+
+	dutyRepo := duty.NewRepository(pool)
+	if err := ensureDemoDuties(ctx, dutyRepo, schoolID, activeYear.ID, rendiUserID, sariUserID, satpamUserID); err != nil {
+		slog.Error("gagal menyiapkan tugas tambahan demo", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("tugas tambahan demo siap (Wali Kelas/Guru BK/Guru Piket/Pimpinan/Security)", "school_id", schoolID)
+}
+
+// ensureDemoEmployee membuat akun pegawai demo "Pak Satpam" (username
+// `satpam`, password `satpam12345`, role pegawai) + profil employees —
+// idempoten (upsertUser + cek profil by user_id sebelum insert). Pola SAMA
+// ensureDemoTeachers/ensureDemoStudentAccount (bootstrap TIDAK lewat
+// employee.Service — service digerbang requireManage yang butuh reqctx.Role
+// dari HTTP request, tidak ada di konteks bootstrap; pola yang SAMA dengan
+// ensureDemoDiscipline yang memakai discipline.Repository langsung).
+func ensureDemoEmployee(ctx context.Context, identitySvc *identity.Service, identityRepo *identity.Repository, employeeRepo *employee.Repository, schoolID int64) (int64, error) {
+	userID, err := upsertUser(ctx, identityRepo, upsertUserInput{
+		Username: "satpam", Name: "Pak Satpam", Password: "satpam12345",
+	})
+	if err != nil {
+		return 0, err
+	}
+	if err := identitySvc.CreateMembership(ctx, userID, schoolID, identity.RolePegawai); err != nil {
+		return 0, err
+	}
+	existing, err := employeeRepo.ListEmployees(ctx, schoolID)
+	if err != nil {
+		return 0, err
+	}
+	for _, e := range existing {
+		if e.UserID == userID {
+			return userID, nil
+		}
+	}
+	if _, err := employeeRepo.CreateEmployee(ctx, schoolID, userID, ""); err != nil {
+		return 0, err
+	}
+	return userID, nil
+}
+
+// ensureDemoDuties menyiapkan 5 tugas tambahan contoh (docs tugas Fase 14
+// Gelombang B1) + assignment TA aktif untuk Wali Kelas (Rendi) & Guru BK
+// (Sari) & Security (satpam) — idempoten: duty dilewati bila NAMA sudah ada
+// (UNIQUE school_id+name, pola sama ensureDemoDiscipline), assignment SELALU
+// di-replace ke state yang diinginkan (set-replace = idempoten by construction,
+// pola sama internal/schedule.ReplacePeriods).
+func ensureDemoDuties(ctx context.Context, repo *duty.Repository, schoolID, academicYearID, waliKelasUserID, guruBKUserID, securityUserID int64) error {
+	specs := []struct {
+		Name         string
+		ForRole      string
+		Flags        []string
+		AssignUserID int64 // 0 = tidak di-assign siapa pun di bootstrap (Guru Piket/Pimpinan Gelombang B2, belum ada akun contoh)
+	}{
+		{"Wali Kelas", duty.ForRoleGuru, []string{duty.FlagLeaveHomeroomReview}, waliKelasUserID},
+		{"Guru BK", duty.ForRoleGuru, []string{duty.FlagLeaveIssuance, duty.FlagExitBKApproval}, guruBKUserID},
+		{"Guru Piket", duty.ForRoleGuru, []string{duty.FlagLateArrivalDuty}, 0},
+		{"Pimpinan", duty.ForRoleGuru, []string{duty.FlagExitLeadershipApproval, duty.FlagLateArrivalLeadership}, 0},
+		{"Security", duty.ForRolePegawai, []string{duty.FlagExitSecurity}, securityUserID},
+	}
+	existing, err := repo.ListDutiesWithAssigneeCount(ctx, schoolID, academicYearID)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]int64, len(existing))
+	for _, d := range existing {
+		byName[d.Name] = d.ID
+	}
+	for _, sp := range specs {
+		dutyID, ok := byName[sp.Name]
+		if !ok {
+			rec, err := repo.CreateDuty(ctx, schoolID, sp.Name, sp.ForRole, sp.Flags)
+			if err != nil {
+				return fmt.Errorf("buat duty %q: %w", sp.Name, err)
+			}
+			dutyID = rec.ID
+		}
+		if sp.AssignUserID != 0 {
+			if err := repo.ReplaceAssignments(ctx, schoolID, dutyID, academicYearID, []int64{sp.AssignUserID}); err != nil {
+				return fmt.Errorf("assign duty %q: %w", sp.Name, err)
+			}
+		}
+	}
+	return nil
 }
 
 // ensureDemoDiscipline menyiapkan 5 jenis pelanggaran contoh (docs tugas

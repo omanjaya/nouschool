@@ -788,6 +788,25 @@ func (s *Service) ListMyChildren(ctx context.Context, schoolID, userID int64) ([
 	return s.repo.ListChildrenForGuardian(ctx, schoolID, userID, yearID)
 }
 
+// MyChildStudentIDs mengembalikan student_id SELURUH anak yang terhubung ke
+// orang tua (userID) lewat guardians — signature primitif (slice int64,
+// TANPA nama/rombel) dipakai modul lain (mis. studentleave, Fase 14
+// Gelombang B1) lewat consumer-side interface untuk scope=mine (izin milik
+// anak-anak sendiri). Beda dari ListMyChildren (dipakai GET /api/me/children,
+// mengembalikan ChildRef bertipe non-primitif — TIDAK cocok dipakai lintas
+// modul, lihat CLAUDE.md "consumer-side interface signature primitif").
+func (s *Service) MyChildStudentIDs(ctx context.Context, schoolID, userID int64) ([]int64, error) {
+	children, err := s.ListMyChildren(ctx, schoolID, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int64, 0, len(children))
+	for _, c := range children {
+		out = append(out, c.StudentID)
+	}
+	return out, nil
+}
+
 // GuardianUserIDs mengembalikan user_id seluruh wali terdaftar siswa
 // (studentID) di sekolah ini — dipakai modul attendance (fase 9,
 // docs/08-notification.md) lewat consumer-side interface untuk resolve

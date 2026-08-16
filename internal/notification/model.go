@@ -38,6 +38,9 @@ const (
 	EventLeaveDecided            = "leave.decided"
 	EventDisciplineRecorded      = "discipline.recorded"
 	EventDisciplineSPIssued      = "discipline.sp_issued"
+	EventStudentLeaveSubmitted   = "studentleave.submitted"
+	EventStudentLeaveForwarded   = "studentleave.forwarded"
+	EventStudentLeaveDecided     = "studentleave.decided"
 )
 
 // Status kanonik notification_outbox.status (docs/08-notification.md).

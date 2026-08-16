@@ -1066,7 +1066,200 @@ build/vet/test ./...` hijau.
     diverifikasi idempoten (jalan 2× → 0 baris baru kedua kali)
   - `sqlc.yaml` ditambah blok `disciplinedb` (supaya `make sqlc` regenerate
     identik begitu sqlc CLI tersedia)
-- ⬜ Gelombang B: Izin siswa 3 alur + duties/capability flags + role pegawai + QR token guru + verifikasi surat publik + gate security
+- 🚧 Gelombang B: Izin siswa 3 alur + duties/capability flags + role pegawai + QR token guru + verifikasi surat publik + gate security
+  - ✅ **Gelombang B1 (fondasi duty/pegawai + alur "izin terencana") backend** —
+    terverifikasi end-to-end di Docker dev (`localhost:8210`, `demo.localhost`):
+    bootstrap ulang (idempoten, `-demo`, super admin password direset sekali
+    pakai — tidak terdokumentasi sebelumnya, sama pola catatan Fase 9/13) →
+    seed 5 duty (Wali Kelas/Guru BK/Guru Piket/Pimpinan/Security) + pegawai
+    `satpam`/`satpam12345` tercipta → admin login → `GET /api/duties` (5
+    baris, `assignee_count` benar) → `GET /api/duties/2/assignments` (Guru BK
+    = Sari) & `.../1/assignments` (Wali Kelas = Rendi) → kelas XII RPL 1
+    (siswa NIS 22101) BELUM punya wali kelas tersimpan (`homeroom_teacher_id`
+    kosong di DB, hanya duty assignment yang ada) → `PATCH /api/classes/1
+    {"homeroom_teacher_id":1}` (teacher.id Rendi) sebagai admin → wali kelas
+    resmi Rendi → siswa (`siswa`/`siswa12345`, NIS 22101) login → `POST
+    /api/student-leave` multipart (sakit besok, tanpa lampiran) → 201
+    `pending_homeroom` → Rendi `GET ?scope=queue` → muncul (match via join
+    langsung `classes.homeroom_teacher_id`, BUKAN fallback flag) → `POST
+    .../review {"decision":"approve"}` → `pending_bk` → Sari `GET
+    ?scope=queue` → muncul (match via flag `leave_issuance`) → `POST
+    .../issue {"decision":"approve"}` → `issued`, `letter_number`
+    "SI/2026/0001", `verify_token` 24 karakter → siswa `GET ?scope=mine` →
+    issued + nomor terlihat → `GET .../letter/pdf` → `application/pdf`, PDF
+    valid 1 halaman (kop, jejak persetujuan, QR embed) → `GET
+    /api/public/leave-verify?token=<valid>` → `valid:true` shape lengkap;
+    token salah → `valid:false` tanpa detail bocor → jalur notifikasi kedua
+    (izin siswa 22101 TIDAK punya ortu terdaftar di DB — sesuai catatan
+    instruksi tugas, dialihkan ke siswa Budi Santoso NIS 22103 yang PUNYA
+    ortu, sama kelas XII RPL 1 jadi wali kelas SAMA/Rendi): password `ortu.budi`
+    direset sekali pakai via script sementara `cmd/resetpw` (dijalankan lalu
+    DIHAPUS, pola sama Fase 9/14A) → ortu ajukan izin utk Budi (anaknya) → 201
+    → ortu coba ajukan utk siswa 22101 (BUKAN anaknya) → 403 → chain
+    disetujui penuh (Rendi approve → Sari issue) → `GET /api/notifications`
+    ortu → `studentleave.decided` muncul; Rendi → `studentleave.submitted` +
+    `studentleave.decided` (dirinya sendiri di roles admin_sekolah tidak
+    relevan, tapi user_ids target ikut dia sbg wali) muncul; Sari →
+    `studentleave.forwarded` muncul → jalur reject: siswa 22101 ajukan
+    pengajuan ke-3 → Rendi `POST .../review {"decision":"reject"}` → status
+    `rejected`, notif `studentleave.decided` ("ditolak wali kelas") ke siswa
+    → jalur lampiran+cancel: siswa ajukan ke-4 dgn lampiran PDF → `GET
+    .../attachment` sbg pemilik → 200 `application/pdf`; sbg satpam (bukan
+    pemilik/reviewer/admin) → 403 → `POST .../cancel` sbg pemilik saat
+    pending → 200; cancel lagi → 422 (sudah tidak pending) → login satpam
+    (pegawai) → `GET /api/me` → `role:"pegawai"`, `features` tetap muncul
+    (subscription tidak digerbang role) → satpam `GET
+    /api/student-leave?scope=queue` → 200 `{items:[],total:0}` (TIDAK punya
+    flag leave_homeroom_review/leave_issuance, hanya exit_security Gelombang
+    B2 yang belum dipakai endpoint mana pun) → satpam `GET /api/duties` →
+    403 (tidak punya `duty:manage`) → kepsek `GET /api/duties` → 403 juga
+    (keputusan tugas: kepsek TIDAK butuh kelola tugas tambahan) → admin `GET
+    ?scope=all` (perm `student:manage`) → 2 baris → `GET /api/employees` →
+    satpam muncul → `DELETE /api/duties/1` (Wali Kelas, punya assignment
+    Rendi) → 409 (sarankan nonaktifkan). `go build/vet/test ./...` hijau;
+    test service (fake repo): `internal/duty` — `UserHasFlag` benar untuk TA
+    aktif+duty aktif, salah (false) saat duty dinonaktifkan, salah saat
+    assignment ada di TA LAIN (bukan TA aktif); `PutAssignments` menolak 422
+    user yang rolenya TIDAK cocok `duty.for_role`, menerima user yang cocok;
+    `DeleteDuty` 409 saat masih punya assignment. `internal/studentleave` —
+    state machine urutan penuh (pending_homeroom→pending_bk→issued), reject
+    menghentikan chain (tidak bisa lanjut ke tahap BK), cancel HANYA pending
+    & HANYA pemilik (bukan pemilik → 403; sudah diputuskan → ditolak);
+    otorisasi reviewer: wali kelas rombel LAIN → 403, fallback pemegang flag
+    `leave_homeroom_review` (kelas belum punya wali) → boleh review; nomor
+    surat & verify_token UNIK antar 2 pengajuan berbeda; ortu ajukan izin
+    utk anak sendiri OK, anak orang lain 403; shape publik verify (token
+    valid vs salah, TANPA membocorkan detail apa pun saat salah).
+    - Migrasi `00015_duty_studentleave.sql`: `duties` (UNIQUE
+      school_id+name, CHECK for_role IN guru/pegawai), `duty_assignments`
+      (UNIQUE duty_id+user_id+academic_year_id — pemegang tugas PER TA),
+      `employees` (UNIQUE school_id+user_id — profil pegawai, pola sama
+      `teachers`), `student_leave_requests` (CHECK type sakit/izin, CHECK
+      status 5 nilai state machine, partial UNIQUE
+      school_id+letter_number WHERE NOT NULL, `verify_token` UNIQUE global),
+      `student_leave_number_counters` (counter atomik PER SEKOLAH PER TAHUN,
+      pola sama `discipline_letter_number_counters`)
+    - Permission baru `duty:manage` (HANYA admin_sekolah — docs/02:
+      "kepsek tidak butuh kelola tugas tambahan") + role baru **`pegawai`**
+      (`internal/identity/rbac.go`, `rolePermissions[pegawai] = {}` SENGAJA
+      kosong — otorisasi pegawai lewat capability flags modul duty, BUKAN
+      RBAC; `PickActiveRole` prioritas persis setelah guru, sebelum
+      orang_tua/siswa)
+    - `internal/duty/` (modul baru, sqlc package `dutydb`): capability flags
+      kanonik `leave_homeroom_review`/`leave_issuance` (dipakai Gelombang
+      B1) + `exit_bk_approval`/`exit_leadership_approval`/`exit_security`/
+      `late_arrival_duty`/`late_arrival_leadership`/`all_attendance_reports`
+      (DIDEFINISIKAN sekarang sesuai instruksi tugas, dipakai Gelombang B2 —
+      belum ada endpoint yang menggerbang dengan flag-flag ini) + label
+      Indonesia; `GET/POST/PATCH/DELETE /api/duties` (DELETE 409 bila punya
+      assignment DI TA MANA PUN, sarankan nonaktifkan) + `GET
+      /api/duties/flags`; `GET/PUT /api/duties/{id}/assignments`
+      (replace-all TA AKTIF dalam transaksi delete-all+insert-all, validasi
+      role via `IdentityGateway.UsersWithRole` yang SUDAH ada — TIDAK bikin
+      query membership baru); **interface publik** (dipakai studentleave via
+      consumer-side interface) `Service.UserHasFlag`/`UserIDsWithFlag`
+      (SELALU di-scope TA AKTIF + `duties.active`, `[]`/false tanpa error
+      bila sekolah belum punya TA aktif — BUKAN error)
+    - `internal/employee/` (modul baru, sqlc package `employeedb`): profil
+      pegawai (pola tipis sama `student.Teacher`) — `GET/POST/PATCH
+      /api/employees` (perm SENGAJA `student:manage`, BUKAN permission baru
+      — keputusan sendiri, dilaporkan: admin sekolah yang sama yang kelola
+      siswa yang kelola pegawai); `POST` membuat user+membership
+      pegawai+profil employees, `temp_password` SEKALI TAMPIL (pola
+      IDENTIK `internal/identity/admin.go` P2.1/P4.2 — charset
+      `abcdefghijkmnpqrstuvwxyz23456789` tanpa 0/o/1/l, didefinisikan ULANG
+      lokal karena employee tidak boleh mengimpor identity)
+    - `internal/studentleave/` (modul baru, sqlc package `studentleavedb`):
+      state machine `pending_homeroom → pending_bk → issued` | reject di
+      tahap mana pun → `rejected` | cancel pemilik selama pending_* →
+      `canceled`; **otorisasi reviewer via consumer-side interface DutyGateway
+      + join langsung** (BUKAN role/permission RBAC): tahap wali kelas = user
+      yang SAMA dengan `classes.homeroom_teacher_id` rombel siswa PADA TA
+      request (query join `enrollments→classes→teachers`, pola SAMA
+      `discipline.GetHomeroomTeacherUserID`) ATAU pemegang flag
+      `leave_homeroom_review` (fallback bila kelas belum punya wali); tahap
+      BK = HANYA pemegang flag `leave_issuance` (TANPA fallback role); `POST
+      /api/student-leave` (siswa utk dirinya via `MyStudentID`, orang tua utk
+      anaknya via `CanViewStudent` — object-level, BUKAN dari body request
+      begitu saja); `GET ?scope=mine|queue|all&status=` (mine: siswa diri
+      sendiri/ortu SEMUA anaknya via `MyChildStudentIDs`; queue: union rombel
+      perwalian sendiri + SEMUA pending_homeroom bila pemegang flag review +
+      SEMUA pending_bk bila pemegang flag issuance; all: perm
+      `student:manage`); `POST .../review` & `.../issue` `{decision:'approve'
+      |'reject', comment?}` (nilai LITERAL beda dari `internal/leave` yang
+      pakai 'approved'/'rejected' — sesuai instruksi tugas); `POST
+      .../cancel`; `GET .../attachment` & `.../letter/pdf` (otorisasi
+      SATU fungsi `authorizeView`: pemilik/siswa-sendiri/ortu-anaknya/
+      reviewer-tahap-mana-pun/admin); `GET /api/public/leave-verify?token=`
+      (PUBLIK host tenant, TANPA requireAuth — token tetap difilter
+      school_id tenant saat ini sesuai aturan multi-tenant CLAUDE.md;
+      token tak dikenal → `{"valid":false}` HTTP 200, BUKAN 404 — keputusan
+      sendiri: konsisten dgn konvensi envelope `httpx.JSON` yang dipakai
+      SELURUH endpoint publik lain di codebase ini, mis. `GET
+      /api/public/context`)
+    - Nomor surat `SI/{tahun}/{seq}` (counter atomik PER SEKOLAH PER TAHUN,
+      pola SAMA `discipline.formatLetterNumber` "SP{level}/{tahun}/{seq}"
+      minus level) + `verify_token` 24 karakter alfanumerik acak
+      (`crypto/rand`, pola sama `identity.generateTempPassword` tapi charset
+      lebih luas & panjang beda)
+    - Surat izin PDF (`internal/studentleave/pdf.go`, fpdf — pola dua-lapis
+      sama `discipline/pdf.go`): kop app_name (via `tenant.BrandingAppName`),
+      nomor surat, identitas siswa+kelas, jenis+rentang+alasan, jejak
+      persetujuan (wali & BK + waktu), **QR code verifikasi**
+      (`github.com/skip2/go-qrcode`, PNG di-embed via
+      `fpdf.RegisterImageOptionsReader` — pola BARU di codebase ini, belum
+      ada presedan embed gambar ke fpdf sebelumnya) berisi URL
+      `https://{host}/verifikasi-surat?token={verify_token}` (host dari
+      `r.Host` request, diteruskan handler→service) + teks URL di bawah QR
+    - Notifikasi baru (3 event, `internal/notification/model.go` +
+      `templates.go`): `studentleave.submitted` (→ pemegang review tahap 1,
+      webpush), `studentleave.forwarded` (→ pemegang flag leave_issuance,
+      webpush), `studentleave.decided` (→ pengaju+ortu (+wali kelas bila
+      surat terbit), webpush+email) — didaftarkan docs/08-notification.md
+    - Realtime: event baru `studentleave` `{request_id}` → target pemilik
+      user_ids + roles admin_sekolah + reviewer target user_ids (pola SAMA
+      modul lain, `SetRealtime`/`PublishTo` — TIDAK diverifikasi lewat probe
+      WebSocket live sesi ini, hanya compile+service test hijau, di luar
+      cakupan WAJIB e2e curl tugas)
+    - Interface publik baru: `student.Service.MyChildStudentIDs` (signature
+      PRIMITIF `[]int64`, BEDA dari `ListMyChildren` yang mengembalikan
+      `[]ChildRef` non-primitif — TIDAK bisa dipakai consumer-side interface
+      lintas modul per aturan CLAUDE.md "signature primitif", dipakai
+      `studentleave.StudentAccess` utk scope=mine ortu)
+    - `sqlc.yaml` ditambah 3 blok (`dutydb`/`employeedb`/`studentleavedb`) —
+      **sqlc CLI TERSEDIA & DIPAKAI sesi ini** (`go run
+      github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate` dari host, BERHASIL
+      — beda dari catatan Fase 12-14A yang mengeluhkan CLI tidak tersedia;
+      seluruh kode `*db` package Gelombang B1 adalah GENERATED, bukan tulisan
+      tangan)
+    - Bootstrap idempoten (`cmd/bootstrap`): `ensureDemoEmployee` (pegawai
+      `satpam`/`satpam12345`) + `ensureDemoDuties` (5 duty + assignment TA
+      aktif Wali Kelas→Rendi, Guru BK→Sari, Security→satpam; Guru Piket &
+      Pimpinan dibuat TANPA assignment — belum ada akun contoh Gelombang B2)
+      — dijalankan via `*.Repository` langsung (BUKAN `*.Service`, yang
+      digerbang `requireManage`/reqctx.Role tidak tersedia di konteks
+      bootstrap — pola SAMA `ensureDemoDiscipline`)
+    - **Keputusan dilaporkan**: kelas XII RPL 1 (siswa NIS 22101, dipakai
+      verifikasi e2e wajib) TIDAK punya `homeroom_teacher_id` tersimpan di DB
+      sebelum sesi ini (hanya assignment duty "Wali Kelas" yang ada, tabel
+      BEDA) — di-set manual via `PATCH /api/classes/1
+      {"homeroom_teacher_id":1}` sebagai admin sebelum verifikasi jalur wali
+      kelas asli (bukan fallback flag) bisa diuji, sesuai instruksi tugas
+      eksplisit. Siswa NIS 22101 juga TIDAK punya ortu terdaftar — jalur
+      notifikasi ortu diverifikasi memakai siswa Budi Santoso (NIS 22103,
+      guardian `ortu.budi` sudah ada dari Fase 9, password direset sekali
+      pakai via script sementara `cmd/resetpw` yang dibuat lalu DIHAPUS sesi
+      ini, sama pola catatan Fase 9/14A).
+  - ⬜ Gelombang B2: QR token guru (kebalikan QR siswa — guru tampilkan QR
+    berumur pendek sekali-pakai, siswa scan utk approval), alur izin
+    dispensasi keluar (rantai QR 4 tahap: piket→guru pengajar jam
+    berjalan→BK→pimpinan, gate token kedaluwarsa otomatis, scan gate
+    security→`exited`, row-lock transaksional), alur izin terlambat (siswa
+    scan QR→piket→pimpinan→guru kelas, aksi otomatis by hitungan: telat
+    ke-2&ke-5=panggil ortu, ke-3&ke-6=pulangkan) — flags `exit_bk_approval`/
+    `exit_leadership_approval`/`exit_security`/`late_arrival_duty`/
+    `late_arrival_leadership`/`all_attendance_reports` SUDAH didefinisikan
+    Gelombang B1, tinggal dipakai
 - ⬜ Gelombang C: Penilaian (komponen berbobot+KKTP, normalisasi, publikasi, bintang kelas, konfigurasi rapor, toggle per sekolah)
 - ⬜ Gelombang D: Konseling BK, guru pengganti, period day overrides, kalender presensi siswa, admin impersonate user, template surat
 

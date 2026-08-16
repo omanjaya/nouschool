@@ -8,6 +8,12 @@ const (
 	RoleSiswa         = "siswa"
 	RoleOrangTua      = "orang_tua"
 	RoleDisplay       = "display"
+	// RolePegawai — staff non-guru (mis. security/tata usaha), Fase 14
+	// Gelombang B1 (docs/12-sion-parity.md). TANPA permission modul apa pun
+	// selain akses auth-implicit (announcements aktif & notifications sudah
+	// auth-only, TIDAK butuh entri rolePermissions) — otorisasi pegawai
+	// SELALU lewat capability flags (internal/duty), bukan permission RBAC.
+	RolePegawai = "pegawai"
 	// RoleSuperAdmin bukan membership — flag terpisah users.is_super_admin,
 	// dipakai sebagai nilai sessions.role saat super admin login di host platform.
 	RoleSuperAdmin = "super_admin"
@@ -19,8 +25,9 @@ var rolePriority = map[string]int{
 	RoleAdminSekolah:  0,
 	RoleKepalaSekolah: 1,
 	RoleGuru:          2,
-	RoleOrangTua:      3,
-	RoleSiswa:         4,
+	RolePegawai:       3, // Fase 14 Gelombang B1: prioritas setelah guru
+	RoleOrangTua:      4,
+	RoleSiswa:         5,
 }
 
 // Permission kanonik — lihat tabel di docs/02-identity.md. Permission baru =
@@ -46,6 +53,7 @@ const (
 	PermDisciplineManage     = "discipline:manage"
 	PermDisciplineRecord     = "discipline:record"
 	PermDisciplineRead       = "discipline:read"
+	PermDutyManage           = "duty:manage"
 )
 
 // rolePermissions adalah map role->permission statis (hardcode, bukan DB —
@@ -67,6 +75,7 @@ var rolePermissions = map[string]map[string]bool{
 		PermDisciplineManage:   true,
 		PermDisciplineRecord:   true,
 		PermDisciplineRead:     true,
+		PermDutyManage:         true,
 	},
 	RoleKepalaSekolah: {
 		PermStudentRead:        true,
@@ -103,6 +112,12 @@ var rolePermissions = map[string]map[string]bool{
 		PermScheduleRead:    true,
 		PermTeachingMonitor: true,
 	},
+	// RolePegawai — SENGAJA KOSONG (Fase 14 Gelombang B1, docs tugas: "TIDAK
+	// dapat schedule:read dsb"). Akses pegawai HANYA lewat endpoint
+	// auth-only (announcements aktif, notifications, GET /api/me) DAN
+	// capability flags modul duty (mis. exit_security Gelombang B2) — bukan
+	// permission RBAC.
+	RolePegawai: {},
 }
 
 // HasPermission mengecek map role->permission statis. Object-level check

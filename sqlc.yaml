@@ -108,3 +108,30 @@ sql:
         out: "internal/discipline/disciplinedb"
         sql_package: "pgx/v5"
         emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/duty/queries.sql"
+    gen:
+      go:
+        package: "dutydb"
+        out: "internal/duty/dutydb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/employee/queries.sql"
+    gen:
+      go:
+        package: "employeedb"
+        out: "internal/employee/employeedb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/studentleave/queries.sql"
+    gen:
+      go:
+        package: "studentleavedb"
+        out: "internal/studentleave/studentleavedb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
